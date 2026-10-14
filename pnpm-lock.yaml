@@ -188,6 +188,9 @@ importers:
       '@churchos/shared':
         specifier: workspace:*
         version: link:../shared
+      qrcode-generator:
+        specifier: ^2.0.4
+        version: 2.0.4
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -195,6 +198,9 @@ importers:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
     devDependencies:
+      '@types/qrcode-generator':
+        specifier: ^1.0.6
+        version: 1.0.6
       '@types/react':
         specifier: ^18.3.12
         version: 18.3.31
@@ -800,6 +806,10 @@ packages:
   '@types/prop-types@15.7.15':
     resolution: {integrity: sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==}
 
+  '@types/qrcode-generator@1.0.6':
+    resolution: {integrity: sha512-XasuPjhHBC4hyOJ/pHaUNTj+tNxA1SyZpXaS/FOUxEVX03D1gFM8UmMKSIs+pPHLAmRZpU6j9KYxvo+lfsvhKw==}
+    deprecated: This is a stub types definition for qrcode-generator (https://github.com/kazuhikoarase/qrcode-generator). qrcode-generator provides its own type definitions, so you don't need @types/qrcode-generator installed!
+
   '@types/react-dom@18.3.7':
     resolution: {integrity: sha512-MEe3UeoENYVFXzoXEWsvcpg6ZvlrFNlOQ7EOsvhI3CfAXwzPfO8Qwuxd40nepsYKqyyVQnTdEfv68q91yLcKrQ==}
     peerDependencies:
@@ -1074,6 +1084,9 @@ packages:
 
   process-warning@5.1.1:
     resolution: {integrity: sha512-oCkNVj4OKnKEcocVBcDfiIugN1/cE6rgfT3nCtzeqZPA8+rIxMaQ0xXzIkGP8Gj2qUaP1UR7uhJ1VD8lUCpzCg==}
+
+  qrcode-generator@2.0.4:
+    resolution: {integrity: sha512-mZSiP6RnbHl4xL2Ap5HfkjLnmxfKcPWpWe/c+5XxCuetEenqmNFf1FH/ftXPCtFG5/TDobjsjz6sSNL0Sr8Z9g==}
 
   quick-format-unescaped@4.0.4:
     resolution: {integrity: sha512-tYC1Q1hgyRuHgloV/YXs2w15unPVh8qfu/qCTfhTYamaw7fyhumKa2yGpdSo87vY32rIclj+4fWYQXUMs9EHvg==}
@@ -1712,6 +1725,10 @@ snapshots:
 
   '@types/prop-types@15.7.15': {}
 
+  '@types/qrcode-generator@1.0.6':
+    dependencies:
+      qrcode-generator: 2.0.4
+
   '@types/react-dom@18.3.7(@types/react@18.3.31)':
     dependencies:
       '@types/react': 18.3.31
@@ -2038,6 +2055,8 @@ snapshots:
       source-map-js: 1.2.2
 
   process-warning@5.1.1: {}
+
+  qrcode-generator@2.0.4: {}
 
   quick-format-unescaped@4.0.4: {}
 

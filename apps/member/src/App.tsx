@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
 
 const api = createApi('churchos:member-token');
 
