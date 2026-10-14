@@ -186,6 +186,19 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L73. Multi-language:** English and Swahili.
 - **L75. Deferred:** volunteer and rota scheduling, livestream and sermon library links, public API and accounting integrations.
 
+### 4.18 Onboarding verification (KYC)
+- **L81. Verification documents (manual review in v1):** a church submits its registration certificate, KRA PIN, an ID for each authorised signatory, and proof of the payout account (bank letter or statement). A platform admin approves or rejects each item with a reason. Until approved, the church cannot receive payouts (L68). The design leaves room for automated registry and ID checks later.
+
+### 4.19 Help and knowledge base
+- **L82. Built-in help in every app,** like the Help pane of an office application: searchable articles, reachable from every surface (giving page, member app, staff dashboard, admin console) through a help button, a search box, and contextual "learn more" links on individual screens.
+- **L83. Audience-aware content:** each article is tagged by audience (member, church staff, platform admin), by feature area, and by language (English first, Swahili later, L73). Readers only see articles for their audience.
+- **L84. Designed for a future retrieval-augmented assistant:** articles are stored as structured, chunkable text with stable IDs, titles, headings, tags, and versions, and exposed through a search API. A RAG agent that answers questions from this content will be built later (not in this slice), and the search interface it would use is defined now.
+
+- **L85. Help content is authored as Markdown files in the repository** (one file per article, versioned in git) and loaded into the database at startup. Articles carry front matter for audience, area, tags, language, and the screens they explain. An in-app editor can be layered on later.
+- **L86. Help access follows audience:** member-facing articles are open, church-staff articles need a signed-in staff user, and platform-admin articles need a platform admin. The same rule applies to the future assistant (L84).
+- **L87. SMS wallet is per organisation,** with a platform-set per-message rate. Payment receipts and pledge reminders use it, and every message also creates an in-app notification (L56, L59).
+- **L88. Payout destination changes** are requested by the organisation owner, approved by a ChurchOS admin (second approver, L35), and take effect only after a cooling-off period (default 72 hours). Payouts keep going to the old destination until then.
+
 ---
 
 ## 5. Money engine

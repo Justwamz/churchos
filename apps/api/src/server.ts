@@ -5,7 +5,11 @@ import Fastify from 'fastify';
 import { Clock, createDb, Ledger, type Db } from '@churchos/ledger';
 import { MockProvider } from '@churchos/payments';
 import { HttpError, type Ctx } from './ctx';
+import { loadHelp } from './help';
 import { adminRoutes } from './routes/admin';
+import { helpRoutes } from './routes/help';
+import { kycRoutes } from './routes/kyc';
+import { smsRoutes } from './routes/sms';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { publicRoutes } from './routes/public';
@@ -57,7 +61,12 @@ export async function buildApp(opts: BuildOptions = {}) {
     return reply.status(500).send({ error: 'Something went wrong on our side. Please try again.', code: 'internal' });
   });
 
+  await loadHelp(db);
+
   coreRoutes(app, ctx);
+  helpRoutes(app, ctx);
+  kycRoutes(app, ctx);
+  smsRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);
   memberRoutes(app, ctx);

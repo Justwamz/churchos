@@ -3,6 +3,7 @@ import { DEFAULT_FEE_SCHEDULE, toCents, type FeeSchedule } from '@churchos/share
 import { HttpError, requireAdmin, type Ctx } from '../ctx';
 import { decideReversal, listReversalRequests } from './reversals';
 import { handleWebhook } from './core';
+import { applyDuePayoutChanges } from './kyc';
 
 function validSchedule(s: any): s is FeeSchedule {
   const rule = s?.platform;
@@ -92,6 +93,7 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
   );
 
   app.post('/admin/settlement/run', adm, async (req) => {
+    await applyDuePayoutChanges(ctx);
     const expired = await ctx.ledger.expireSuspense();
     const results = await ctx.ledger.runSettlement();
     await ctx.ledger.audit({ actor: req.session!.uid, action: 'settlement.run', meta: { expired, results: results.length } });

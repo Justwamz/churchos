@@ -8,10 +8,10 @@ async function setup(opts: { feeBearer?: 'church' | 'member' } = {}) {
   const provider = new MockProvider({ stkDelayMs: 0 });
   const ledger = new Ledger(db, clock, provider);
   await ledger.migrate();
-  await ledger.createOrg({ id: 'org1', name: 'Grace', feeBearer: opts.feeBearer });
+  await ledger.createOrg({ id: 'org1', name: 'Grace', feeBearer: opts.feeBearer, smsCode: 'GRACE' });
   await ledger.createOrg({ id: 'org2', name: 'Other Church' });
-  await ledger.createBranch({ id: 'b1', orgId: 'org1', code: 'GRC001', name: 'Nairobi', payoutDestination: { type: 'bank', bank: 'KCB', accountNumber: '123', accountName: 'Grace' } });
-  await ledger.createBranch({ id: 'b2', orgId: 'org2', code: 'OTH001', name: 'Other', payoutDestination: { type: 'bank', bank: 'KCB', accountNumber: '999', accountName: 'Other' } });
+  await ledger.createBranch({ id: 'b1', orgId: 'org1', code: 'GRC001', name: 'Nairobi', payoutVerified: true, payoutDestination: { type: 'bank', bank: 'KCB', accountNumber: '123', accountName: 'Grace' } });
+  await ledger.createBranch({ id: 'b2', orgId: 'org2', code: 'OTH001', name: 'Other', payoutVerified: true, payoutDestination: { type: 'bank', bank: 'KCB', accountNumber: '999', accountName: 'Other' } });
   // Route the mock PSP's notifications straight into the ledger, like the real webhook would.
   provider.setDeliver(async (raw, headers) => {
     if (!provider.verifyWebhook(headers, raw)) throw new Error('bad signature');
@@ -242,5 +242,46 @@ describe('REVIEW FOCUS 5: tenant isolation at the database', () => {
     const none = await db.asOrg('ghost', (q) => q.query<any>(`SELECT id FROM payments`));
     expect(none).toEqual([]);
     expect(ledger).toBeTruthy();
+  });
+});
+
+describe('REVIEW FOCUS 1: verification gates payouts (L81)', () => {
+  it('collects for an unverified branch but never pays it out, then pays after verification', async () => {
+    const { ledger, provider, clock } = await setup();
+    await ledger.setBranchVerified('b1', false);
+    await pay(provider, 'GRC001#TITHE', 100000);
+    clock.advanceHours(49);
+    const held = await ledger.runSettlement();
+    expect(held.find((r) => r.branchId === 'b1')).toMatchObject({ status: 'skipped' });
+    expect(provider.payoutsSent).toHaveLength(0);
+    expect(await ledger.balance('available', 'b1')).toBe(97500);
+    await ledger.setBranchVerified('b1', true);
+    const paid = await ledger.runSettlement();
+    expect(paid.find((r) => r.branchId === 'b1')).toMatchObject({ status: 'paid', amount: 97500 });
+    expect((await ledger.reconcile()).ok).toBe(true);
+  });
+});
+
+describe('SMS wallet (L57 to L60)', () => {
+  it('REVIEW FOCUS 4: a top-up credits once even if delivered twice, and stays out of collections', async () => {
+    const { ledger, provider } = await setup();
+    const inb = { providerTxId: 'SMS1', method: 'mpesa' as const, amount: 50000, reference: 'SMS#GRACE', phone: '254700000001', occurredAt: new Date().toISOString() };
+    await provider.simulatePaybill({ phone: inb.phone, amount: inb.amount, reference: inb.reference, providerTxId: 'SMS1' }); // credits the PSP wallet; the ledger sees it as a normal paybill
+    // The API routes SMS# references to the wallet before they reach receivePayment; here we call the wallet path directly.
+    expect(await ledger.receiveSmsTopup('org1', inb)).toBe('credited');
+    expect(await ledger.receiveSmsTopup('org1', inb)).toBe('duplicate');
+    expect(await ledger.smsBalance('org1')).toBe(50000);
+  });
+
+  it('REVIEW FOCUS 3: sending with an empty wallet is refused without going negative; charges deduct the cost', async () => {
+    const { ledger } = await setup();
+    expect(await ledger.chargeSms('org1', 100, 'm1')).toBe(false);
+    expect(await ledger.smsBalance('org1')).toBe(0);
+    await ledger.receiveSmsTopup('org1', { providerTxId: 'SMS2', method: 'mpesa', amount: 250, reference: 'SMS#GRACE', phone: '254700000001', occurredAt: new Date().toISOString() });
+    expect(await ledger.chargeSms('org1', 100, 'm2')).toBe(true);
+    expect(await ledger.chargeSms('org1', 100, 'm3')).toBe(true);
+    expect(await ledger.chargeSms('org1', 100, 'm4')).toBe(false);
+    expect(await ledger.smsBalance('org1')).toBe(50);
+    expect(await ledger.balance('sms_revenue')).toBe(200);
   });
 });

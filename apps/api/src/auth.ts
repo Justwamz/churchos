@@ -12,6 +12,9 @@ export const PERMISSIONS = [
   'cash.approve',
   'projects.manage',
   'payouts.view',
+  'payouts.manage',
+  'kyc.manage',
+  'sms.manage',
   'reversals.request',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -19,7 +22,8 @@ export type Permission = (typeof PERMISSIONS)[number];
 /** Default role templates (L34). Organisations can build their own from the same permissions (L32). */
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view'),
+  // Only the organisation owner sees or changes payout destinations (L35).
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage'),
   Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request'],
   Pastor: ['collections.view', 'reports.view', 'members.view', 'transfers.approve'],
   Secretary: ['members.view', 'members.edit', 'transfers.approve'],

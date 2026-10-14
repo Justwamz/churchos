@@ -129,11 +129,98 @@ CREATE TABLE IF NOT EXISTS reversal_requests (
   created_at timestamptz NOT NULL
 );
 
+-- KYC documents (L81). Files are stored base64 in this local build.
+CREATE TABLE IF NOT EXISTS kyc_documents (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  type text NOT NULL CHECK (type IN ('registration_certificate','kra_pin','signatory_id','payout_proof')),
+  filename text NOT NULL,
+  mime text NOT NULL,
+  size int NOT NULL,
+  data text NOT NULL,
+  note text,
+  status text NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','approved','rejected')),
+  reason text,
+  submitted_by text NOT NULL,
+  reviewed_by text,
+  reviewed_at timestamptz,
+  created_at timestamptz NOT NULL
+);
+
+-- Payout destination changes: owner requests, admin approves, then a cooling-off period (L88).
+CREATE TABLE IF NOT EXISTS payout_change_requests (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  destination jsonb NOT NULL,
+  status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','approved','rejected','applied')),
+  requested_by text NOT NULL,
+  decided_by text,
+  decided_at timestamptz,
+  effective_at timestamptz,
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sms_topups (
+  id text PRIMARY KEY,
+  provider_tx_id text UNIQUE,
+  org_id text NOT NULL,
+  amount bigint NOT NULL,
+  phone text NOT NULL,
+  status text NOT NULL DEFAULT 'initiated' CHECK (status IN ('initiated','completed')),
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sms_messages (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  to_phone text NOT NULL,
+  kind text NOT NULL,
+  body text NOT NULL,
+  cost bigint NOT NULL DEFAULT 0,
+  status text NOT NULL CHECK (status IN ('sent','skipped_no_balance')),
+  created_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id text PRIMARY KEY,
+  org_id text,
+  user_id text NOT NULL,
+  kind text NOT NULL,
+  title text NOT NULL,
+  body text NOT NULL,
+  read boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL
+);
+
+-- Help content (L82 to L86). Chunked for full-text search now and embeddings later.
+CREATE TABLE IF NOT EXISTS help_articles (
+  id text PRIMARY KEY,
+  title text NOT NULL,
+  audiences jsonb NOT NULL,
+  area text NOT NULL,
+  tags jsonb NOT NULL,
+  screens jsonb NOT NULL,
+  lang text NOT NULL DEFAULT 'en',
+  version int NOT NULL DEFAULT 1,
+  body text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS help_chunks (
+  id text PRIMARY KEY,
+  article_id text NOT NULL REFERENCES help_articles(id) ON DELETE CASCADE,
+  ordinal int NOT NULL,
+  heading text NOT NULL,
+  text text NOT NULL,
+  tsv tsvector NOT NULL
+);
+CREATE INDEX IF NOT EXISTS help_chunks_tsv_idx ON help_chunks USING gin(tsv);
+
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','membership_history','roles','role_assignments','projects','pledges','give_intents'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

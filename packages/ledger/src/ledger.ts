@@ -33,9 +33,9 @@ export const DEFAULT_OPTIONS: LedgerOptions = {
 
 /** Debit-normal accounts show sum(postings). Everything else is credit-normal and shows -sum. */
 const DEBIT_NORMAL = new Set(['wallet', 'receivable']);
-const PLATFORM_KINDS = ['wallet', 'suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit'] as const;
+const PLATFORM_KINDS = ['wallet', 'suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit', 'sms_revenue'] as const;
 const BRANCH_KINDS = ['pending', 'available', 'receivable'] as const;
-export type AccountKind = (typeof PLATFORM_KINDS)[number] | (typeof BRANCH_KINDS)[number];
+export type AccountKind = (typeof PLATFORM_KINDS)[number] | (typeof BRANCH_KINDS)[number] | 'sms_wallet';
 
 export interface Posting {
   accountId: string;
@@ -76,12 +76,17 @@ export class Ledger {
     }
   }
 
-  async createOrg(o: { id: string; name: string; feeBearer?: FeeBearer; feeSchedule?: FeeSchedule }) {
+  async createOrg(o: { id: string; name: string; feeBearer?: FeeBearer; feeSchedule?: FeeSchedule; smsCode?: string }) {
     await this.db.query(
-      `INSERT INTO organisations (id, name, fee_bearer, fee_schedule, created_at) VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO organisations (id, name, fee_bearer, fee_schedule, sms_code, created_at) VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (id) DO NOTHING`,
-      [o.id, o.name, o.feeBearer ?? 'church', JSON.stringify(o.feeSchedule ?? DEFAULT_FEE_SCHEDULE), this.now()],
+      [o.id, o.name, o.feeBearer ?? 'church', JSON.stringify(o.feeSchedule ?? DEFAULT_FEE_SCHEDULE), o.smsCode?.toUpperCase() ?? null, this.now()],
     );
+    // The SMS wallet is one account per organisation (L87), kept apart from collections (L58).
+    await this.db.query(`INSERT INTO accounts (id, org_id, branch_id, kind) VALUES ($1,$2,NULL,'sms_wallet') ON CONFLICT DO NOTHING`, [
+      `${o.id}:sms_wallet`,
+      o.id,
+    ]);
   }
 
   async createBranch(b: {
@@ -91,12 +96,13 @@ export class Ledger {
     name: string;
     region?: string;
     payoutDestination?: PayoutDestination;
+    payoutVerified?: boolean;
   }) {
     await this.db.tx(async (q) => {
       await q.query(
-        `INSERT INTO branches (id, org_id, code, name, region, payout_destination, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO branches (id, org_id, code, name, region, payout_destination, payout_verified, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (id) DO NOTHING`,
-        [b.id, b.orgId, b.code.toUpperCase(), b.name, b.region ?? null, b.payoutDestination ? JSON.stringify(b.payoutDestination) : null, this.now()],
+        [b.id, b.orgId, b.code.toUpperCase(), b.name, b.region ?? null, b.payoutDestination ? JSON.stringify(b.payoutDestination) : null, !!b.payoutVerified, this.now()],
       );
       for (const kind of BRANCH_KINDS) {
         await q.query(`INSERT INTO accounts (id, org_id, branch_id, kind) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [
@@ -117,6 +123,60 @@ export class Ledger {
 
   accountId(kind: AccountKind, branchId?: string): string {
     return branchId ? `${branchId}:${kind}` : `platform:${kind}`;
+  }
+
+  // ---------- verification and payout destination (L81, L88) ----------
+
+  async setBranchVerified(branchId: string, verified: boolean) {
+    await this.db.query(`UPDATE branches SET payout_verified=$2 WHERE id=$1`, [branchId, verified]);
+  }
+
+  async setPayoutDestination(branchId: string, destination: PayoutDestination) {
+    await this.db.query(`UPDATE branches SET payout_destination=$2 WHERE id=$1`, [branchId, JSON.stringify(destination)]);
+  }
+
+  // ---------- SMS wallet (L57 to L60, L87) ----------
+
+  async smsBalance(orgId: string, q: Db = this.db): Promise<Cents> {
+    const r = await q.query<{ s: number }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings WHERE account_id=$1`, [`${orgId}:sms_wallet`]);
+    const sum = Number(r[0]?.s ?? 0);
+    return sum === 0 ? 0 : -sum;
+  }
+
+  /** Credits an organisation's SMS wallet from a direct payment. A top-up is never mixed with collections. Idempotent. */
+  async receiveSmsTopup(orgId: string, inb: InboundPayment): Promise<'credited' | 'duplicate'> {
+    return this.db.tx(async (q) => {
+      const ins = await q.query(
+        `INSERT INTO sms_topups_ledger (provider_tx_id, org_id, amount, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING provider_tx_id`,
+        [inb.providerTxId, orgId, inb.amount, this.now()],
+      );
+      if (ins.length === 0) return 'duplicate';
+      await this.postEntry(q, {
+        idemKey: `smstopup:${inb.providerTxId}`,
+        kind: 'sms_topup',
+        postings: [
+          { accountId: this.accountId('wallet'), amount: inb.amount },
+          { accountId: `${orgId}:sms_wallet`, amount: -inb.amount },
+        ],
+      });
+      return 'credited';
+    });
+  }
+
+  /** Deducts one message cost. Returns false, and changes nothing, when the balance cannot cover it (L59). */
+  async chargeSms(orgId: string, cost: Cents, idemKey: string): Promise<boolean> {
+    return this.db.tx(async (q) => {
+      if ((await this.smsBalance(orgId, q)) < cost) return false;
+      await this.postEntry(q, {
+        idemKey: `sms:${idemKey}`,
+        kind: 'sms_charge',
+        postings: [
+          { accountId: `${orgId}:sms_wallet`, amount: cost },
+          { accountId: this.accountId('sms_revenue'), amount: -cost },
+        ],
+      });
+      return true;
+    });
   }
 
   async balance(kind: AccountKind, branchId?: string, q: Db = this.db): Promise<Cents> {
@@ -310,7 +370,7 @@ export class Ledger {
 
   async runSettlement(): Promise<SettlementResult[]> {
     await this.releasePending();
-    const branches = await this.db.query<any>(`SELECT id, org_id, payout_destination, payout_paused FROM branches ORDER BY id`);
+    const branches = await this.db.query<any>(`SELECT id, org_id, payout_destination, payout_paused, payout_verified FROM branches ORDER BY id`);
     const results: SettlementResult[] = [];
     for (const b of branches) {
       results.push(await this.settleBranch(b));
@@ -323,7 +383,8 @@ export class Ledger {
     if (b.payout_paused) return { ...base, status: 'paused', reason: 'payouts paused' };
     const avail = await this.balance('available', b.id);
     if (avail <= 0) return { ...base, status: 'nothing' };
-    if (!b.payout_destination) return { ...base, status: 'skipped', reason: 'no verified payout destination' };
+    if (!b.payout_verified) return { ...base, status: 'skipped', reason: 'not verified yet, funds are held safely' };
+    if (!b.payout_destination) return { ...base, status: 'skipped', reason: 'no payout destination' };
 
     const owed = await this.balance('receivable', b.id);
     const netted = Math.min(Math.max(owed, 0), avail);
@@ -462,7 +523,9 @@ export class Ledger {
     const z = await this.db.query<{ s: number }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings`);
     const zeroSum = Number(z[0].s) === 0;
     const liabilities: Record<string, Cents> = {};
-    for (const k of ['suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit'] as const) liabilities[k] = await this.balance(k);
+    for (const k of ['suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit', 'sms_revenue'] as const) liabilities[k] = await this.balance(k);
+    const sms = await this.db.query<{ s: number }>(`SELECT COALESCE(SUM(p.amount),0) AS s FROM postings p JOIN accounts a ON a.id=p.account_id WHERE a.kind='sms_wallet'`);
+    liabilities.sms_wallets = Number(sms[0].s) === 0 ? 0 : -Number(sms[0].s);
     const rows = await this.db.query<{ kind: string; s: number }>(
       `SELECT a.kind, COALESCE(SUM(p.amount),0) AS s FROM accounts a LEFT JOIN postings p ON p.account_id=a.id WHERE a.branch_id IS NOT NULL GROUP BY a.kind`,
     );

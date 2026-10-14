@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS organisations (
   name text NOT NULL,
   fee_bearer text NOT NULL DEFAULT 'church' CHECK (fee_bearer IN ('church','member')),
   fee_schedule jsonb NOT NULL,
+  sms_code text UNIQUE,
   created_at timestamptz NOT NULL
 );
 
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS branches (
   region text,
   payout_destination jsonb,
   payout_paused boolean NOT NULL DEFAULT false,
+  payout_verified boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL
 );
 
@@ -97,6 +99,13 @@ CREATE TABLE IF NOT EXISTS cash_entries (
   fee bigint NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL,
   approved_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS sms_topups_ledger (
+  provider_tx_id text PRIMARY KEY,
+  org_id text NOT NULL,
+  amount bigint NOT NULL,
+  created_at timestamptz NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (

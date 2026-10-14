@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { normalizePhone, signToken } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
+import { notify } from '../sms';
 
 const DEV_OTP = '123456';
 const MAX_ATTEMPTS = 5;
@@ -12,6 +13,18 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
   if (!ctx.provider.verifyWebhook(headers, rawBody)) throw new HttpError(401, 'invalid signature', 'bad_signature');
   const parsed = ctx.provider.parseWebhook(rawBody);
   const inb = { ...parsed, phone: normalizePhone(parsed.phone) ?? parsed.phone };
+  // A reference starting with SMS# is an SMS wallet top-up, never a church collection (L58).
+  const ref = inb.reference.trim().toUpperCase();
+  if (ref.startsWith('SMS#')) {
+    const org = (await ctx.db.query<any>(`SELECT id FROM organisations WHERE sms_code = $1`, [ref.slice(4).trim()]))[0];
+    if (org) {
+      const r = await ctx.ledger.receiveSmsTopup(org.id, inb);
+      if (r === 'credited') await ctx.db.query(`UPDATE sms_topups SET status='completed' WHERE provider_tx_id=$1`, [inb.providerTxId]);
+      ctx.events.emit('sms_topup', { orgId: org.id });
+      return { status: r === 'credited' ? ('sms_topup' as const) : ('duplicate' as const), paymentId: inb.providerTxId };
+    }
+    // Unknown wallet code: falls through and is held in suspense like any unmatched payment.
+  }
   const intent = (await ctx.db.query<any>(`SELECT * FROM give_intents WHERE provider_tx_id = $1`, [inb.providerTxId]))[0];
   const result = await ctx.ledger.receivePayment(inb, intent?.fee);
   if (result.status === 'duplicate') return result;
@@ -27,6 +40,17 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
       projectId = proj?.id ?? null;
     }
     await ctx.db.query(`UPDATE payments SET member_id = $2, project_id = $3 WHERE id = $1`, [result.paymentId, m?.id ?? null, projectId]);
+    // Receipt by in-app notification, and by SMS when the church's wallet can pay for it (L56, L59).
+    const info = (await ctx.db.query<any>(`SELECT b.name AS church, p.amount_paid, p.provider_tx_id FROM payments p JOIN branches b ON b.id=p.branch_id WHERE p.id=$1`, [result.paymentId]))[0];
+    try {
+      await notify(ctx, {
+        orgId: p.org_id, phone: inb.phone, kind: 'receipt', idemKey: `receipt:${inb.providerTxId}`,
+        title: 'Gift received',
+        body: `Received KES ${(Number(info.amount_paid) / 100).toLocaleString('en-KE')} for ${String(p.purpose ?? 'OFFERING').toLowerCase().replace('proj-', 'project ')} at ${info.church}. Ref ${info.provider_tx_id}. God bless you.`,
+      });
+    } catch (e) {
+      console.error('receipt notification failed', e);
+    }
   }
   if (intent) {
     await ctx.db.query(`UPDATE give_intents SET status = $2, payment_id = $3 WHERE id = $1`, [
