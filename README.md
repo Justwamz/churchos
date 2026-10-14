@@ -58,3 +58,10 @@ apps/admin         ChurchOS platform admin console
 Refunds and payouts leave the single PSP wallet. After a church is paid out, the wallet only holds fees and other churches' funds,
 so a refund larger than the wallet balance is refused by the PSP and nothing changes in the ledger. In production the platform
 needs a float policy for this.
+
+## Members test data (Grace Nairobi)
+
+- **Wanjiku household:** Jane and David (adults) with their child Ruth. Ruth's contact numbers are both parents' phones.
+- **Peter Otieno:** his birthday is today, so he has a birthday greeting in his notifications.
+- **Brian Otieno:** a child turning 18 in 20 days. In the admin console (Test tools) advance the clock 21 days to watch him become an adult, notify Peter, and appear under "Needs their own phone number".
+- The member number format can be changed by the organisation owner (`0700000001`) on the Members page.

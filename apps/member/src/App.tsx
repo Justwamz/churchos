@@ -421,7 +421,7 @@ function History() {
 
 // ---------------- Church ----------------
 
-const REL: Record<string, string> = { head: 'Head of household', spouse: 'Spouse', child: 'Child', dependent: 'Dependent', self: 'Head of household' };
+const REL: Record<string, string> = { Adult: 'Adult', Child: 'Child' };
 
 function Church({ me, reload }: { me: any; reload: () => void }) {
   const ms: any[] = me?.memberships ?? [];
@@ -464,7 +464,7 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
             {household.map((h) => (
               <li key={h.id}>
                 <div className="row"><strong>{h.full_name}</strong><span className="tiny">{h.member_number}</span></div>
-                <div className="tiny">{REL[h.relationship] ?? h.relationship ?? 'Member'}</div>
+                <div className="tiny">{REL[h.relationship] ?? h.relationship ?? 'Member'}{h.is_primary_contact ? ' · primary contact' : ''}</div>
               </li>
             ))}
           </ul>
