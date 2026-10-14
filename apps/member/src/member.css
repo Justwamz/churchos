@@ -1,0 +1,22 @@
+.mobile h1 { font-size: 1.6rem; }
+.stack { display: grid; gap: 14px; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.hero { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; border-radius: 18px; padding: 20px; box-shadow: var(--shadow); }
+.hero h1 { color: #fff; }
+.hero .sub { opacity: 0.85; font-size: 14px; margin-top: 4px; }
+.hero .btn { background: var(--gold-tint); color: #4a3208; margin-top: 14px; width: 100%; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.list li:last-child { border-bottom: 0; }
+.amt { font-family: var(--serif); font-variant-numeric: tabular-nums; font-weight: 600; }
+.receipt { text-align: center; }
+.print-only { display: none; }
+.btn { width: 100%; }
+.tabbar button { min-height: 52px; }
+@media print {
+  .tabbar, .no-print, .toast { display: none !important; }
+  .print-only { display: block; }
+  body { background: #fff; color: #000; }
+  .card { box-shadow: none; border: 0; }
+}
+.btn.small { width: auto; }
