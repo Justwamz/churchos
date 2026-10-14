@@ -1,5 +1,6 @@
 import { ROLE_TEMPLATES } from './auth';
 import type { Ctx } from './ctx';
+import { todayEat } from './members';
 
 export const SEED_LOGINS = [
   { app: 'Staff dashboard', who: 'Grace Community owner (all branches, HQ view)', phone: '0700000001' },
@@ -42,6 +43,7 @@ export async function seed(ctx: Ctx) {
     ['u_pa1', '254700000099', 'ChurchOS Admin One', true],
     ['u_pa2', '254700000098', 'ChurchOS Admin Two', true],
     ['u_jane', '254711000001', 'Jane Wanjiku', false],
+    ['u_david', '254711000004', 'David Wanjiku', false],
     ['u_peter', '254711000002', 'Peter Otieno', false],
     ['u_amina', '254711000003', 'Amina Hassan', false],
   ];
@@ -78,17 +80,34 @@ export async function seed(ctx: Ctx) {
   }
   await doc('kyc_org_newhope_reg', 'org_newhope', null, 'registration_certificate', 'submitted');
 
-  const member = async (id: string, org: string, branch: string, user: string | null, name: string, phone: string | null, number: string, hh: string | null, rel: string | null, guardian: string | null = null) =>
+  // Members, households and guardians (L92 to L97). Dates are relative to today so birthdays and graduation can be demonstrated.
+  const t = todayEat(ctx.clock.now());
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dateOf = (yearsAgo: number, extraDays = 0) => {
+    const d = new Date(Date.UTC(t.y - yearsAgo, t.m - 1, t.d + extraDays));
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  };
+  const member = async (m: { id: string; org: string; branch: string; user: string | null; name: string; phone: string | null; number: string; hh: string | null; primary?: boolean; category: 'adult' | 'child'; dob: string | null; sex: 'male' | 'female' | null }) =>
     db.query(
-      `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, household_id, relationship, guardian_membership_id, joined_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING`,
-      [id, org, branch, user, name, phone, number, hh, rel, guardian, now],
+      `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, household_id, is_primary_contact, category, dob, sex, consent_at, consent_by, joined_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'u_admin',$13) ON CONFLICT DO NOTHING`,
+      [m.id, m.org, m.branch, m.user, m.name, m.phone, m.number, m.hh, !!m.primary, m.category, m.dob, m.sex, now],
     );
-  await db.query(`INSERT INTO households (id, org_id, name) VALUES ('hh_wanjiku','org_grace','Wanjiku family') ON CONFLICT DO NOTHING`);
-  await member('m_jane', 'org_grace', 'br_grc001', 'u_jane', 'Jane Wanjiku', '254711000001', 'M00001', 'hh_wanjiku', 'Head');
-  await member('m_david', 'org_grace', 'br_grc001', null, 'David Wanjiku', null, 'M00002', 'hh_wanjiku', 'Spouse');
-  await member('m_ruth', 'org_grace', 'br_grc001', null, 'Ruth Wanjiku', null, 'M00003', 'hh_wanjiku', 'Child', 'm_jane');
-  await member('m_peter', 'org_grace', 'br_grc001', 'u_peter', 'Peter Otieno', '254711000002', 'M00004', null, null);
-  await member('m_amina', 'org_grace', 'br_grc002', 'u_amina', 'Amina Hassan', '254711000003', 'M00005', null, null);
+  const guardian = (child: string, g: string) => db.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ($1,$2,'org_grace') ON CONFLICT DO NOTHING`, [child, g]);
+
+  await db.query(`INSERT INTO households (id, org_id) VALUES ('hh_wanjiku','org_grace') ON CONFLICT DO NOTHING`);
+  await member({ id: 'm_jane', org: 'org_grace', branch: 'br_grc001', user: 'u_jane', name: 'Jane Wanjiku', phone: '254711000001', number: 'M00001', hh: 'hh_wanjiku', primary: true, category: 'adult', dob: '1985-06-14', sex: 'female' });
+  await member({ id: 'm_david', org: 'org_grace', branch: 'br_grc001', user: 'u_david', name: 'David Wanjiku', phone: '254711000004', number: 'M00002', hh: 'hh_wanjiku', category: 'adult', dob: '1983-02-02', sex: 'male' });
+  await member({ id: 'm_ruth', org: 'org_grace', branch: 'br_grc001', user: null, name: 'Ruth Wanjiku', phone: null, number: 'M00003', hh: 'hh_wanjiku', category: 'child', dob: dateOf(12, 40), sex: 'female' });
+  await guardian('m_ruth', 'm_jane');
+  await guardian('m_ruth', 'm_david');
+  // Peter's birthday is today, so a birthday wish is created on startup.
+  await member({ id: 'm_peter', org: 'org_grace', branch: 'br_grc001', user: 'u_peter', name: 'Peter Otieno', phone: '254711000002', number: 'M00004', hh: null, category: 'adult', dob: dateOf(40), sex: 'male' });
+  // Brian turns 18 in 20 days. Advance the clock in Test tools to watch him become an adult.
+  await member({ id: 'm_brian', org: 'org_grace', branch: 'br_grc001', user: null, name: 'Brian Otieno', phone: null, number: 'M00006', hh: null, category: 'child', dob: dateOf(18, 20), sex: 'male' });
+  await guardian('m_brian', 'm_peter');
+  await member({ id: 'm_amina', org: 'org_grace', branch: 'br_grc002', user: 'u_amina', name: 'Amina Hassan', phone: '254711000003', number: 'M00005', hh: null, category: 'adult', dob: '1995-09-09', sex: 'female' });
+  await db.query(`INSERT INTO org_settings (org_id, member_number_next) VALUES ('org_grace', 7) ON CONFLICT DO NOTHING`);
 
   await db.query(
     `INSERT INTO projects (id, org_id, branch_id, code, name, description, target, deadline, restricted, created_at)

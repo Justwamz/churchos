@@ -4,6 +4,7 @@ import { HttpError, requireAdmin, type Ctx } from '../ctx';
 import { decideReversal, listReversalRequests } from './reversals';
 import { handleWebhook } from './core';
 import { applyDuePayoutChanges } from './kyc';
+import { runMemberHousekeeping } from '../members';
 
 function validSchedule(s: any): s is FeeSchedule {
   const rule = s?.platform;
@@ -136,7 +137,8 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30) throw new HttpError(400, 'Enter hours between 1 and 720', 'bad_hours');
     ctx.clock.advanceHours(hours);
     const released = await ctx.ledger.releasePending();
-    return { now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released };
+    const housekeeping = await runMemberHousekeeping(ctx);
+    return { now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, ...housekeeping };
   });
 
   app.post('/admin/provider/fail-next-payout', devAdm, async () => {

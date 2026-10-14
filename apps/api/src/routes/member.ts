@@ -9,7 +9,7 @@ export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function myMemberships(uid: string) {
     return ctx.db.query<any>(
-      `SELECT m.id, m.org_id, m.branch_id, m.member_number, m.full_name, m.household_id, m.relationship, m.joined_at,
+      `SELECT m.id, m.org_id, m.branch_id, m.member_number, m.full_name, m.household_id, m.category, m.is_primary_contact, m.joined_at,
               b.name AS branch_name, b.code AS branch_code, o.name AS org_name
          FROM memberships m JOIN branches b ON b.id=m.branch_id JOIN organisations o ON o.id=m.org_id
         WHERE m.user_id=$1 AND m.status='active' ORDER BY m.joined_at`,
@@ -25,7 +25,7 @@ export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
       if (!m.household_id) continue;
       household.push(
         ...(await ctx.db.query<any>(
-          `SELECT id, full_name, relationship, member_number FROM memberships WHERE household_id=$1 AND status='active' ORDER BY full_name`,
+          `SELECT id, full_name, CASE WHEN category='child' THEN 'Child' ELSE 'Adult' END AS relationship, category, is_primary_contact, member_number FROM memberships WHERE household_id=$1 AND status='active' ORDER BY (category='child'), full_name`,
           [m.household_id],
         )),
       );

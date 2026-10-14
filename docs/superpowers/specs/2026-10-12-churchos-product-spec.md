@@ -199,6 +199,18 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L87. SMS wallet is per organisation,** with a platform-set per-message rate. Payment receipts and pledge reminders use it, and every message also creates an in-app notification (L56, L59).
 - **L88. Payout destination changes** are requested by the organisation owner, approved by a ChurchOS admin (second approver, L35), and take effect only after a cooling-off period (default 72 hours). Payouts keep going to the old destination until then.
 
+### 4.20 Members and households (revised after review)
+- **L89. A church's verification status is never shown to members or on the public giving page.** Only church staff with verification permission and ChurchOS admins see it.
+- **L90. Member numbers follow a format the church controls.** The organisation owner sets a pattern (for example `GRC/{YYYY}/{SEQ:4}`) with a starting number, and can also type any existing number when adding a member, so churches keep the numbering they already use. Numbers stay unique within the organisation (L29), are fixed once issued, and a format change affects only new members.
+- **L91. A phone number is mandatory for every member.**
+- **L92. A person belongs to at most one household at a time.** Adding someone who already has a household is refused with an offer to move them. A move is recorded in history.
+- **L93. Households are searchable and shown grouped,** one expandable row per household listing its members, with individuals who have no household listed separately.
+
+- **L94. Phone numbers: own phone and contact phone.** Adults must have their own phone. A child has no own phone, and their contact phones are those of their linked guardians (several when both parents are members). When a child turns 18 they become an adult and are asked for their own number. (Refines L91.)
+- **L95. The relationship field is replaced by Adult or Child.** A child must have at least one guardian chosen from existing adult members. Guardian links stay when a household changes. There is no household "head", no household name, and no spouse or other relationship field. A household is a grouping that shows the names of its members, with an optional primary contact who receives its notices.
+- **L96. Date of birth and sex are captured.** Date of birth is required for children and optional for adults. Sex is optional. Staff see an age band and the birthday (day and month) by default, and the full date of birth and exact age only with a separate permission. Registering a member records consent, and for a child it is the guardian's consent.
+- **L97. Birthdays and graduation.** A member gets an in-app birthday wish from the church. A child automatically becomes an adult on their 18th birthday, their guardians are notified, and staff see a "needs own phone number" prompt. Age and sex based prompts for sacraments and programmes come with the sacraments slice, with age rules each church can configure.
+
 ---
 
 ## 5. Money engine

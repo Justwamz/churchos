@@ -7,6 +7,8 @@ export const PERMISSIONS = [
   'reports.view',
   'members.view',
   'members.edit',
+  'members.sensitive',
+  'members.settings',
   'transfers.approve',
   'cash.count',
   'cash.approve',
@@ -23,10 +25,10 @@ export type Permission = (typeof PERMISSIONS)[number];
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage'),
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings'),
   Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request'],
-  Pastor: ['collections.view', 'reports.view', 'members.view', 'transfers.approve'],
-  Secretary: ['members.view', 'members.edit', 'transfers.approve'],
+  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'transfers.approve'],
+  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'transfers.approve'],
 };
 
 export interface Session {

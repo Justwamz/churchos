@@ -12,6 +12,7 @@ import { kycRoutes } from './routes/kyc';
 import { smsRoutes } from './routes/sms';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
+import { memberRoutes2 } from './routes/members';
 import { publicRoutes } from './routes/public';
 import { staffRoutes } from './routes/staff';
 import { APP_SCHEMA } from './schema';
@@ -70,6 +71,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);
   memberRoutes(app, ctx);
+  memberRoutes2(app, ctx);
   adminRoutes(app, ctx);
 
   return { app, ctx };

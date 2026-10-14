@@ -8,14 +8,14 @@ CREATE TABLE IF NOT EXISTS users (
   created_at timestamptz NOT NULL
 );
 
+-- A household only groups people (L92, L95). It has no name: its label is derived from its members.
 CREATE TABLE IF NOT EXISTS households (
   id text PRIMARY KEY,
-  org_id text NOT NULL,
-  name text NOT NULL
+  org_id text NOT NULL
 );
 
 -- A membership links a person (global identity) to an organisation and a branch (L25, L29).
--- Dependents without a phone have no user_id and are managed by a guardian (L27).
+-- Children have no own phone or user account. Their contact phones are their guardians' phones (L94).
 CREATE TABLE IF NOT EXISTS memberships (
   id text PRIMARY KEY,
   org_id text NOT NULL,
@@ -25,14 +25,38 @@ CREATE TABLE IF NOT EXISTS memberships (
   phone text,
   member_number text NOT NULL,
   household_id text,
-  relationship text,
-  guardian_membership_id text,
+  is_primary_contact boolean NOT NULL DEFAULT false,
+  category text NOT NULL DEFAULT 'adult' CHECK (category IN ('adult','child')),
+  dob text,
+  sex text CHECK (sex IN ('male','female')),
+  consent_at timestamptz,
+  consent_by text,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','closed')),
   joined_at timestamptz NOT NULL,
   closed_at timestamptz,
   UNIQUE (org_id, member_number)
 );
 CREATE INDEX IF NOT EXISTS memberships_user_idx ON memberships(user_id);
+
+-- Guardian links survive household changes (L95).
+CREATE TABLE IF NOT EXISTS guardians (
+  child_id text NOT NULL,
+  guardian_id text NOT NULL,
+  org_id text NOT NULL,
+  PRIMARY KEY (child_id, guardian_id)
+);
+
+CREATE TABLE IF NOT EXISTS org_settings (
+  org_id text PRIMARY KEY,
+  member_number_pattern text NOT NULL DEFAULT 'M{SEQ:5}',
+  member_number_next int NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS birthday_wishes (
+  membership_id text NOT NULL,
+  year int NOT NULL,
+  PRIMARY KEY (membership_id, year)
+);
 
 CREATE TABLE IF NOT EXISTS membership_history (
   id bigserial PRIMARY KEY,
@@ -220,7 +244,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

@@ -4,6 +4,7 @@ import { branchesFor, loadGrants, PERMISSIONS, type Permission } from '../auth';
 import { HttpError, inList, requireSession, staffScope, startOfDayEat, bearer, type Ctx } from '../ctx';
 import { verifyToken } from '../auth';
 import { csv } from './helpers';
+import { nextMemberNumber } from '../members';
 
 const DONE = `('pending','available','paid_out')`;
 
@@ -269,59 +270,6 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ---------- members, households, transfers (L25 to L31) ----------
 
-  app.get('/members', auth, async (req) => {
-    const q = req.query as any;
-    const scope = await staffScope(ctx, req, 'members.view', q.branch);
-    const ids = scope.branchIds;
-    const params: unknown[] = [...ids];
-    let where = `m.branch_id IN (${inList(1, ids.length)}) AND m.status='active'`;
-    if (q.q) {
-      params.push(`%${String(q.q).toLowerCase()}%`);
-      where += ` AND (lower(m.full_name) LIKE $${params.length} OR m.member_number LIKE $${params.length} OR m.phone LIKE $${params.length})`;
-    }
-    return ctx.db.asOrg(scope.orgId, (db) =>
-      db.query<any>(
-        `SELECT m.id, m.full_name, m.phone, m.member_number, m.branch_id, b.name AS branch_name, m.household_id, h.name AS household, m.relationship, m.joined_at
-           FROM memberships m JOIN branches b ON b.id=m.branch_id LEFT JOIN households h ON h.id=m.household_id
-          WHERE ${where} ORDER BY m.full_name LIMIT 500`,
-        params,
-      ),
-    );
-  });
-
-  app.post('/members', auth, async (req) => {
-    const b = (req.body ?? {}) as any;
-    const scope = await staffScope(ctx, req, 'members.edit', b.branchId);
-    if (!b.branchId) throw new HttpError(400, 'Choose a branch', 'bad_branch');
-    if (!String(b.fullName ?? '').trim()) throw new HttpError(400, 'Enter the member name', 'bad_name');
-    const { normalizePhone } = await import('../auth');
-    const phone = b.phone ? normalizePhone(b.phone) : null;
-    if (b.phone && !phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
-    const id = ctx.newId('mem');
-    const number = await nextMemberNumber(ctx, scope.orgId);
-    let householdId = b.householdId ?? null;
-    if (!householdId && b.newHousehold) {
-      householdId = ctx.newId('hh');
-      await ctx.db.query(`INSERT INTO households (id, org_id, name) VALUES ($1,$2,$3)`, [householdId, scope.orgId, String(b.newHousehold)]);
-    }
-    let userId: string | null = null;
-    if (phone) {
-      const u = (await ctx.db.query<any>(`SELECT id FROM users WHERE phone=$1`, [phone]))[0];
-      if (u) userId = u.id;
-      else {
-        userId = ctx.newId('usr');
-        await ctx.db.query(`INSERT INTO users (id, phone, name, created_at) VALUES ($1,$2,$3,$4)`, [userId, phone, String(b.fullName).trim(), ctx.clock.now().toISOString()]);
-      }
-    }
-    await ctx.db.query(
-      `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, household_id, relationship, guardian_membership_id, joined_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [id, scope.orgId, b.branchId, userId, String(b.fullName).trim(), phone, number, householdId, b.relationship ?? null, b.guardianMembershipId ?? null, ctx.clock.now().toISOString()],
-    );
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'member.create', entity: 'membership', entityId: id });
-    return { id, memberNumber: number, householdId };
-  });
-
   app.get('/transfers', auth, async (req) => {
     // Receiving branches decide, so show transfers whose destination the user manages.
     const rows = await branchesFor(ctx.db, req.session!.uid, 'transfers.approve');
@@ -414,17 +362,6 @@ export async function projectList(ctx: Ctx, orgId: string, branchIds: string[]) 
   );
 }
 
-export async function nextMemberNumber(ctx: Ctx, orgId: string, q: import('@churchos/ledger').Db = ctx.db): Promise<string> {
-  const r = (await q.query<any>(`SELECT COUNT(*) AS n FROM memberships WHERE org_id=$1`, [orgId]))[0];
-  let n = Number(r.n) + 1;
-  for (;;) {
-    const candidate = `M${String(n).padStart(5, '0')}`;
-    const taken = (await q.query<any>(`SELECT 1 FROM memberships WHERE org_id=$1 AND member_number=$2`, [orgId, candidate]))[0];
-    if (!taken) return candidate;
-    n++;
-  }
-}
-
 /**
  * Same organisation: the member number is kept and only the branch changes (L29, L31).
  * Different organisation: a new membership with a new number under the same identity (L31). The old one is closed, never deleted (L30).
@@ -439,11 +376,12 @@ export async function applyTransfer(ctx: Ctx, q: import('@churchos/ledger').Db, 
   }
   await q.query(`UPDATE memberships SET status='closed', closed_at=$2 WHERE id=$1`, [m.id, now]);
   await q.query(`INSERT INTO membership_history (org_id, membership_id, event, from_branch, to_branch, at) VALUES ($1,$2,'transfer_out',$3,$4,$5)`, [m.org_id, m.id, t.from_branch, t.to_branch, now]);
-  const number = await nextMemberNumber(ctx, t.to_org_id, q);
+  const toBranch = (await q.query<any>('SELECT code FROM branches WHERE id=$1', [t.to_branch]))[0];
+  const number = await nextMemberNumber(ctx, t.to_org_id, q, toBranch?.code);
   const newId = ctx.newId('mem');
   await q.query(
-    `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, joined_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-    [newId, t.to_org_id, t.to_branch, m.user_id, m.full_name, m.phone, number, now],
+    'INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, category, dob, sex, consent_at, consent_by, joined_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)',
+    [newId, t.to_org_id, t.to_branch, m.user_id, m.full_name, m.phone, number, m.category, m.dob, m.sex, m.consent_at, m.consent_by, now],
   );
   await q.query(`INSERT INTO membership_history (org_id, membership_id, event, from_branch, to_branch, at) VALUES ($1,$2,'transfer_in',$3,$4,$5)`, [t.to_org_id, newId, t.from_branch, t.to_branch, now]);
 }
