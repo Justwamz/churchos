@@ -3,6 +3,7 @@ import { Badge, Button, Card, Empty, Note, StatusBadge, Table, phonePretty, shor
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { HouseholdModal, MemberFormModal, useDebounced } from './MemberForm';
+import { MemberRecords } from './Records';
 import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -52,11 +53,11 @@ function Insights({ onEdit }: { onEdit: (id: string) => void }) {
   );
 }
 
-function MemberRows({ members, household, canEdit, onEdit, onHousehold, onPrimary }: {
-  members: any[]; household?: any; canEdit: boolean; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
+function MemberRows({ members, household, canEdit, canRecords, onRecords, onEdit, onHousehold, onPrimary }: {
+  members: any[]; household?: any; canEdit: boolean; canRecords: boolean; onRecords: (m: any) => void; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
 }) {
   return (
-    <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', ...(canEdit ? [''] : [])]}>
+    <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', ...(canEdit || canRecords ? [''] : [])]}>
       {members.map((m) => (
         <tr key={m.id}>
           <td><b>{m.full_name}</b>{m.is_primary_contact && <> <Badge tone="info">Primary contact</Badge></>}</td>
@@ -74,11 +75,12 @@ function MemberRows({ members, household, canEdit, onEdit, onHousehold, onPrimar
               </>
             ) : m.phone ? phonePretty(m.phone) : <Badge tone="warn">Needs own phone</Badge>}
           </td>
-          {canEdit && (
+          {(canEdit || canRecords) && (
             <td><div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
-              <Button small kind="ghost" onClick={() => onEdit(m)}>Edit</Button>
-              <Button small kind="ghost" onClick={() => onHousehold(m)}>Household</Button>
-              {household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}
+              {canEdit && <Button small kind="ghost" onClick={() => onEdit(m)}>Edit</Button>}
+              {canEdit && <Button small kind="ghost" onClick={() => onHousehold(m)}>Household</Button>}
+              {canRecords && <Button small kind="ghost" onClick={() => onRecords(m)}>Records</Button>}
+              {canEdit && household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}
             </div></td>
           )}
         </tr>
@@ -97,6 +99,7 @@ export function Members() {
   const canEdit = s.can('members.edit');
   const [form, setForm] = useState<{ member?: any } | null>(null);
   const [hhFor, setHhFor] = useState<any>(null);
+  const [recFor, setRecFor] = useState<any>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [insightsKey, setInsightsKey] = useState(0);
 
@@ -116,7 +119,7 @@ export function Members() {
   };
   const setAll = (v: boolean) => setOpen(Object.fromEntries((d.data?.households ?? []).map((h: any) => [h.id, v])));
 
-  const rowProps = { canEdit, onEdit: (m: any) => setForm({ member: m }), onHousehold: setHhFor, onPrimary: setPrimary };
+  const rowProps = { canEdit, canRecords: s.can('records.view'), onRecords: setRecFor, onEdit: (m: any) => setForm({ member: m }), onHousehold: setHhFor, onPrimary: setPrimary };
   const t = d.data?.totals;
 
   return (
@@ -160,6 +163,7 @@ export function Members() {
       </div>
       {form && <MemberFormModal member={form.member} nextPreview={settings.data?.preview} onClose={() => setForm(null)} onDone={refresh} />}
       {hhFor && <HouseholdModal member={hhFor} onClose={() => setHhFor(null)} onDone={(msg) => { toast.show(msg); refresh(); }} />}
+      {recFor && <MemberRecords member={recFor} onClose={() => setRecFor(null)} />}
       {toast.node}
     </>
   );

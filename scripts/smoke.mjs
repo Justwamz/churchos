@@ -106,5 +106,23 @@ step('Admin-only help is hidden from anonymous visitors (404)', helpLeak.status 
 const rec2 = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 2 activity', rec2.json.ok === true);
 
+// 11. Slice 3: records, approval and verification.
+const samuel = await login('0700000003');
+const daniel = await login('0700000001');
+const year = new Date().getUTCFullYear();
+const verify = await call('GET', `/public/verify/GRC001-BAP-${year}-0001?k=DEMOKEY1`);
+step('Baptism card verifies with the key from its QR code', verify.status === 200 && verify.json.valid === true, verify.json.subject);
+const noKey = await call('GET', `/public/verify/GRC001-BAP-${year}-0001`);
+step('The same card does not verify without the private key', noKey.status === 404);
+const pending = (await call('GET', '/records?status=pending_approval', undefined, samuel)).json[0];
+const own = await call('POST', `/records/${pending.id}/decide`, {}, samuel);
+step('The person who entered a record cannot approve it', own.status === 403 && own.json.code === 'same_person');
+const ok = await call('POST', `/records/${pending.id}/decide`, {}, daniel);
+step('A different person approves it and a serial number is issued', ok.status === 200 && /^GRC001-BAP-/.test(ok.json.serial ?? ''), ok.json.serial);
+const tpl = await call('GET', '/certificates/template', undefined, samuel);
+step('The church template and logo load', tpl.status === 200 && !!tpl.json.logo);
+const rec3 = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 3 activity', rec3.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

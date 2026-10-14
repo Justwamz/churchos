@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
+import type { CertificatePayload } from '@churchos/ui';
 
 const api = createApi('churchos:member-token');
 
@@ -458,6 +459,8 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
         )}
       </Card>
 
+      <MyRecords />
+
       <Card title="My household">
         {!household.length ? <Empty>No household recorded yet.</Empty> : (
           <ul className="list">
@@ -497,6 +500,135 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
         </Card>
       )}
       {toast.node}
+    </div>
+  );
+}
+
+// ---------------- Records ----------------
+
+const CARD_WIDTH = 1040;
+
+/** Draws the certificate card at its fixed width, scaled down to fit the screen. */
+function ScaledCard({ c }: { c: CertificatePayload }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(() => Math.min(1, (Math.min(window.innerWidth, 480) - 32) / CARD_WIDTH));
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => { const w = el.clientWidth; if (w > 0) setZoom(Math.min(1, w / CARD_WIDTH)); };
+    measure();
+    if (typeof ResizeObserver === 'undefined') { window.addEventListener('resize', measure); return () => window.removeEventListener('resize', measure); }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <div ref={ref} style={{ width: '100%', overflow: 'hidden' }}>
+      <div style={{ zoom } as any}><CertificateCard c={c} /></div>
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = { baptism: 'Baptism', marriage: 'Marriage' };
+type CopyResult = { status: string; fee: number; purpose?: string; churchCode: string; render: CertificatePayload | null };
+
+function MyRecords() {
+  const recs = useAsync<any[]>(() => api.get('/me/records'));
+  const [open, setOpen] = useState<any | null>(null);
+
+  if (open) return <RecordView rec={open} onBack={() => setOpen(null)} />;
+  const rows = recs.data ?? [];
+  return (
+    <Card title="My records">
+      {recs.loading && !recs.data ? <Loading /> : recs.error && !recs.data ? <Failed error={recs.error} retry={recs.reload} /> : !rows.length ? (
+        <Empty>Baptism and marriage records appear here once your church has approved them.</Empty>
+      ) : (
+        <ul className="list">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <div className="row"><strong>{KIND_LABEL[r.kind] ?? r.kind}</strong><span className="tiny">{dateOnly(r.event_date)}</span></div>
+              <div>{r.subject_name}</div>
+              <div className="tiny">{r.place}</div>
+              <div className="tiny">Held by {r.church}</div>
+              {r.held_elsewhere && <div className="tiny">This record stays with the church that holds it</div>}
+              <div style={{ marginTop: 8 }}>
+                <Button kind="ghost" small onClick={() => setOpen(r)}>{r.can_print ? 'View card' : 'View details'}</Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function RecordView({ rec, onBack }: { rec: any; onBack: () => void }) {
+  const preview = useAsync<CertificatePayload | undefined>(() => (rec.can_print ? api.get(`/me/records/${encodeURIComponent(rec.id)}/render`) : Promise.resolve(undefined)), [rec.id]);
+  const [copy, setCopy] = useState<CopyResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [checked, setChecked] = useState(false);
+
+  const ask = async () => {
+    setBusy(true); setError(undefined);
+    try { setCopy(await api.post(`/me/records/${encodeURIComponent(rec.id)}/copy`, {})); setChecked(true); }
+    catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+
+  const issued = copy?.status === 'issued' && copy.render;
+  const waiting = copy?.status === 'awaiting_payment';
+  const serial = copy?.purpose ? copy.purpose.replace(/^CERT-/, '') : '';
+  const payUrl = waiting && copy ? `${location.protocol}//${location.hostname}:3001/${encodeURIComponent(copy.churchCode)}?cert=${encodeURIComponent(serial)}` : '';
+
+  return (
+    <div className="stack">
+      <div className="row no-print"><Button kind="ghost" small onClick={onBack}>Back</Button></div>
+      <Card title={`${KIND_LABEL[rec.kind] ?? rec.kind} record`} className="no-print">
+        <div className="stack">
+          <div><strong>{rec.subject_name}</strong></div>
+          <div className="tiny">{dateOnly(rec.event_date)} · {rec.place}</div>
+          <div className="tiny">Held by {rec.church}</div>
+          {rec.held_elsewhere && <div className="tiny">This record stays with the church that holds it</div>}
+          {!rec.can_print && <Note tone="info">A marriage certificate is a legal document. Ask your church office or the registry for a copy.</Note>}
+        </div>
+      </Card>
+
+      {rec.can_print && (
+        <>
+          {issued ? (
+            <>
+              <ScaledCard c={copy!.render!} />
+              <div className="no-print"><Button onClick={() => printCertificate()}>Print / Save as PDF</Button></div>
+            </>
+          ) : preview.loading ? <Loading /> : preview.error ? <Failed error={preview.error} retry={preview.reload} /> : preview.data ? (
+            <ScaledCard c={preview.data} />
+          ) : null}
+
+          {!issued && (
+            <div className="stack no-print">
+              {waiting && copy && (
+                <Note tone="info">
+                  A copy of this certificate costs {kes(copy.fee)}. Pay through your church's giving page and it will appear here.
+                </Note>
+              )}
+              {checked && waiting && <p className="tiny" style={{ margin: 0 }}>We have not seen the payment yet. It can take a minute to arrive.</p>}
+              {error && <ErrorNote>{error}</ErrorNote>}
+              {waiting && copy ? (
+                <>
+                  <a className="btn" href={payUrl} target="_blank" rel="noopener noreferrer" style={{ textAlign: 'center', textDecoration: 'none' }}>Pay for my copy</a>
+                  <Button kind="ghost" disabled={busy} onClick={ask}>{busy ? 'Checking…' : 'I have paid, check again'}</Button>
+                </>
+              ) : (
+                <>
+                  <Button disabled={busy} onClick={ask}>{busy ? 'One moment…' : 'Get my card'}</Button>
+                  <p className="tiny" style={{ margin: 0 }}>Your first card is free. Later copies follow your church's price.</p>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

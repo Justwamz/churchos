@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:token');
@@ -33,6 +33,7 @@ interface Church {
   methods: string[];
   paybill: { number: string; accountReference: string };
 }
+interface CertInfo { serial: string; kind: string; price: number; churchCode: string; church: string; purpose: string }
 interface Intent { status: string; church: string; purpose: string; amountPaid: number | string; receipt: string | null }
 
 const validPhone = (p: string) => /^(?:0[17]\d{8}|(?:\+?254)[17]\d{8})$/.test(p.replace(/[\s-]/g, ''));
@@ -44,7 +45,8 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/:code" element={<GivePage />} />
+        <Route path="/verify/:serial" element={<Verify />} />
+        <Route path="/:code"element={<GivePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
@@ -100,7 +102,10 @@ function Home() {
 
 function GivePage() {
   const { code = '' } = useParams();
+  const [search] = useSearchParams();
+  const certSerial = search.get('cert') ?? '';
   const nav = useNavigate();
+  const [cert, setCert] = useState<CertInfo | null | undefined>(certSerial ? undefined : null);
   const [church, setChurch] = useState<Church | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
@@ -119,7 +124,17 @@ function GivePage() {
     return () => { alive = false; };
   }, [code]);
 
-  if (loading) return <Shell title="One moment"><Spinner /></Shell>;
+  useEffect(() => {
+    if (!certSerial) { setCert(null); return; }
+    let alive = true;
+    setCert(undefined);
+    api.get<CertInfo>(`/public/cert/${encodeURIComponent(certSerial)}`)
+      .then((c) => alive && setCert(c))
+      .catch(() => alive && setCert(null));
+    return () => { alive = false; };
+  }, [certSerial]);
+
+  if (loading || cert === undefined) return <Shell title="One moment"><Spinner /></Shell>;
   if (!church) {
     return (
       <Shell title="Find your church">
@@ -133,7 +148,8 @@ function GivePage() {
   }
   return (
     <Shell title={church.name} sub={church.organisation}>
-      <GiveForm church={church} />
+      {certSerial && !cert && <Note tone="warn">There is no certificate copy waiting to be paid for under that link</Note>}
+      <GiveForm church={church} cert={cert && cert.churchCode === church.code ? cert : undefined} />
       <p className="tiny center">
         Not your church?{' '}
         <a href="/" onClick={(e) => { e.preventDefault(); store.del(CHURCH_KEY); nav('/'); }}>Change</a>
@@ -148,10 +164,10 @@ type Phase =
   | { t: 'done'; intent: Intent; at: Date }
   | { t: 'failed' };
 
-function GiveForm({ church }: { church: Church }) {
-  const [purpose, setPurpose] = useState('OFFERING');
+function GiveForm({ church, cert }: { church: Church; cert?: CertInfo }) {
+  const [purpose, setPurpose] = useState(cert ? cert.purpose : 'OFFERING');
   const [phone, setPhone] = useState(() => store.get(PHONE_KEY) ?? '');
-  const [amountText, setAmountText] = useState('');
+  const [amountText, setAmountText] = useState(cert ? String(cert.price / 100) : '');
   const [method, setMethod] = useState('mpesa');
   const [phase, setPhase] = useState<Phase>({ t: 'form' });
   const [busy, setBusy] = useState(false);
@@ -218,8 +234,8 @@ function GiveForm({ church }: { church: Church }) {
     setBusy(false);
   };
 
-  const reset = () => { setPhase({ t: 'form' }); setAmountText(''); setApiError(undefined); setTouched(false); setBusy(false); };
-  const purposeLabel = (k: string) => church.purposes.find((p) => p.key === k)?.label ?? k;
+  const reset = () => { setPhase({ t: 'form' }); if (!cert) setAmountText(''); setApiError(undefined); setTouched(false); setBusy(false); };
+  const purposeLabel = (k: string) => k.startsWith('CERT-') ? 'Certificate copy' : church.purposes.find((p) => p.key === k)?.label ?? k;
 
   const reference = `${church.code}#${purpose}`;
   const copy = async (text: string, what: string) => {
@@ -258,8 +274,8 @@ function GiveForm({ church }: { church: Church }) {
         <div aria-live="polite" className="stack">
           <div className="center">
             <div className="tick" aria-hidden="true">&#10003;</div>
-            <h2>Thank you, gift received</h2>
-            <p className="muted">May it bless many.</p>
+            <h2>{cert ? 'Payment received' : 'Thank you, gift received'}</h2>
+            <p className="muted">{cert ? 'Payment received. Your certificate copy is ready: open the member app or ask your church office to print it.' : 'May it bless many.'}</p>
           </div>
           <dl className="rcpt">
             <dt>Church</dt><dd>{i.church}</dd>
@@ -268,9 +284,38 @@ function GiveForm({ church }: { church: Church }) {
             <dt>Receipt</dt><dd className="mono">{i.receipt}</dd>
             <dt>Time</dt><dd>{phase.at.toLocaleString('en-KE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</dd>
           </dl>
-          <Button onClick={reset}>Give again</Button>
+          {!cert && <Button onClick={reset}>Give again</Button>}
         </div>
       </Card>
+    );
+  }
+
+  if (cert) {
+    return (
+      <form onSubmit={submit} noValidate className="stack" aria-label="Pay for a certificate copy">
+        {phase.t === 'failed' && <ErrorNote>The payment did not go through. No money was taken. Please check your details and try again.</ErrorNote>}
+        <Card>
+          <h2>Pay for a certificate copy</h2>
+          <p className="muted">{church.name}</p>
+          <div className="big-amount">{kes(cert.price)}</div>
+          <p className="tiny">The price is set by your church.</p>
+          <div aria-live="polite">{fee && <Note tone="info">Fee {kes(fee.memberFee)}, you pay {kes(fee.amountPaid)}</Note>}</div>
+        </Card>
+        <Card>
+          <div className="field-label g-label" id="lbl-method-c">Pay with</div>
+          <div className="chips" role="group" aria-labelledby="lbl-method-c">
+            {methods.map((m) => (
+              <button key={m} type="button" className={`chip ${method === m ? 'on' : ''}`} aria-pressed={method === m} onClick={() => setMethod(m)}>{METHOD_LABEL[m] ?? m}</button>
+            ))}
+          </div>
+          <div className="g-gap" />
+          <Field label="Phone number" hint="The number that will receive the payment prompt" error={touched || phone ? phoneErr : undefined}>
+            <input type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!phoneErr} />
+          </Field>
+        </Card>
+        <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+        <Button type="submit" disabled={busy || (touched && !phoneOk)}>{busy ? 'Sending request...' : `Pay ${kes(cert.price)}`}</Button>
+      </form>
     );
   }
 
@@ -343,6 +388,69 @@ function GiveForm({ church }: { church: Church }) {
         </div>
       </details>
     </form>
+  );
+}
+
+interface Verified {
+  kind: string; serial: string; subject: string; eventDate: string; place: string;
+  church: string; organisation: string; approvedAt: string;
+}
+const longDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' }) : '');
+const KIND_LABEL: Record<string, string> = { baptism: 'Baptism', marriage: 'Marriage' };
+
+function Verify() {
+  const { serial = '' } = useParams();
+  const [search] = useSearchParams();
+  const k = search.get('k') ?? '';
+  const [data, setData] = useState<Verified | undefined>();
+  const [error, setError] = useState<string | undefined>();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true); setError(undefined); setData(undefined);
+    api.get<Verified>(`/public/verify/${encodeURIComponent(serial)}?k=${encodeURIComponent(k)}`)
+      .then((r) => alive && setData(r))
+      .catch((e) => alive && setError(e instanceof ApiError && e.message ? e.message : 'We could not check this certificate right now.'))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, [serial, k]);
+
+  if (loading) return <Shell title="Checking" sub="Certificate"><Spinner /></Shell>;
+  if (!data) {
+    return (
+      <Shell title="We could not verify this certificate" sub="Certificate">
+        <Card>
+          <div className="stack">
+            <ErrorNote>{error}</ErrorNote>
+            <p className="muted">Please check that the link or QR code is the one printed on the certificate. If you are still unsure, contact the church that issued it.</p>
+          </div>
+        </Card>
+      </Shell>
+    );
+  }
+  return (
+    <Shell title="Certificate verified" sub="Certificate">
+      <Card>
+        <div aria-live="polite" className="stack">
+          <div className="center">
+            <div className="tick" aria-hidden="true">&#10003;</div>
+            <p className="muted">This certificate was issued by the church below.</p>
+          </div>
+          <dl className="rcpt">
+            <dt>Type</dt><dd>{KIND_LABEL[data.kind] ?? data.kind}</dd>
+            <dt>Name</dt><dd>{data.subject}</dd>
+            <dt>Date</dt><dd>{longDate(data.eventDate)}</dd>
+            <dt>Place</dt><dd>{data.place}</dd>
+            <dt>Church</dt><dd>{data.church}</dd>
+            <dt>Organisation</dt><dd>{data.organisation}</dd>
+            <dt>Serial number</dt><dd className="mono">{data.serial}</dd>
+          </dl>
+          <p className="tiny center">Approved on {longDate(data.approvedAt)}</p>
+          <Note tone="info">Always check that the name on the certificate matches.</Note>
+        </div>
+      </Card>
+    </Shell>
   );
 }
 
