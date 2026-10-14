@@ -177,6 +177,12 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
     setBusy(true); setError(undefined);
     try {
       const r = await p.api.post('/auth/otp/request', { phone });
+      if (r.known === false) {
+        // Only present in development builds: production answers identically for every number.
+        setError('This number is not in the test data. Use one of the seeded numbers listed in the README, for example 0711000001 (member), 0700000002 (staff) or 0700000099 (admin).');
+        setBusy(false);
+        return;
+      }
       setDevCode(r.devCode);
       setStep('code');
     } catch (e: any) { setError(e.message); }
