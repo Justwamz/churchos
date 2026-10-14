@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
+import { useEffect, useRef, useState } from 'react';
+import { Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
 
 const api = createApi('churchos:member-token');
 
@@ -78,6 +78,8 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>Sign out</a>
         </p>
       </main>
+      <style>{`.mobile { padding-bottom: 150px; } .notif-unread { background: rgba(127,127,127,0.1); border-left: 3px solid var(--brand); padding-left: 10px; }`}</style>
+      <HelpButton api={api} audience="member" screen={`member.${tab}`} />
       <nav className="tabbar" aria-label="Main">
         {TABS.map((t) => (
           <button key={t.key} className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
@@ -108,6 +110,8 @@ function Home({ me, user, go }: { me: any; user: any; go: (t: Tab) => void }) {
         <Button onClick={() => go('give')}>Give now</Button>
       </div>
 
+      <Notifications />
+
       {giving.loading ? <Loading /> : giving.error ? <Failed error={giving.error} retry={giving.reload} /> : (
         <Stat label="Total given" value={kes(giving.data?.total ?? 0)} hint={giving.data?.rows?.length ? `${giving.data.rows.length} gift${giving.data.rows.length === 1 ? '' : 's'}` : 'Your first gift will show here'} />
       )}
@@ -131,6 +135,53 @@ function Home({ me, user, go }: { me: any; user: any; go: (t: Tab) => void }) {
         )}
       </Card>
     </div>
+  );
+}
+
+function Notifications() {
+  const n = useAsync<any>(() => api.get('/me/notifications'));
+  const [busy, setBusy] = useState(false);
+  const reloadRef = useRef(n.reload);
+  reloadRef.current = n.reload;
+
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === 'visible') reloadRef.current(); };
+    const timer = setInterval(tick, 20000);
+    document.addEventListener('visibilitychange', tick);
+    window.addEventListener('churchos:gift-done', tick);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('churchos:gift-done', tick); };
+  }, []);
+
+  const markAll = async () => {
+    setBusy(true);
+    try { await api.post('/me/notifications/read', {}); } catch { /* the refresh shows the truth */ }
+    setBusy(false);
+    n.reload();
+  };
+
+  const rows: any[] = n.data?.rows ?? [];
+  const unread = Number(n.data?.unread ?? 0);
+  return (
+    <Card title="Notifications">
+      {n.loading && !n.data ? <Loading /> : n.error && !n.data ? <Failed error={n.error} retry={n.reload} /> : !rows.length ? (
+        <Empty>Nothing new yet. Receipts and reminders from your church will appear here.</Empty>
+      ) : (
+        <div className="stack">
+          <div className="row">
+            {unread > 0 ? <Badge tone="warn">{unread} unread</Badge> : <span className="tiny">All caught up</span>}
+            <Button kind="ghost" small disabled={busy || unread === 0} onClick={markAll}>Mark all as read</Button>
+          </div>
+          <ul className="list">
+            {rows.map((r) => (
+              <li key={r.id} className={r.read ? '' : 'notif-unread'}>
+                <div className="row"><strong>{r.title}</strong><span className="tiny">{shortDate(r.created_at)}</span></div>
+                <div className="muted">{r.body}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -176,7 +227,7 @@ function Give({ me, user }: { me: any; user: any }) {
       try {
         const r: Receipt = await api.get(`/public/give/${intent.id}`);
         if (!alive) return;
-        if (r.status === 'completed' || r.status === 'failed') { clearInterval(timer); setResult(r); setIntent(null); return; }
+        if (r.status === 'completed' || r.status === 'failed') { clearInterval(timer); setResult(r); setIntent(null); window.dispatchEvent(new Event('churchos:gift-done')); return; }
       } catch { /* keep trying until the time is up */ }
       if (alive && Date.now() - started > 90000) { clearInterval(timer); setSlow(true); setIntent(null); }
     }, 1500);
@@ -467,6 +518,9 @@ function Help() {
 
   return (
     <div className="stack">
+      <Card title="Help articles">
+        <p className="muted" style={{ margin: 0 }}>Browse help articles: tap the Help button at the bottom right of any screen.</p>
+      </Card>
       <Card title="Payment help">
         <div className="stack">
           <h3 style={{ fontSize: '1.05rem' }}>I paid the wrong church or the wrong amount</h3>

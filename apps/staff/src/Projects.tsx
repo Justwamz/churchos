@@ -26,6 +26,7 @@ export function Projects() {
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reminding, setReminding] = useState<string | null>(null);
   const [f, setF] = useState({ branchId: '', code: '', name: '', description: '', target: '', deadline: '', restricted: false });
   const branchId = f.branchId || (s.scope !== 'all' ? s.scope : s.branches[0]?.id ?? '');
 
@@ -39,6 +40,16 @@ export function Projects() {
       d.reload();
     } catch (e: any) { toast.show(friendly(e.message), 'bad'); }
     setBusy(false);
+  };
+
+  const remind = async (id: string) => {
+    setReminding(id);
+    try {
+      const r = await api.post(`/projects/${id}/remind` + s.qs(), {});
+      const sms = Number(r.smsSent ?? 0), inApp = Number(r.smsSkippedNoBalance ?? 0);
+      toast.show(`Reminders created for ${sms + inApp} members. SMS sent to ${sms}, in-app only for ${inApp}${inApp ? ' (SMS wallet empty)' : ''}.`);
+    } catch (e: any) { toast.show(friendly(e.message), 'bad'); }
+    setReminding(null);
   };
 
   return (
@@ -81,6 +92,7 @@ export function Projects() {
                     </div>
                     <div style={{ marginTop: 10 }}>
                       <Button small kind="ghost" onClick={() => setOpen(open === p.id ? null : p.id)}>{open === p.id ? 'Hide pledges' : 'Show pledges'}</Button>
+                      {s.can('projects.manage') && <> <Button small kind="ghost" disabled={reminding === p.id} onClick={() => remind(p.id)}>{reminding === p.id ? 'Sending…' : 'Send reminders'}</Button></>}
                     </div>
                     {open === p.id && <div style={{ marginTop: 8 }}><Pledges id={p.id} /></div>}
                   </Card>

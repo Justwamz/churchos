@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, ErrorNote, LoginGate, Spinner } from '@churchos/ui';
+import { Badge, Button, ErrorNote, HelpButton, LoginGate, Spinner } from '@churchos/ui';
 import { api, SessionCtx, friendly, type Session } from './session';
 import { Dashboard } from './Dashboard';
 import { Collections } from './Collections';
@@ -8,6 +8,15 @@ import { Cash } from './Cash';
 import { Members, Transfers } from './Members';
 import { Projects } from './Projects';
 import { Help } from './Help';
+import { Verification } from './Verification';
+import { Sms } from './Sms';
+import { Payout } from './Payout';
+
+const HELP_SCREEN: Record<string, string> = {
+  dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
+  members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
+  verification: 'staff.verification', sms: 'staff.sms', payout: 'staff.payout',
+};
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
   { id: 'dashboard', label: 'Dashboard', any: ['collections.view'], el: Dashboard },
@@ -18,6 +27,9 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'transfers', label: 'Transfers', any: ['transfers.approve'], el: Transfers },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
+  { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: Verification },
+  { id: 'sms', label: 'SMS wallet', any: ['sms.manage'], el: Sms },
+  { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: Payout },
 ];
 
 function Shell({ signOut }: { signOut: () => void }) {
@@ -26,6 +38,8 @@ function Shell({ signOut }: { signOut: () => void }) {
   const [orgIdx, setOrgIdx] = useState(0);
   const [scope, setScope] = useState('all');
   const [page, setPage] = useState('');
+
+  const [unverified, setUnverified] = useState(false);
 
   useEffect(() => {
     api.get('/staff/me').then(setMe).catch((e) => setError(friendly(e.message)));
@@ -49,6 +63,16 @@ function Shell({ signOut }: { signOut: () => void }) {
       },
     };
   }, [me, grant, scope]);
+
+  useEffect(() => {
+    setUnverified(false);
+    if (!session || !session.can('kyc.manage')) return;
+    let live = true;
+    api.get('/kyc/status' + session.qs())
+      .then((k: any) => { if (live) setUnverified((k.branches ?? []).some((b: any) => !b.verified)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [session, page]);
 
   if (error) return <main className="login"><div className="login-card"><ErrorNote>{error}</ErrorNote><Button onClick={signOut}>Sign out</Button></div></main>;
   if (!me) return <Spinner />;
@@ -77,7 +101,7 @@ function Shell({ signOut }: { signOut: () => void }) {
           ))}
           <div className="userbox">
             <div><b>{me.user.name || me.user.phone}</b></div>
-            <div className="tiny">{grant.org.name}</div>
+            <div className="tiny">{grant.org.name} {unverified && <Badge tone="warn">Not verified</Badge>}</div>
             <button className="nav-link" style={{ padding: '6px 0' }} onClick={signOut}>Sign out</button>
           </div>
         </aside>
@@ -93,9 +117,12 @@ function Shell({ signOut }: { signOut: () => void }) {
               {grant.branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
             <span className="tiny">{grant.org.name}</span>
+            {unverified && <Badge tone="warn">Not verified</Badge>}
           </div>
           {Page ? <Page key={`${current.id}:${grant.org.id}:${scope}`} /> : <ErrorNote>You do not have access to any pages yet.</ErrorNote>}
+          <div style={{ height: 80 }} aria-hidden="true" />
         </main>
+        <HelpButton api={api} audience="staff" screen={HELP_SCREEN[current?.id ?? ''] ?? 'staff.dashboard'} />
       </div>
     </SessionCtx.Provider>
   );

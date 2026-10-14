@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { computeFee, DEFAULT_FEE_SCHEDULE, type FeeSchedule, type PaymentMethod } from '@churchos/shared';
 import {
-  Badge, Button, Card, Empty, ErrorNote, Field, LoginGate, Note, Spinner, Stat, StatusBadge, Table,
+  Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table,
   createApi, kes, phonePretty, shortDate, useAsync, useToast,
 } from '@churchos/ui';
 
@@ -9,7 +9,7 @@ const api = createApi('churchos:admin-token');
 const num = (v: unknown) => Number(v ?? 0);
 const errText = (e: any) => (e && typeof e.message === 'string' && !e.message.trim().startsWith('{') ? e.message : 'Something went wrong. Please try again.');
 
-type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit';
+type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'sms';
 const PAGES: { id: Page; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'tenants', label: 'Tenants and fees' },
@@ -17,6 +17,9 @@ const PAGES: { id: Page; label: string }[] = [
   { id: 'reversals', label: 'Reversal requests' },
   { id: 'payments', label: 'Payments' },
   { id: 'settlements', label: 'Settlements' },
+  { id: 'kyc', label: 'Church verification' },
+  { id: 'payout-requests', label: 'Payout account changes' },
+  { id: 'sms', label: 'SMS' },
   { id: 'tools', label: 'Test tools' },
   { id: 'audit', label: 'Audit log' },
 ];
@@ -44,7 +47,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         <div className="tiny" style={{ padding: '0 12px' }}>{user.name ?? phonePretty(user.phone)}</div>
         <button className="nav-link" onClick={signOut}>Sign out</button>
       </nav>
-      <main className="content">
+      <main className="content" style={{ paddingBottom: 96 }}>
         {page === 'overview' && <Overview />}
         {page === 'tenants' && <Tenants {...p} />}
         {page === 'suspense' && <Suspense {...p} />}
@@ -53,7 +56,11 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {page === 'settlements' && <Settlements {...p} />}
         {page === 'tools' && <Tools {...p} />}
         {page === 'audit' && <Audit />}
+        {page === 'kyc' && <Kyc {...p} />}
+        {page === 'payout-requests' && <PayoutRequests {...p} />}
+        {page === 'sms' && <SmsOverview />}
       </main>
+      <HelpButton api={api} audience="admin" screen={`admin.${page}`} />
       {toast.node}
     </div>
   );
@@ -83,7 +90,11 @@ function Overview() {
   const rev = useAsync(() => api.get('/admin/revenue'));
   const sus = useAsync(() => api.get('/admin/suspense'));
   const rr = useAsync(() => api.get('/admin/reversal-requests?status=pending,awaiting_second'));
-  const reload = () => { rec.reload(); rev.reload(); sus.reload(); rr.reload(); };
+  const kycQ = useAsync(() => api.get<any[]>('/admin/kyc').catch(() => null as any));
+  const prQ = useAsync(() => api.get<any[]>('/admin/payout-requests').catch(() => null as any));
+  const docsWaiting = Array.isArray(kycQ.data) ? kycQ.data.reduce((n: number, o: any) => n + num(o.pendingDocuments), 0) : null;
+  const payoutsWaiting = Array.isArray(prQ.data) ? prQ.data.filter((r: any) => r.status === 'requested').length : null;
+  const reload = () => { rec.reload(); rev.reload(); sus.reload(); rr.reload(); kycQ.reload(); prQ.reload(); };
   const ACC: Record<string, string> = {
     suspense: 'Unmatched payments (suspense)', fee_revenue: 'Platform fees earned', psp_cost_payable: 'Owed to payment providers',
     in_transit: 'Payouts in transit', branch_pending: 'Churches: in 48h hold', branch_available: 'Churches: ready to pay out',
@@ -121,6 +132,8 @@ function Overview() {
         </Load>
         <Load s={sus}>{(v: any[]) => <Stat label="Open suspense items" value={v.length} tone={v.length ? 'warn' : 'good'} hint="Unmatched payments" />}</Load>
         <Load s={rr}>{(v: any[]) => <Stat label="Pending reversals" value={v.length} tone={v.length ? 'warn' : 'good'} hint="Need a decision" />}</Load>
+        {docsWaiting !== null && <Stat label="Documents awaiting review" value={docsWaiting} tone={docsWaiting ? 'warn' : 'good'} hint="Church verification" />}
+        {payoutsWaiting !== null && <Stat label="Payout changes awaiting approval" value={payoutsWaiting} tone={payoutsWaiting ? 'warn' : 'good'} hint="Payout account changes" />}
       </div>
       <div style={{ height: 16 }} />
       <Card title="Account balances">
@@ -502,6 +515,8 @@ function Settlements({ toast }: PageProps) {
       {run && (
         <Card title="Latest run" className="">
           <p className="muted" style={{ marginTop: 0 }}>Expired suspense payments refunded: <b>{num(run.expiredSuspense)}</b></p>
+          <Note>Branches with status 'skipped' are not verified yet, funds are held safely.</Note>
+          <div style={{ height: 10 }} />
           {run.results.length === 0 ? <Empty>No branches to settle.</Empty> : (
             <Table head={['Branch', 'Result', 'Amount', 'Detail']}>
               {run.results.map((r: any, i: number) => (
@@ -544,6 +559,8 @@ function Settlements({ toast }: PageProps) {
 const PRESETS = [
   { label: 'GRC001#TITHE', ref: 'GRC001#TITHE' }, { label: 'GRC002#OFFERING', ref: 'GRC002#OFFERING' }, { label: 'HPC001#TITHE', ref: 'HPC001#TITHE' },
   { label: 'GRC999#TITHE (wrong code)', ref: 'GRC999#TITHE' }, { label: 'Empty reference', ref: '' },
+  { label: 'SMS#GRACE (top up Grace SMS wallet)', ref: 'SMS#GRACE' }, { label: 'SMS#HOPE', ref: 'SMS#HOPE' },
+  { label: 'NHF001#TITHE (unverified church: collects but is not paid out)', ref: 'NHF001#TITHE' },
 ];
 
 function Tools({ toast }: PageProps) {
@@ -598,6 +615,242 @@ function Tools({ toast }: PageProps) {
           {clock && <p style={{ marginBottom: 0 }}>Clock now reads <b>{shortDate(clock.now)}</b> (skipped {num(clock.offsetHours)} hours in total).</p>}
         </Card>
       </div>
+    </>
+  );
+}
+
+// ---------------- Church verification (KYC) ----------------
+
+const DOC_TONE: Record<string, any> = { submitted: 'warn', approved: 'good', rejected: 'bad' };
+const DOC_LABEL: Record<string, string> = { submitted: 'Awaiting review', approved: 'Approved', rejected: 'Rejected' };
+const fileSize = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const RULE = "A branch is paid out only when the registration certificate, KRA PIN, at least one signatory ID and that branch's payout proof are all approved. The newest document of each type counts.";
+
+function Kyc({ toast }: PageProps) {
+  const list = useAsync(() => api.get<any[]>('/admin/kyc'));
+  const [orgId, setOrgId] = useState<string>();
+  if (orgId) return <KycOrg orgId={orgId} toast={toast} onBack={() => { setOrgId(undefined); list.reload(); }} />;
+  return (
+    <>
+      <Head title="Church verification" sub="Review the documents churches upload before they can be paid out." action={<Button kind="ghost" onClick={list.reload}>Refresh</Button>} />
+      <Note>{RULE}</Note>
+      <div style={{ height: 16 }} />
+      <Card>
+        <Load s={list}>
+          {(rows) => rows.length === 0 ? <Empty>No organisations yet.</Empty> : (
+            <Table head={['Church', 'Awaiting review', 'Organisation documents', 'Branches', '']}>
+              {rows.map((o) => (
+                <tr key={o.id}>
+                  <td><b>{o.name}</b></td>
+                  <td>{num(o.pendingDocuments) > 0 ? <Badge tone="warn">{o.pendingDocuments} to review</Badge> : <span className="tiny">None</span>}</td>
+                  <td>{o.organisationReady ? <Badge tone="good">Ready</Badge> : <Badge tone="muted">Incomplete</Badge>}</td>
+                  <td>{o.branches.map((b: any) => <div key={b.id}>{b.name} {b.verified ? <Badge tone="good">Verified</Badge> : <Badge tone="muted">Not verified</Badge>}</div>)}</td>
+                  <td><Button small onClick={() => setOrgId(o.id)}>Review</Button></td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </Load>
+      </Card>
+    </>
+  );
+}
+
+function KycOrg({ orgId, toast, onBack }: { orgId: string; toast: PageProps['toast']; onBack: () => void }) {
+  const d = useAsync(() => api.get<any>(`/admin/kyc/${orgId}`), [orgId]);
+  const [rejecting, setRejecting] = useState<string>();
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState<string>();
+  const [verified, setVerified] = useState<Record<string, boolean>>();
+
+  const view = async (id: string) => {
+    try {
+      const token = api.getToken();
+      const res = await fetch(`${api.API_URL}/admin/kyc/documents/${id}/file`, { headers: { authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('bad');
+      const url = URL.createObjectURL(await res.blob());
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+    } catch { toast('Could not open that document. Please try again.', 'bad'); }
+  };
+  const decide = async (id: string, approve: boolean) => {
+    if (!approve && !reason.trim()) { toast('Type a reason so the church knows what to fix.', 'bad'); return; }
+    setBusy(id);
+    try {
+      const out = await api.post(`/admin/kyc/documents/${id}/decide`, approve ? { approve: true } : { approve: false, reason: reason.trim() });
+      setVerified(out.verified); setRejecting(undefined); setReason('');
+      toast(approve ? 'Document approved' : 'Document rejected');
+      d.reload();
+    } catch (e: any) {
+      toast(e.code === 'reason_required' ? 'Type a reason so the church knows what to fix.' : e.code === 'already_decided' ? 'This document was already reviewed.' : errText(e), 'bad');
+      if (e.code === 'already_decided') d.reload();
+    }
+    setBusy(undefined);
+  };
+
+  const docs = (item: any) => (
+    <div style={{ padding: '10px 0', borderTop: '1px solid var(--line)' }}>
+      <div className="row between"><b>{item.label}</b>{item.latest ? <Badge tone={DOC_TONE[item.latest.status]}>{`Latest: ${DOC_LABEL[item.latest.status] ?? item.latest.status}`}</Badge> : <Badge tone="muted">Not uploaded</Badge>}</div>
+      {item.documents.length === 0 && <div className="tiny">Nothing uploaded yet.</div>}
+      {item.documents.map((x: any) => (
+        <div key={x.id} style={{ margin: '8px 0 0 12px' }}>
+          <div className="row between">
+            <div className="row">
+              <Badge tone={DOC_TONE[x.status]}>{DOC_LABEL[x.status] ?? x.status}</Badge>
+              <span>{x.filename}</span><span className="tiny">{fileSize(num(x.size))} · uploaded {shortDate(x.created_at)}</span>
+            </div>
+            <div className="row">
+              <Button kind="ghost" small onClick={() => view(x.id)}>View</Button>
+              {x.status === 'submitted' && <>
+                <Button small disabled={busy === x.id} onClick={() => decide(x.id, true)}>Approve</Button>
+                <Button kind="danger" small disabled={busy === x.id} onClick={() => { setRejecting(rejecting === x.id ? undefined : x.id); setReason(''); }}>Reject</Button>
+              </>}
+            </div>
+          </div>
+          {x.note && <div className="tiny">Note from church: {x.note}</div>}
+          {x.status === 'rejected' && x.reason && <div className="tiny">Reason given: {x.reason}</div>}
+          {rejecting === x.id && (
+            <div style={{ marginTop: 6 }}>
+              <Field label="Reason for rejecting (shown to the church)"><input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. The name on the certificate does not match" /></Field>
+              <div className="row" style={{ marginTop: 6 }}>
+                <Button kind="danger" small disabled={busy === x.id} onClick={() => decide(x.id, false)}>Confirm rejection</Button>
+                <Button kind="ghost" small onClick={() => setRejecting(undefined)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <>
+      <Head title={d.data?.org?.name ?? 'Church verification'} sub="Review each document, newest first." action={<Button kind="ghost" onClick={onBack}>Back to all churches</Button>} />
+      <Note tone="warn">Before approving, check: the registration name matches the church, the KRA PIN matches, the signatory ID is valid, and the payout account name matches the church.</Note>
+      <div style={{ height: 8 }} />
+      <Note>{RULE}</Note>
+      <div style={{ height: 16 }} />
+      <Load s={d}>
+        {(o: any) => (<>
+          <Card title="Organisation documents" action={o.organisationReady ? <Badge tone="good">Ready</Badge> : <Badge tone="muted">Incomplete</Badge>}>
+            {o.required.map((r: any) => <div key={r.type}>{docs(r)}</div>)}
+          </Card>
+          <div style={{ height: 16 }} />
+          <Card title="Branches and payout proof">
+            {o.branches.map((b: any) => {
+              const ok = verified && b.id in verified ? verified[b.id] : b.verified;
+              return (
+                <div key={b.id} style={{ marginBottom: 10 }}>
+                  <div className="row between"><h3 style={{ margin: 0 }}>{b.name} <span className="tiny">{b.code}</span></h3>{ok ? <Badge tone="good">Verified: can be paid out</Badge> : <Badge tone="warn">Not verified</Badge>}</div>
+                  {docs(b.payoutProof)}
+                </div>
+              );
+            })}
+          </Card>
+        </>)}
+      </Load>
+    </>
+  );
+}
+
+// ---------------- Payout account changes ----------------
+
+const destText = (x: any) => {
+  const dd = typeof x === 'string' ? (() => { try { return JSON.parse(x); } catch { return null; } })() : x;
+  if (!dd) return <span className="tiny">None on file</span>;
+  return dd.type === 'mobile'
+    ? <>Mobile money<div className="tiny">{dd.phone}{dd.accountName ? ` · ${dd.accountName}` : ''}</div></>
+    : <>{dd.bank ?? 'Bank'}<div className="tiny">{dd.accountNumber}{dd.accountName ? ` · ${dd.accountName}` : ''}</div></>;
+};
+
+function PayoutRequests({ toast }: PageProps) {
+  const r = useAsync(() => api.get<any[]>('/admin/payout-requests'));
+  const [confirm, setConfirm] = useState<{ id: string; approve: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const decide = async (id: string, approve: boolean) => {
+    setBusy(true);
+    try { await api.post(`/admin/payout-requests/${id}/decide`, { approve }); toast(approve ? 'Approved. It takes effect after the cooling-off.' : 'Request rejected'); setConfirm(null); r.reload(); }
+    catch (e: any) { toast(e.code === 'already_decided' ? 'This request was already decided.' : errText(e), 'bad'); setConfirm(null); r.reload(); }
+    setBusy(false);
+  };
+  return (
+    <>
+      <Head title="Payout account changes" sub="Churches asking to change where their money is paid." action={<Button kind="ghost" onClick={r.reload}>Refresh</Button>} />
+      <Note tone="warn"><b>Confirm with the church through a contact you already hold, not the details in this request.</b></Note>
+      <div style={{ height: 16 }} />
+      <Card>
+        <Load s={r}>
+          {(rows) => rows.length === 0 ? <Empty>No payout account changes yet.</Empty> : (
+            <Table head={['Church / branch', 'Requested by', 'Requested', 'New account', 'Current account', 'Status']}>
+              {rows.map((x) => (
+                <tr key={x.id}>
+                  <td><b>{x.branch_name}</b><div className="tiny">{x.branch_code}</div></td>
+                  <td>{x.requested_by_name ?? <span className="tiny">Unknown</span>}</td>
+                  <td>{shortDate(x.created_at)}</td>
+                  <td>{destText(x.destination)}</td>
+                  <td>{destText(x.current_destination)}</td>
+                  <td>
+                    <StatusBadge status={x.status} />
+                    {x.status === 'approved' && <div className="tiny">Takes effect {shortDate(x.effective_at)} after the 72 hour cooling-off</div>}
+                    {x.status === 'requested' && ((confirm && confirm.id === x.id) ? ((confirm: { id: string; approve: boolean }) => (
+                      <div style={{ marginTop: 8 }}>
+                        <Note tone={confirm.approve ? 'warn' : 'info'}>
+                          <div>{confirm.approve ? 'Approve this change? Confirm with the church through a contact you already hold, not the details in this request.' : 'Reject this change?'}</div>
+                          <div className="row" style={{ marginTop: 6 }}>
+                            <Button kind="ghost" small onClick={() => setConfirm(null)}>Cancel</Button>
+                            <Button small kind={confirm.approve ? 'primary' : 'danger'} disabled={busy} onClick={() => decide(x.id, confirm.approve)}>{busy ? 'Working…' : confirm.approve ? 'Yes, approve' : 'Yes, reject'}</Button>
+                          </div>
+                        </Note>
+                      </div>
+                    ))(confirm) : (
+                      <div className="row" style={{ marginTop: 6 }}>
+                        <Button small onClick={() => setConfirm({ id: x.id, approve: true })}>Approve</Button>
+                        <Button kind="danger" small onClick={() => setConfirm({ id: x.id, approve: false })}>Reject</Button>
+                      </div>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </Load>
+      </Card>
+    </>
+  );
+}
+
+// ---------------- SMS ----------------
+
+function SmsOverview() {
+  const s = useAsync(() => api.get<any>('/admin/sms'));
+  return (
+    <>
+      <Head title="SMS" sub="Church SMS wallets and what they earn the platform." action={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <Load s={s}>
+        {(v: any) => (<>
+          <div className="grid cols-3">
+            <Stat label="Total SMS revenue" value={kes(v.revenue)} tone="good" />
+            <Stat label="Rate per message" value={kes(v.rate)} />
+            <Stat label="Churches with a wallet" value={v.wallets.length} />
+          </div>
+          <div style={{ height: 16 }} />
+          <Card>
+            {v.wallets.length === 0 ? <Empty>No SMS wallets yet.</Empty> : (
+              <Table head={['Church', 'Wallet balance', 'Messages left', 'Sent', 'Skipped (wallet empty)']}>
+                {v.wallets.map((w: any) => (
+                  <tr key={w.org.id}>
+                    <td><b>{w.org.name}</b></td>
+                    <td className="num">{kes(w.balance)}</td>
+                    <td>{num(w.messagesLeft)} {w.empty ? <Badge tone="bad">Empty</Badge> : w.low ? <Badge tone="warn">Low</Badge> : null}</td>
+                    <td className="num">{num(w.sent)}</td>
+                    <td className="num">{num(w.skipped)}</td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+          </Card>
+        </>)}
+      </Load>
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
-import { ApiError, Button, Card, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
+import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:token');
 
@@ -55,6 +55,7 @@ function Shell({ title, sub, children }: { title: string; sub?: string; children
   return (
     <div className="mobile giving">
       <style>{CSS}</style>
+      <HelpButton api={api} audience="member" screen="giving.home" />
       <header className="g-head">
         <div className="brand">{sub ?? 'Giving'}</div>
         <h1>{title}</h1>
@@ -349,6 +350,7 @@ const CSS = `
 .giving .g-head { padding: 22px 4px 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .giving .g-head .brand { font-size: .95rem; margin-bottom: 6px; }
 .giving .g-head h1 { font-size: 2rem; }
+.giving { padding-bottom: 96px; }
 .giving .center { text-align: center; }
 .giving .g-label { margin-bottom: 8px; }
 .giving .g-gap { height: 14px; }

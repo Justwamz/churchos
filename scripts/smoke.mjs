@@ -88,5 +88,23 @@ const rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Ledger wallet equals the PSP wallet and entries sum to zero', rec.json.ok === true, `ledger ${rec.json.ledgerWallet} vs psp ${rec.json.pspWallet}`);
 void admin2;
 
+// 10. Slice 2: verification, SMS wallet and help.
+const owner = await login('0700000001');
+const newhope = await login('0700000006');
+const kyc = await call('GET', '/kyc/status', undefined, newhope);
+step('Unverified church sees its onboarding checklist', kyc.status === 200 && kyc.json.branches[0].verified === false);
+await call('POST', '/admin/simulate/paybill', { phone: '0722000333', amount: 1000, reference: 'NHF001#TITHE' }, admin);
+await call('POST', '/admin/clock/advance', { hours: 49 }, admin);
+const run2 = await call('POST', '/admin/settlement/run', {}, admin);
+step('Unverified church collects but is not paid out', run2.json.results?.find((r) => r.branchId === 'br_nhf001')?.status === 'skipped');
+const wallet = await call('GET', '/sms/wallet', undefined, owner);
+step('SMS wallet shows a balance and the paybill reference', wallet.status === 200 && wallet.json.paybillReference === 'SMS#GRACE', 'KES ' + (wallet.json.balance / 100));
+const help = await call('GET', '/help/search?q=wrong%20church%20refund');
+step('Help search finds the wrong-payment article without signing in', help.json.results?.[0]?.articleId === 'member-wrong-payment');
+const helpLeak = await call('GET', '/help/articles/admin-suspense');
+step('Admin-only help is hidden from anonymous visitors (404)', helpLeak.status === 404);
+const rec2 = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 2 activity', rec2.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);
