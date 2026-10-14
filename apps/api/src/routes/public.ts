@@ -1,0 +1,108 @@
+import type { FastifyInstance } from 'fastify';
+import { buildReference, computeFee, normalizeMethod, toCents } from './helpers';
+import { normalizePhone } from '../auth';
+import { HttpError, type Ctx } from '../ctx';
+
+const MIN_CENTS = 1000; // KES 10
+const MAX_CENTS = 15_000_000; // KES 150,000 per transaction
+
+export async function churchByCode(ctx: Ctx, code: string) {
+  const rows = await ctx.db.query<any>(
+    `SELECT b.id, b.code, b.name, b.region, b.org_id, o.name AS org_name, o.fee_bearer, o.fee_schedule
+       FROM branches b JOIN organisations o ON o.id = b.org_id WHERE b.code = $1`,
+    [String(code ?? '').trim().toUpperCase()],
+  );
+  return rows[0];
+}
+
+export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
+  app.get('/public/church/:code', async (req) => {
+    const b = await churchByCode(ctx, (req.params as any).code);
+    if (!b) throw new HttpError(404, 'We could not find a church with that code', 'unknown_church');
+    const projects = await ctx.db.query<any>(
+      `SELECT p.id, p.code, p.name, p.description, p.target, p.deadline,
+              COALESCE((SELECT SUM(amount_paid - psp_cost - platform_fee) FROM payments WHERE project_id = p.id AND stage IN ('pending','available','paid_out')),0) AS raised
+         FROM projects p WHERE p.branch_id = $1 AND p.status = 'open' ORDER BY p.created_at`,
+      [b.id],
+    );
+    return {
+      code: b.code,
+      name: b.name,
+      organisation: b.org_name,
+      feeBearer: b.fee_bearer,
+      purposes: [
+        { key: 'TITHE', label: 'Tithe' },
+        { key: 'OFFERING', label: 'Offering' },
+        ...projects.map((p) => ({ key: `PROJ-${p.code}`, label: p.name })),
+      ],
+      projects: projects.map((p) => ({ code: p.code, name: p.name, description: p.description, target: p.target, deadline: p.deadline, raised: p.raised })),
+      methods: ['mpesa', 'airtel', 'tkash', 'card'],
+      paybill: { number: '888880', accountReference: `${b.code}#TITHE` },
+    };
+  });
+
+  app.get('/public/fee', async (req) => {
+    const q = req.query as any;
+    const b = await churchByCode(ctx, q.code);
+    if (!b) throw new HttpError(404, 'unknown church', 'unknown_church');
+    const base = toCents(q.amount);
+    const fee = computeFee(b.fee_schedule, normalizeMethod(q.method), base, b.fee_bearer);
+    return { bearer: b.fee_bearer, amountPaid: fee.amountPaid, memberFee: b.fee_bearer === 'member' ? fee.totalFee : 0 };
+  });
+
+  app.post('/public/give', async (req) => {
+    const body = (req.body ?? {}) as any;
+    const b = await churchByCode(ctx, body.code);
+    if (!b) throw new HttpError(404, 'We could not find a church with that code', 'unknown_church');
+    const phone = normalizePhone(body.phone);
+    if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number, for example 0712 345 678', 'bad_phone');
+    let base: number;
+    try {
+      base = toCents(body.amount);
+    } catch {
+      throw new HttpError(400, 'Enter a valid amount', 'bad_amount');
+    }
+    if (base < MIN_CENTS) throw new HttpError(400, 'The minimum gift is KES 10', 'amount_too_small');
+    if (base > MAX_CENTS) throw new HttpError(400, 'The maximum for one gift is KES 150,000', 'amount_too_large');
+    const method = normalizeMethod(body.method);
+
+    const purpose = String(body.purpose ?? 'OFFERING').trim().toUpperCase();
+    let projectId: string | null = null;
+    if (purpose.startsWith('PROJ-')) {
+      const p = (await ctx.db.query<any>(`SELECT id FROM projects WHERE branch_id=$1 AND code=$2 AND status='open'`, [b.id, purpose.slice(5)]))[0];
+      if (!p) throw new HttpError(400, 'That project is not open for giving', 'unknown_purpose');
+      projectId = p.id;
+    } else if (purpose !== 'TITHE' && purpose !== 'OFFERING') {
+      throw new HttpError(400, 'Unknown giving purpose', 'unknown_purpose');
+    }
+
+    const fee = computeFee(b.fee_schedule, method, base, b.fee_bearer);
+    const reference = buildReference(b.code, purpose);
+    const { providerTxId } = await ctx.provider.initiateStkPush({ phone, amount: fee.amountPaid, reference, method });
+    const intentId = ctx.newId('int');
+    await ctx.db.query(
+      `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [intentId, providerTxId, b.org_id, b.id, purpose, projectId, phone, method, base, fee.amountPaid, JSON.stringify(fee), ctx.clock.now().toISOString()],
+    );
+    return {
+      intentId,
+      status: 'initiated',
+      message: `Check your phone (${phone.replace(/^254/, '0')}) and enter your PIN to complete the gift.`,
+      amountPaid: fee.amountPaid,
+      memberFee: b.fee_bearer === 'member' ? fee.totalFee : 0,
+    };
+  });
+
+  app.get('/public/give/:id', async (req) => {
+    const i = (await ctx.db.query<any>(`SELECT g.*, b.name AS church FROM give_intents g JOIN branches b ON b.id = g.branch_id WHERE g.id=$1`, [(req.params as any).id]))[0];
+    if (!i) throw new HttpError(404, 'unknown gift', 'not_found');
+    return {
+      status: i.status,
+      church: i.church,
+      purpose: i.purpose,
+      amountPaid: i.amount_paid,
+      receipt: i.status === 'completed' ? i.provider_tx_id : null,
+    };
+  });
+}

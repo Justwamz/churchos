@@ -28,7 +28,7 @@ export async function createDb(dataDir?: string): Promise<Db> {
 function wrap(pg: any, inTx: boolean): Db {
   const self: Db = {
     async query(sql, params = []) {
-      const r = await pg.query(sql, params as any[]);
+      const r = await pg.query(sql, params as any[], { parsers });
       return r.rows as any[];
     },
     async exec(sql) {

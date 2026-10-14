@@ -1,0 +1,150 @@
+import type { FastifyInstance } from 'fastify';
+import { DEFAULT_FEE_SCHEDULE, toCents, type FeeSchedule } from '@churchos/shared';
+import { HttpError, requireAdmin, type Ctx } from '../ctx';
+import { decideReversal, listReversalRequests } from './reversals';
+import { handleWebhook } from './core';
+
+function validSchedule(s: any): s is FeeSchedule {
+  const rule = s?.platform;
+  const okRule =
+    (rule?.type === 'flat' && Number.isFinite(rule.bps) && rule.bps >= 0 && rule.bps <= 2000) ||
+    (rule?.type === 'tiered' && Array.isArray(rule.tiers) && rule.tiers.length > 0 && rule.tiers.every((t: any) => Number.isFinite(t.bps) && t.bps >= 0 && t.bps <= 2000));
+  if (!okRule) return false;
+  for (const m of Object.keys(DEFAULT_FEE_SCHEDULE.psp)) {
+    const p = s?.psp?.[m];
+    if (!p || !Number.isFinite(p.bps) || !Number.isFinite(p.fixed) || p.bps < 0 || p.fixed < 0) return false;
+  }
+  return true;
+}
+
+export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
+  const adm = { preHandler: requireAdmin };
+  // Testing tools exist only outside production.
+  const devOnly = async () => {
+    if (process.env.NODE_ENV === 'production') throw new HttpError(404, 'not found', 'not_found');
+  };
+  const devAdm = { preHandler: [requireAdmin, devOnly] };
+
+  app.get('/admin/tenants', adm, async () => {
+    const orgs = await ctx.db.query<any>(`SELECT * FROM organisations ORDER BY name`);
+    const out = [];
+    for (const o of orgs) {
+      const branches = await ctx.db.query<any>(`SELECT id, code, name, region, payout_paused FROM branches WHERE org_id=$1 ORDER BY name`, [o.id]);
+      const withBalances = [];
+      for (const b of branches) {
+        withBalances.push({
+          ...b,
+          pending: await ctx.ledger.balance('pending', b.id),
+          available: await ctx.ledger.balance('available', b.id),
+          receivable: await ctx.ledger.balance('receivable', b.id),
+        });
+      }
+      out.push({ id: o.id, name: o.name, feeBearer: o.fee_bearer, feeSchedule: o.fee_schedule, branches: withBalances });
+    }
+    return out;
+  });
+
+  app.put('/admin/tenants/:id/fees', adm, async (req) => {
+    const b = (req.body ?? {}) as any;
+    if (b.feeBearer !== 'church' && b.feeBearer !== 'member') throw new HttpError(400, 'Fee bearer must be church or member', 'bad_bearer');
+    if (!validSchedule(b.feeSchedule)) throw new HttpError(400, 'The fee schedule is not valid', 'bad_schedule');
+    const id = (req.params as any).id;
+    const r = await ctx.db.query(`UPDATE organisations SET fee_bearer=$2, fee_schedule=$3 WHERE id=$1 RETURNING id`, [id, b.feeBearer, JSON.stringify(b.feeSchedule)]);
+    if (r.length === 0) throw new HttpError(404, 'tenant not found', 'not_found');
+    await ctx.ledger.audit({ orgId: id, actor: req.session!.uid, action: 'fees.update', entity: 'organisation', entityId: id, meta: { feeBearer: b.feeBearer } });
+    return { ok: true };
+  });
+
+  // The split between platform fee and PSP cost is visible here only (L21).
+  app.get('/admin/payments', adm, async (req) => {
+    const q = req.query as any;
+    const stage = q.stage ? String(q.stage) : null;
+    return ctx.db.query<any>(
+      `SELECT p.id, p.provider_tx_id, p.received_at, p.method, p.reference, p.purpose, p.payer_phone, p.amount_paid, p.net, p.platform_fee, p.psp_cost, p.stage,
+              b.name AS branch_name, b.code AS branch_code
+         FROM payments p LEFT JOIN branches b ON b.id=p.branch_id ${stage ? 'WHERE p.stage=$1' : ''} ORDER BY p.received_at DESC LIMIT 200`,
+      stage ? [stage] : [],
+    );
+  });
+
+  app.get('/admin/suspense', adm, async () => {
+    const rows = await ctx.db.query<any>(
+      `SELECT id, provider_tx_id, received_at, method, reference, payer_phone, amount_paid, psp_cost FROM payments WHERE stage='suspense' ORDER BY received_at`,
+    );
+    const expiresMs = ctx.ledger.opts.suspenseHours * 3600_000;
+    return rows.map((r) => ({ ...r, expiresAt: new Date(new Date(r.received_at).getTime() + expiresMs).toISOString() }));
+  });
+
+  app.post('/admin/suspense/:id/claim', adm, async (req) => {
+    const branchId = (req.body as any)?.branchId;
+    if (!branchId) throw new HttpError(400, 'Choose a branch', 'bad_branch');
+    try {
+      await ctx.ledger.claimSuspense((req.params as any).id, branchId, req.session!.uid);
+    } catch (e: any) {
+      throw new HttpError(409, e.message, e.code);
+    }
+    return { ok: true };
+  });
+
+  app.get('/admin/reversal-requests', adm, async (req) => listReversalRequests(ctx, (req.query as any).status));
+  app.post('/admin/reversal-requests/:id/decide', adm, async (req) =>
+    decideReversal(ctx, (req.params as any).id, req.session!.uid, (req.body as any)?.approve !== false),
+  );
+
+  app.post('/admin/settlement/run', adm, async (req) => {
+    const expired = await ctx.ledger.expireSuspense();
+    const results = await ctx.ledger.runSettlement();
+    await ctx.ledger.audit({ actor: req.session!.uid, action: 'settlement.run', meta: { expired, results: results.length } });
+    return { expiredSuspense: expired, results };
+  });
+
+  app.post('/admin/branches/:id/resume', adm, async (req) => {
+    await ctx.ledger.resumeBranch((req.params as any).id);
+    await ctx.ledger.audit({ actor: req.session!.uid, action: 'payout.resume', entity: 'branch', entityId: (req.params as any).id });
+    return { ok: true };
+  });
+
+  app.get('/admin/reconcile', adm, async () => ctx.ledger.reconcile());
+
+  app.get('/admin/payouts', adm, async () =>
+    ctx.db.query<any>(`SELECT po.*, b.name AS branch_name FROM payouts po JOIN branches b ON b.id=po.branch_id ORDER BY po.created_at DESC LIMIT 100`),
+  );
+
+  app.get('/admin/audit', adm, async () => ctx.db.query<any>(`SELECT * FROM audit_log ORDER BY id DESC LIMIT 100`));
+
+  app.get('/admin/revenue', adm, async () => {
+    const r = (
+      await ctx.db.query<any>(`SELECT COALESCE(SUM(platform_fee),0) AS platform_fee, COALESCE(SUM(psp_cost),0) AS psp_cost, COUNT(*) AS n FROM payments WHERE stage IN ('pending','available','paid_out')`)
+    )[0];
+    return { ...r, feeRevenueBalance: await ctx.ledger.balance('fee_revenue'), pspCostPayable: await ctx.ledger.balance('psp_cost_payable'), clockOffsetHours: ctx.clock.offsetHours, now: ctx.clock.now().toISOString() };
+  });
+
+  // ---------- testing tools (development only) ----------
+
+  app.post('/admin/simulate/paybill', devAdm, async (req) => {
+    const b = (req.body ?? {}) as any;
+    let amount: number;
+    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter an amount', 'bad_amount'); }
+    const out = await ctx.provider.simulatePaybill({ phone: String(b.phone ?? '254700000000'), amount, reference: String(b.reference ?? ''), method: b.method ?? 'mpesa', duplicate: !!b.duplicate });
+    return { ok: true, ...out };
+  });
+
+  app.post('/admin/clock/advance', devAdm, async (req) => {
+    const hours = Number((req.body as any)?.hours);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 30) throw new HttpError(400, 'Enter hours between 1 and 720', 'bad_hours');
+    ctx.clock.advanceHours(hours);
+    const released = await ctx.ledger.releasePending();
+    return { now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released };
+  });
+
+  app.post('/admin/provider/fail-next-payout', devAdm, async () => {
+    ctx.provider.failNextPayout();
+    return { ok: true };
+  });
+
+  app.post('/admin/webhook-replay', devAdm, async (req) => {
+    const b = (req.body ?? {}) as any;
+    const raw = JSON.stringify(b);
+    return handleWebhook(ctx, raw, { 'x-psp-signature': ctx.provider.sign(raw) });
+  });
+}

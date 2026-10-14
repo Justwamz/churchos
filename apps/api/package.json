@@ -1,0 +1,19 @@
+{
+  "name": "@churchos/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@churchos/ledger": "workspace:*",
+    "@churchos/payments": "workspace:*",
+    "@churchos/shared": "workspace:*",
+    "@fastify/cors": "^10.0.1",
+    "fastify": "^5.1.0"
+  }
+}
