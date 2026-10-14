@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
 import { Badge, Button, ErrorNote, HelpButton, LoginGate, Spinner } from '@churchos/ui';
 import { api, SessionCtx, friendly, type Session } from './session';
 import { Dashboard } from './Dashboard';
@@ -39,7 +40,8 @@ function Shell({ signOut }: { signOut: () => void }) {
   const [scope, setScope] = useState('all');
   const [page, setPage] = useState('');
 
-  const [unverified, setUnverified] = useState(false);
+  const [kyc, setKyc] = useState<KycSummary | null>(null);
+  const unverified = !!kyc && kyc.tone !== 'done';
 
   useEffect(() => {
     api.get('/staff/me').then(setMe).catch((e) => setError(friendly(e.message)));
@@ -65,11 +67,11 @@ function Shell({ signOut }: { signOut: () => void }) {
   }, [me, grant, scope]);
 
   useEffect(() => {
-    setUnverified(false);
-    if (!session || !session.can('kyc.manage')) return;
+    if (!session || !session.can('kyc.manage')) { setKyc(null); return; }
     let live = true;
-    api.get('/kyc/status' + session.qs())
-      .then((k: any) => { if (live) setUnverified((k.branches ?? []).some((b: any) => !b.verified)); })
+    // Always summarise the whole organisation, not just the selected branch, so the banner cannot be hidden by the scope selector.
+    api.get('/kyc/status' + (session.orgs.length > 1 ? `?org=${session.grant.org.id}` : ''))
+      .then((k: any) => { if (live) setKyc(summarize(k)); })
       .catch(() => {});
     return () => { live = false; };
   }, [session, page]);
@@ -119,6 +121,8 @@ function Shell({ signOut }: { signOut: () => void }) {
             <span className="tiny">{grant.org.name}</span>
             {unverified && <Badge tone="warn">Not verified</Badge>}
           </div>
+          {kyc && kyc.tone !== 'done' && current?.id !== 'verification' && <VerificationBanner s={kyc} onGo={() => setPage('verification')} />}
+          {kyc && <VerificationDialog s={kyc} userKey={me.user.id} onGo={() => setPage('verification')} />}
           {Page ? <Page key={`${current.id}:${grant.org.id}:${scope}`} /> : <ErrorNote>You do not have access to any pages yet.</ErrorNote>}
           <div style={{ height: 80 }} aria-hidden="true" />
         </main>
