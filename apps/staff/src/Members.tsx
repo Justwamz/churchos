@@ -1,83 +1,165 @@
-import { useState } from 'react';
-import { Badge, Button, Card, Empty, Field, Note, StatusBadge, Table, shortDate, useAsync, useToast } from '@churchos/ui';
+import { useEffect, useState } from 'react';
+import { Badge, Button, Card, Empty, Note, StatusBadge, Table, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
+import { HouseholdModal, MemberFormModal, useDebounced } from './MemberForm';
+import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
 
-const REL = ['Head', 'Spouse', 'Child', 'Parent', 'Other'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** 'MM-DD' to '14 Jun'. */
+export const birthdayText = (b: string | null | undefined) => {
+  const m = /^(\d{2})-(\d{2})$/.exec(b ?? '');
+  return m ? `${Number(m[2])} ${MONTHS[Number(m[1]) - 1] ?? ''}` : '-';
+};
+
+function Insights({ onEdit }: { onEdit: (id: string) => void }) {
+  const s = useSession();
+  const d = useAsync<any>(() => api.get('/members/insights' + s.qs()), [s.qs()]);
+  const x = d.data;
+  const empty = x && !x.birthdays.length && !x.turningEighteen.length && !x.needsOwnPhone.length;
+  return (
+    <Card title="Insights">
+      <Load loading={d.loading} error={d.error} hasData={!!x}>
+        {x && (empty ? <Empty>All calm. No birthdays this week and nothing needs attention.</Empty> : (
+          <div className="grid cols-3">
+            {x.birthdays.length > 0 && (
+              <div><h4 style={{ margin: '0 0 6px' }}>Birthdays this week</h4>
+                {x.birthdays.map((b: any) => (
+                  <div key={b.id} className="row between" style={{ fontSize: 14 }}><span>{b.full_name}</span>
+                    <span>{b.days_away === 0 ? <Badge tone="good">Today!</Badge> : birthdayText(b.birthday)}</span></div>
+                ))}</div>
+            )}
+            {x.turningEighteen.length > 0 && (
+              <div><h4 style={{ margin: '0 0 6px' }}>Turning 18 soon</h4>
+                {x.turningEighteen.map((c: any) => (
+                  <div key={c.id} className="row between" style={{ fontSize: 14 }}><span>{c.full_name}</span>
+                    <span className="tiny">{c.days_until_18 <= 0 ? 'today' : `in ${c.days_until_18} day${c.days_until_18 === 1 ? '' : 's'}`}</span></div>
+                ))}</div>
+            )}
+            {x.needsOwnPhone.length > 0 && (
+              <div><h4 style={{ margin: '0 0 6px' }}>Needs their own phone number</h4>
+                {x.needsOwnPhone.map((a: any) => (
+                  <div key={a.id} className="row between" style={{ fontSize: 14 }}>
+                    <span>{a.full_name}<br /><span className="tiny">{a.guardians?.length ? `Guardians: ${a.guardians.map((g: any) => g.full_name).join(', ')}` : ''}</span></span>
+                    {s.can('members.edit') && <Button small kind="ghost" onClick={() => onEdit(a.id)}>Edit</Button>}
+                  </div>
+                ))}</div>
+            )}
+          </div>
+        ))}
+      </Load>
+    </Card>
+  );
+}
+
+function MemberRows({ members, household, canEdit, onEdit, onHousehold, onPrimary }: {
+  members: any[]; household?: any; canEdit: boolean; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
+}) {
+  return (
+    <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', ...(canEdit ? [''] : [])]}>
+      {members.map((m) => (
+        <tr key={m.id}>
+          <td><b>{m.full_name}</b>{m.is_primary_contact && <> <Badge tone="info">Primary contact</Badge></>}</td>
+          <td><Badge tone={m.category === 'child' ? 'warn' : 'muted'}>{m.category === 'child' ? 'Child' : 'Adult'}</Badge></td>
+          <td>{m.age_band ?? '-'}{m.age != null && <span className="tiny"> ({m.age})</span>}</td>
+          <td>{birthdayText(m.birthday)}</td>
+          <td>{m.sex === 'male' ? 'Male' : m.sex === 'female' ? 'Female' : '-'}</td>
+          <td className="mono">{m.member_number}</td>
+          <td>{m.branch_name}</td>
+          <td>
+            {m.category === 'child' ? (
+              <>
+                <div>Guardians: {m.guardians?.length ? m.guardians.map((g: any) => g.full_name).join(', ') : '-'}</div>
+                <div className="tiny">Contact: {m.contact_phones?.length ? m.contact_phones.map(phonePretty).join(', ') : '-'}</div>
+              </>
+            ) : m.phone ? phonePretty(m.phone) : <Badge tone="warn">Needs own phone</Badge>}
+          </td>
+          {canEdit && (
+            <td><div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+              <Button small kind="ghost" onClick={() => onEdit(m)}>Edit</Button>
+              <Button small kind="ghost" onClick={() => onHousehold(m)}>Household</Button>
+              {household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}
+            </div></td>
+          )}
+        </tr>
+      ))}
+    </Table>
+  );
+}
 
 export function Members() {
   const s = useSession();
-  const [q, setQ] = useState('');
-  const [applied, setApplied] = useState('');
-  const d = useAsync<any[]>(() => api.get('/members' + s.qs({ q: applied || undefined })), [s.qs(), applied]);
   const toast = useToast();
-  const [adding, setAdding] = useState(false);
-  const [f, setF] = useState({ fullName: '', phone: '', branchId: '', householdId: '', newHousehold: '', relationship: 'Head' });
-  const [busy, setBusy] = useState(false);
-  const branchId = f.branchId || (s.scope !== 'all' ? s.scope : s.branches[0]?.id ?? '');
-  const households = Array.from(new Map((d.data ?? []).filter((m) => m.household_id).map((m) => [m.household_id, m.household])).entries());
+  const [q, setQ] = useState('');
+  const dq = useDebounced(q.trim());
+  const d = useAsync<any>(() => api.get('/members/grouped' + s.qs({ q: dq || undefined })), [s.qs(), dq]);
+  const settings = useAsync<NumberSettings>(() => api.get('/members/settings' + s.qs({ branch: undefined })), [s.qs()]);
+  const canEdit = s.can('members.edit');
+  const [form, setForm] = useState<{ member?: any } | null>(null);
+  const [hhFor, setHhFor] = useState<any>(null);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [insightsKey, setInsightsKey] = useState(0);
 
-  const add = async () => {
-    setBusy(true);
-    try {
-      const r = await api.post('/members' + s.qs(), {
-        fullName: f.fullName, phone: f.phone || undefined, branchId, relationship: f.relationship,
-        householdId: f.householdId || undefined, newHousehold: !f.householdId && f.newHousehold ? f.newHousehold : undefined,
-      });
-      toast.show(`Added. Member number ${r.memberNumber}.`);
-      setF({ ...f, fullName: '', phone: '', householdId: '', newHousehold: '' });
-      setAdding(false);
-      d.reload();
-    } catch (e: any) { toast.show(friendly(e.message), 'bad'); }
-    setBusy(false);
+  const refresh = () => { d.reload(); settings.reload(); setInsightsKey((k) => k + 1); };
+  const all: any[] = (d.data?.households ?? []).flatMap((h: any) => h.members).concat(d.data?.individuals ?? []);
+  const isOpen = (id: string) => open[id] ?? !!dq;
+  useEffect(() => { setOpen({}); }, [dq]);
+
+  const editById = (id: string) => {
+    const m = all.find((x: any) => x.id === id);
+    if (m) setForm({ member: m });
+    else api.get('/members' + s.qs()).then((r: any[]) => { const f = r.find((x) => x.id === id); if (f) setForm({ member: f }); }).catch((e) => toast.show(friendly(e.message), 'bad'));
   };
+  const setPrimary = async (h: any, m: any) => {
+    try { await api.put(`/households/${h.id}/primary-contact` + s.qs({ branch: undefined }), { membershipId: m.id }); toast.show(`${m.full_name} is now the primary contact.`); refresh(); }
+    catch (e: any) { toast.show(friendly(e.message), 'bad'); }
+  };
+  const setAll = (v: boolean) => setOpen(Object.fromEntries((d.data?.households ?? []).map((h: any) => [h.id, v])));
+
+  const rowProps = { canEdit, onEdit: (m: any) => setForm({ member: m }), onHousehold: setHhFor, onPrimary: setPrimary };
+  const t = d.data?.totals;
 
   return (
     <>
-      <PageHead title="Members" sub="Your church family." action={s.can('members.edit') && <Button onClick={() => setAdding(!adding)}>{adding ? 'Close' : 'Add member'}</Button>} />
+      <PageHead title="Members" sub="Your church family." action={canEdit && <Button onClick={() => setForm({})}>Add member</Button>} />
       <div className="stack">
-        {adding && (
-          <Card title="Add a member">
-            <form className="grid cols-3" onSubmit={(e) => { e.preventDefault(); add(); }}>
-              <Field label="Full name"><input value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} /></Field>
-              <Field label="Phone (optional)"><input inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="0712 345 678" /></Field>
-              <Field label="Branch">
-                <select value={branchId} onChange={(e) => setF({ ...f, branchId: e.target.value })}>
-                  {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </Field>
-              <Field label="Household">
-                <select value={f.householdId} onChange={(e) => setF({ ...f, householdId: e.target.value })}>
-                  <option value="">New household</option>
-                  {households.map(([id, name]) => <option key={String(id)} value={String(id)}>{String(name)}</option>)}
-                </select>
-              </Field>
-              {!f.householdId && <Field label="New household name" hint="Leave empty for no household"><input value={f.newHousehold} onChange={(e) => setF({ ...f, newHousehold: e.target.value })} placeholder="The Otieno family" /></Field>}
-              <Field label="Relationship">
-                <select value={f.relationship} onChange={(e) => setF({ ...f, relationship: e.target.value })}>{REL.map((r) => <option key={r}>{r}</option>)}</select>
-              </Field>
-              <div><Button type="submit" disabled={busy || !f.fullName.trim() || !branchId}>{busy ? 'Saving…' : 'Save member'}</Button></div>
-            </form>
-          </Card>
-        )}
+        <Insights key={insightsKey} onEdit={editById} />
         <Card>
-          <form className="row" onSubmit={(e) => { e.preventDefault(); setApplied(q.trim()); }}>
-            <input style={{ flex: 1, minWidth: 200 }} placeholder="Search by name, member number or phone" value={q} onChange={(e) => setQ(e.target.value)} />
-            <Button type="submit">Search</Button>
-          </form>
+          <input style={{ width: '100%' }} aria-label="Search members" placeholder="Search by name, member number or phone" value={q} onChange={(e) => setQ(e.target.value)} />
+          {t && <div className="tiny" style={{ marginTop: 8 }}>{dq ? 'Found ' : ''}{t.households} household{t.households === 1 ? '' : 's'} and {t.members} {t.members === 1 ? 'person' : 'people'}{dq ? ' matching your search' : ''}.</div>}
         </Card>
         <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-          <Card title={`Members${d.data ? ` (${d.data.length})` : ''}`}>
-            {!d.data || d.data.length === 0 ? <Empty>No members found.</Empty> : (
-              <Table head={['Name', 'Member no.', 'Branch', 'Household', 'Relationship']}>
-                {d.data.map((m) => (
-                  <tr key={m.id}><td><b>{m.full_name}</b></td><td className="mono">{m.member_number}</td><td>{m.branch_name}</td><td>{m.household ?? '-'}</td><td>{m.relationship ?? '-'}</td></tr>
-                ))}
-              </Table>
-            )}
-          </Card>
+          {d.data && (
+            <>
+              <Card title="Households" action={d.data.households.length > 0 && <div className="row"><Button small kind="ghost" onClick={() => setAll(true)}>Expand all</Button><Button small kind="ghost" onClick={() => setAll(false)}>Collapse all</Button></div>}>
+                {d.data.households.length === 0 ? <Empty>{dq ? 'No households match your search.' : 'No households yet.'}</Empty> : (
+                  <div className="stack" style={{ gap: 8 }}>
+                    {d.data.households.map((h: any) => (
+                      <details key={h.id} open={isOpen(h.id)} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; if (o !== isOpen(h.id)) setOpen((p) => ({ ...p, [h.id]: o })); }} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '4px 12px' }}>
+                        <summary style={{ cursor: 'pointer', padding: '8px 0', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <b>{h.label}</b>
+                          <span className="tiny">{h.members.length} member{h.members.length === 1 ? '' : 's'}</span>
+                          <span className="chips" style={{ gap: 4 }}>
+                            {h.members.slice(0, 3).map((m: any) => <Badge key={m.id}>{m.full_name}</Badge>)}
+                            {h.members.length > 3 && <Badge>+{h.members.length - 3}</Badge>}
+                          </span>
+                        </summary>
+                        {isOpen(h.id) && <div style={{ paddingBottom: 8 }}><MemberRows members={h.members} household={h} {...rowProps} /></div>}
+                      </details>
+                    ))}
+                  </div>
+                )}
+              </Card>
+              {d.data.individuals.length > 0 && (
+                <Card title="Not in a household"><MemberRows members={d.data.individuals} {...rowProps} /></Card>
+              )}
+            </>
+          )}
         </Load>
+        <MemberNumberSettings settings={settings} reload={refresh} />
       </div>
+      {form && <MemberFormModal member={form.member} nextPreview={settings.data?.preview} onClose={() => setForm(null)} onDone={refresh} />}
+      {hhFor && <HouseholdModal member={hhFor} onClose={() => setHhFor(null)} onDone={(msg) => { toast.show(msg); refresh(); }} />}
       {toast.node}
     </>
   );
