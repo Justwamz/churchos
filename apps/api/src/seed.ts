@@ -109,6 +109,39 @@ export async function seed(ctx: Ctx) {
   await member({ id: 'm_amina', org: 'org_grace', branch: 'br_grc002', user: 'u_amina', name: 'Amina Hassan', phone: '254711000003', number: 'M00005', hh: null, category: 'adult', dob: '1995-09-09', sex: 'female' });
   await db.query(`INSERT INTO org_settings (org_id, member_number_next) VALUES ('org_grace', 7) ON CONFLICT DO NOTHING`);
 
+  // Certificate template, branch details and sacramental records (L98 to L103).
+  const logoSvg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#0e5a52"/><rect x="44" y="20" width="12" height="60" rx="2" fill="#f8efdc"/><rect x="26" y="38" width="48" height="12" rx="2" fill="#f8efdc"/></svg>',
+  ).toString('base64');
+  await db.query(
+    `INSERT INTO certificate_templates (org_id, config, logo_mime, logo_data, updated_by, updated_at) VALUES ('org_grace', $1, 'image/svg+xml', $2, 'u_owner', $3) ON CONFLICT DO NOTHING`,
+    [
+      JSON.stringify({
+        churchName: 'Grace Community Church', tagline: 'Growing in grace together', baptismTitle: 'Certificate of Baptism',
+        baptismBody: 'This is to certify that {name} was baptised on {date} at {place} by {officiant}, in the name of the Father, and of the Son, and of the Holy Spirit.',
+        signatories: [{ name: 'Rev. Daniel Mwangi', title: 'Senior Pastor' }, { name: 'Samuel Kiptoo', title: 'Church Administrator' }],
+        accent: '#0e5a52', footer: 'Keep this certificate safe. Scan the code to verify it.', showQr: true, copyPriceCents: 50000,
+      }),
+      logoSvg, now,
+    ],
+  );
+  await db.query(`INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ('br_grc001','org_grace','Ngong Road, Kilimani','Nairobi','+254 700 000 111','nairobi@grace.example') ON CONFLICT DO NOTHING`);
+  await db.query(`INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ('br_grc002','org_grace','Nyali Road','Mombasa','+254 700 000 222','mombasa@grace.example') ON CONFLICT DO NOTHING`);
+  const rec = (r: { id: string; kind: 'baptism' | 'marriage'; membership: string | null; name: string; date: string; place: string; officiant: string; details: object; status: string; serial: string | null; key: string | null; file?: boolean; by?: string }) =>
+    db.query(
+      `INSERT INTO sacramental_records (id, org_id, branch_id, kind, membership_id, subject_name, event_date, place, officiant, register_number, details, status, serial, verify_key, file_name, file_mime, file_data, created_by, last_edited_by, approved_by, approved_at, created_at, updated_at)
+       VALUES ($1,'org_grace','br_grc001',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,$17,$18,$19,$19) ON CONFLICT DO NOTHING`,
+      [r.id, r.kind, r.membership, r.name, r.date, r.place, r.officiant, r.serial ? r.serial.slice(-4) : null, JSON.stringify(r.details), r.status, r.serial, r.key,
+       r.file ? 'marriage-certificate.pdf' : null, r.file ? 'application/pdf' : null, r.file ? demoPdf : null, r.by ?? 'u_admin', r.status === 'approved' ? 'u_owner' : null, r.status === 'approved' ? now : null, now],
+    );
+  await rec({ id: 'rec_ruth', kind: 'baptism', membership: 'm_ruth', name: 'Ruth Wanjiku', date: dateOf(0, -90), place: 'Grace Community Church, Nairobi', officiant: 'Rev. Daniel Mwangi',
+    details: { dob: null, birthplace: 'Nairobi', father: 'David Wanjiku', mother: 'Jane Wanjiku', sponsors: ['Mary Achieng', 'John Kamau'] }, status: 'approved', serial: `GRC001-BAP-${t.y}-0001`, key: 'DEMOKEY1' });
+  await rec({ id: 'rec_brian', kind: 'baptism', membership: 'm_brian', name: 'Brian Otieno', date: dateOf(0, -14), place: 'Grace Community Church, Nairobi', officiant: 'Rev. Daniel Mwangi',
+    details: { father: 'Peter Otieno', sponsors: [] }, status: 'pending_approval', serial: null, key: null });
+  await rec({ id: 'rec_marriage', kind: 'marriage', membership: 'm_jane', name: 'David Wanjiku & Jane Wanjiku', date: '2010-12-18', place: 'Grace Community Church, Nairobi', officiant: 'Rev. Peter Mutua',
+    details: { parties: [{ name: 'David Wanjiku', membershipId: 'm_david' }, { name: 'Jane Wanjiku', membershipId: 'm_jane' }], certificateNumber: 'MC/2010/004512', issuingAuthority: 'Registrar of Marriages, Nairobi', witnesses: ['Samuel Kiptoo', 'Esther Njeri'] },
+    status: 'approved', serial: `GRC001-MAR-${t.y}-0001`, key: 'DEMOKEY2', file: true });
+
   await db.query(
     `INSERT INTO projects (id, org_id, branch_id, code, name, description, target, deadline, restricted, created_at)
      VALUES ('prj_roof','org_grace','br_grc001','ROOF','New Sanctuary Roof','Replacing the main sanctuary roof before the rains.',500000000,'2027-03-31',true,$1) ON CONFLICT DO NOTHING`,

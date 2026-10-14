@@ -40,6 +40,16 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
       projectId = proj?.id ?? null;
     }
     await ctx.db.query(`UPDATE payments SET member_id = $2, project_id = $3 WHERE id = $1`, [result.paymentId, m?.id ?? null, projectId]);
+    if (String(p.purpose ?? '').startsWith('CERT-')) {
+      const rec = (await ctx.db.query<any>(`SELECT id, subject_name FROM sacramental_records WHERE serial=$1`, [String(p.purpose).slice(5)]))[0];
+      const issue = rec ? (await ctx.db.query<any>(`SELECT id, requested_by FROM record_issues WHERE record_id=$1 AND status='awaiting_payment' ORDER BY created_at DESC LIMIT 1`, [rec.id]))[0] : null;
+      if (issue) {
+        await ctx.db.query(`UPDATE record_issues SET status='issued', payment_id=$2 WHERE id=$1`, [issue.id, result.paymentId]);
+        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Your certificate copy is ready',$4,$5)`, [
+          ctx.newId('ntf'), p.org_id, issue.requested_by, `Payment received. The copy of the certificate for ${rec.subject_name} is ready to print.`, ctx.clock.now().toISOString(),
+        ]);
+      }
+    }
     // Receipt by in-app notification, and by SMS when the church's wallet can pay for it (L56, L59).
     const info = (await ctx.db.query<any>(`SELECT b.name AS church, p.amount_paid, p.provider_tx_id FROM payments p JOIN branches b ON b.id=p.branch_id WHERE p.id=$1`, [result.paymentId]))[0];
     try {

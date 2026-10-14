@@ -218,6 +218,69 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at timestamptz NOT NULL
 );
 
+-- Certificates and sacramental records (L98 to L103).
+CREATE TABLE IF NOT EXISTS certificate_templates (
+  org_id text PRIMARY KEY,
+  config jsonb NOT NULL,
+  logo_mime text,
+  logo_data text,
+  updated_by text,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS branch_profiles (
+  branch_id text PRIMARY KEY,
+  org_id text NOT NULL,
+  address text,
+  town text,
+  phone text,
+  email text
+);
+
+CREATE TABLE IF NOT EXISTS sacramental_records (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('baptism','marriage')),
+  membership_id text,
+  subject_name text NOT NULL,
+  event_date text NOT NULL,
+  place text NOT NULL,
+  officiant text NOT NULL,
+  register_number text,
+  details jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending_approval','approved','rejected')),
+  pending_changes jsonb,
+  rejection_reason text,
+  serial text UNIQUE,
+  verify_key text,
+  version int NOT NULL DEFAULT 1,
+  file_name text,
+  file_mime text,
+  file_data text,
+  created_by text NOT NULL,
+  last_edited_by text NOT NULL,
+  approved_by text,
+  approved_at timestamptz,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS records_branch_idx ON sacramental_records(branch_id, status);
+
+CREATE TABLE IF NOT EXISTS record_issues (
+  id text PRIMARY KEY,
+  record_id text NOT NULL,
+  org_id text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('original','copy')),
+  status text NOT NULL CHECK (status IN ('awaiting_payment','issued')),
+  fee bigint NOT NULL DEFAULT 0,
+  waived boolean NOT NULL DEFAULT false,
+  waived_by text,
+  requested_by text NOT NULL,
+  payment_id text,
+  created_at timestamptz NOT NULL
+);
+
 -- Help content (L82 to L86). Chunked for full-text search now and embeddings later.
 CREATE TABLE IF NOT EXISTS help_articles (
   id text PRIMARY KEY,
@@ -244,7 +307,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages','certificate_templates','branch_profiles','sacramental_records','record_issues'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

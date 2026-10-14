@@ -14,6 +14,7 @@ import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
 import { publicRoutes } from './routes/public';
+import { memberRecordRoutes, publicRecordRoutes, recordRoutes } from './routes/records';
 import { staffRoutes } from './routes/staff';
 import { APP_SCHEMA } from './schema';
 
@@ -72,6 +73,9 @@ export async function buildApp(opts: BuildOptions = {}) {
   staffRoutes(app, ctx);
   memberRoutes(app, ctx);
   memberRoutes2(app, ctx);
+  recordRoutes(app, ctx);
+  publicRecordRoutes(app, ctx);
+  memberRecordRoutes(app, ctx);
   adminRoutes(app, ctx);
 
   return { app, ctx };

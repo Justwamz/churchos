@@ -72,6 +72,12 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
       const p = (await ctx.db.query<any>(`SELECT id FROM projects WHERE branch_id=$1 AND code=$2 AND status='open'`, [b.id, purpose.slice(5)]))[0];
       if (!p) throw new HttpError(400, 'That project is not open for giving', 'unknown_purpose');
       projectId = p.id;
+    } else if (purpose.startsWith('CERT-')) {
+      // A priced certificate copy: the amount is fixed by the church, and only an open request can be paid (L102).
+      const rec = (await ctx.db.query<any>(`SELECT id FROM sacramental_records WHERE serial=$1 AND branch_id=$2 AND status='approved'`, [purpose.slice(5), b.id]))[0];
+      const open = rec ? (await ctx.db.query<any>(`SELECT fee FROM record_issues WHERE record_id=$1 AND status='awaiting_payment' ORDER BY created_at DESC LIMIT 1`, [rec.id]))[0] : null;
+      if (!open) throw new HttpError(400, 'That certificate copy is not waiting for payment', 'unknown_purpose');
+      if (base !== Number(open.fee)) throw new HttpError(400, `A copy costs KES ${(Number(open.fee) / 100).toLocaleString('en-KE')}. Enter exactly that amount.`, 'amount_must_be_exact');
     } else if (purpose !== 'TITHE' && purpose !== 'OFFERING') {
       throw new HttpError(400, 'Unknown giving purpose', 'unknown_purpose');
     }
