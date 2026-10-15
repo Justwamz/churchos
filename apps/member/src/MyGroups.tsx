@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Spinner, kes, useAsync } from '@churchos/ui';
+import { Button, Card, ErrorNote, Field, Note, Spinner, kes, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
 
 const ERR: Record<string, string> = {
@@ -17,31 +17,7 @@ function useDebounced(key: string, ms: number, fn: () => void) {
   useEffect(() => { const t = setTimeout(() => ref.current(), ms); return () => clearTimeout(t); }, [key, ms]);
 }
 
-export function MyGroups() {
-  const g = useAsync<any[]>(() => api.get('/me/groups'));
-  const [open, setOpen] = useState<any | null>(null);
-  if (open) return <Composer group={open} onBack={() => setOpen(null)} />;
-  const rows = g.data ?? [];
-  return (
-    <Card title="My groups">
-      {g.loading && !g.data ? <Spinner /> : g.error && !g.data ? (
-        <div className="stack"><ErrorNote>{g.error}</ErrorNote><Button kind="ghost" onClick={g.reload}>Try again</Button></div>
-      ) : !rows.length ? <Empty>You are not in any groups yet.</Empty> : (
-        <ul className="list">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <div className="row"><strong>{r.name}</strong><Badge tone={r.role === 'leader' ? 'info' : 'muted'}>{r.role === 'leader' ? 'Leader' : 'Member'}</Badge></div>
-              <div className="tiny">{[r.church, r.branch].filter(Boolean).join(' · ')} · {r.memberCount} {r.memberCount === 1 ? 'person' : 'people'}</div>
-              {r.canMessage && <div style={{ marginTop: 6 }}><Button kind="ghost" small onClick={() => setOpen(r)}>Message this group</Button></div>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function Composer({ group, onBack }: { group: any; onBack: () => void }) {
+export function Composer({ group, onBack }: { group: any; onBack: () => void }) {
   const detail = useAsync<any>(() => api.get(`/me/groups/${encodeURIComponent(group.id)}`), [group.id]);
   const [who, setWho] = useState<'all' | 'some'>('all');
   const [picked, setPicked] = useState<string[]>([]);
@@ -85,7 +61,7 @@ function Composer({ group, onBack }: { group: any; onBack: () => void }) {
 
   if (step === 'done') {
     return (
-      <Card className="receipt"><Note tone="good">{doneMsg}</Note><div style={{ height: 12 }} /><Button onClick={onBack}>Back to my groups</Button></Card>
+      <Card className="receipt"><Note tone="good">{doneMsg}</Note><div style={{ height: 12 }} /><Button onClick={onBack}>Back to the group</Button></Card>
     );
   }
 

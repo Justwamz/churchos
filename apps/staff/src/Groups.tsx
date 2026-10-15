@@ -5,18 +5,20 @@ import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
 import { GroupDetail } from './GroupDetail';
 
-export function GroupFormModal({ group, onClose, onDone }: { group?: { id: string; name: string; description: string | null }; onClose: () => void; onDone: (id?: string) => void }) {
+export function GroupFormModal({ group, onClose, onDone }: { group?: { id: string; name: string; description: string | null; joinPolicy?: string; posting?: string }; onClose: () => void; onDone: (id?: string) => void }) {
   const s = useSession();
   const [name, setName] = useState(group?.name ?? '');
   const [desc, setDesc] = useState(group?.description ?? '');
   const [branch, setBranch] = useState('');
+  const [joinPolicy, setJoinPolicy] = useState(group?.joinPolicy ?? 'invite');
+  const [posting, setPosting] = useState(group?.posting ?? 'members');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const save = async () => {
     setBusy(true); setErr('');
     try {
-      if (group) { await api.put(`/groups/${group.id}` + s.qs({ branch: undefined }), { name, description: desc }); onDone(); }
-      else { const r = await api.post<{ id: string }>('/groups' + s.qs({ branch: undefined }), { name, description: desc, branchId: branch || undefined }); onDone(r.id); }
+      if (group) { await api.put(`/groups/${group.id}` + s.qs({ branch: undefined }), { name, description: desc, joinPolicy, posting }); onDone(); }
+      else { const r = await api.post<{ id: string }>('/groups' + s.qs({ branch: undefined }), { name, description: desc, branchId: branch || undefined, joinPolicy, posting }); onDone(r.id); }
     } catch (e: any) { setErr(friendly(e.message)); setBusy(false); }
   };
   return (
@@ -32,6 +34,18 @@ export function GroupFormModal({ group, onClose, onDone }: { group?: { id: strin
             </select>
           </Field>
         )}
+        <Field label="How people join">
+          <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value)}>
+            <option value="invite">By invitation only</option>
+            <option value="request">Members can ask to join (a leader approves)</option>
+          </select>
+        </Field>
+        <Field label="Who can post on the wall">
+          <select value={posting} onChange={(e) => setPosting(e.target.value)}>
+            <option value="members">Everyone in the group</option>
+            <option value="leaders">Only leaders</option>
+          </select>
+        </Field>
         {err && <ErrorNote>{err}</ErrorNote>}
         <div className="row"><Button disabled={busy || name.trim().length < 2} onClick={save}>{busy ? 'Saving...' : 'Save'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
@@ -59,7 +73,7 @@ export function Groups() {
               <Table head={['Group', 'Branch', 'People', 'Leaders', '']}>
                 {d.data.map((g) => (
                   <tr key={g.id}>
-                    <td><b>{g.name}</b>{g.description && <div className="tiny">{g.description}</div>}</td>
+                    <td><b>{g.name}</b>{g.description && <div className="tiny">{g.description}</div>}<div className="chips" style={{ gap: 4, marginTop: 4 }}><Badge tone="muted">{g.join_policy === 'request' ? 'Members can ask to join' : 'By invitation only'}</Badge><Badge tone="muted">{g.posting === 'leaders' ? 'Only leaders post' : 'Everyone can post'}</Badge></div></td>
                     <td>{g.branch_name ?? <Badge tone="info">Whole church</Badge>}</td>
                     <td>{g.member_count}</td>
                     <td>{g.leaders || <span className="tiny">No leader yet</span>}</td>

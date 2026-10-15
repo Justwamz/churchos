@@ -20,7 +20,7 @@ function Row({ r, compact }: { r: any; compact?: boolean }) {
   const receipt = kind === 'receipt';
   return (
     <li className={`msg ${r.read ? '' : 'unread'} ${receipt ? 'receipt-row' : ''}`}>
-      <span className={`msg-ico ${receipt ? 'good' : ''}`} aria-hidden="true"><Icon name={receipt ? 'check' : kind === 'reminder' ? 'bell' : 'chat'} size={20} /></span>
+      <span className={`msg-ico ${receipt ? 'good' : ''} ${kind === 'announcement' ? 'announce' : ''}`} aria-hidden="true"><Icon name={receipt ? 'check' : kind === 'reminder' ? 'bell' : kind === 'announcement' ? 'megaphone' : 'chat'} size={20} /></span>
       <div className="msg-main">
         <div className="msg-top">
           <span className="msg-kind">{KIND_LABEL[kind] ?? 'Message'}</span>

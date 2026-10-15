@@ -94,6 +94,8 @@ export function GroupDetail({ id, onBack }: { id: string; onBack: () => void }) 
             <Card title={g.name} action={<div className="row">{canManage && <Button small kind="ghost" onClick={() => setEditing(true)}>Edit</Button>}{s.can('messages.send') && <Button small onClick={message}>Message this group</Button>}</div>}>
               <div className="tiny">{g.description || 'No description.'}</div>
               <div className="tiny" style={{ marginTop: 6 }}>Group leaders can message their group from the member app.</div>
+              <div className="chips" style={{ gap: 4, marginTop: 8 }}><Badge tone="muted">{g.joinPolicy === 'request' ? 'Members can ask to join' : 'By invitation only'}</Badge><Badge tone="muted">{g.posting === 'leaders' ? 'Only leaders post' : 'Everyone can post'}</Badge></div>
+              <div className="tiny" style={{ marginTop: 6 }}>The wall is private to the group. Church staff see the group and its size, not the posts, unless they are in the group.</div>
             </Card>
             <Card title={`People (${g.members.length})`} action={canManage && <Button small onClick={() => setAdding(true)}>Add people</Button>}>
               {g.members.length === 0 ? <Empty>No one is in this group yet.</Empty> : (

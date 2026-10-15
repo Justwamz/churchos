@@ -21,6 +21,13 @@ const P: Record<string, ReactNode> = {
   logout: <path d="M10 4.5H5.5v15H10M15 8l4 4-4 4M19 12H9.5" />,
   help: (<><circle cx="12" cy="12" r="8.5" /><path d="M9.7 9.6a2.4 2.4 0 0 1 4.6.8c0 1.6-2.3 1.9-2.3 3.4M12 16.6v.1" /></>),
   install: <path d="M12 4v11M7.5 11 12 15.5 16.5 11M5 19.5h14" />,
+  pin: <path d="M9 4h6l-1 5 3 3v1.5h-4.5V20l-1 .5-1-.5v-6.5H6V12l3-3z" />,
+  megaphone: <path d="M4 10v4h3l7 4.5v-13L7 10zM17.5 9.5a4 4 0 0 1 0 5M7 14l1.2 5h2.3L9.7 15.5" />,
+  calendar: (<><rect x="4" y="5.5" width="16" height="14.5" rx="2" /><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" /></>),
+  more: (<><circle cx="5.5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18.5" cy="12" r="1.2" /></>),
+  back: <path d="M19 12H5M11 6l-6 6 6 6" />,
+  refresh: <path d="M19.5 8A8 8 0 0 0 5 9.5M4.5 4.5v5h5M4.5 16a8 8 0 0 0 14.5-1.5M19.5 19.5v-5h-5" />,
+  send: <path d="M4 12 20 4l-5 16-3.5-6.5z" />,
   pledge: (<><path d="M5 4.5h14v15H5z" /><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" /></>),
 };
 const CLOSED = new Set(['home', 'give', 'chat', 'groups', 'me', 'bell']);

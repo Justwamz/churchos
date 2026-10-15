@@ -41,13 +41,14 @@ for (const p of paths.length ? paths : ['/']) {
   const [route, click] = p.split('@'); // "/path@Text to click" clicks the first element with that text before the shot
   await page.goto(cfg.url + route, { waitUntil: 'networkidle2' });
   await new Promise((r) => setTimeout(r, 700));
-  if (click) {
+  // several clicks in a row are separated by ">" for example "/@Groups>Youth Fellowship"
+  for (const step of click ? click.split('>') : []) {
     const hit = await page.evaluate((txt) => {
-      const el = [...document.querySelectorAll('button,a,[role=tab],[role=button]')].find((e) => (e.textContent || '').trim().includes(txt) || e.getAttribute('aria-label') === txt);
-      if (el) { (el).click(); return true; }
+      const el = [...document.querySelectorAll('button,a,[role=tab],[role=button]')].find((x) => (x.textContent || '').trim().includes(txt) || x.getAttribute('aria-label') === txt);
+      if (el) { el.click(); return true; }
       return false;
-    }, click);
-    if (!hit) errors.push(`could not find "${click}" to click`);
+    }, step);
+    if (!hit) errors.push(`could not find "${step}" to click`);
     await new Promise((r) => setTimeout(r, 900));
   }
   const file = `${out}/${String(++n).padStart(2, '0')}-${(route + (click ? '-' + click : '')).replace(/[^a-z0-9]+/gi, '_').slice(0, 50)}.png`;

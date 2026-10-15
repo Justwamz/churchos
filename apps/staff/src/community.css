@@ -1,0 +1,11 @@
+.ph-frame { width: 100%; max-width: 300px; border: 8px solid var(--ink); border-radius: 28px; padding: 14px 12px 18px; background: var(--bg); }
+.ph-bar { height: 6px; width: 60px; border-radius: 999px; background: var(--line); margin: 0 auto 12px; }
+.ph-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 6px; }
+.ph-card b { overflow-wrap: anywhere; }
+.ph-card p { margin: 0; font-size: 14px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ev-item { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 16px; margin-bottom: 16px; }
+.ev-date { width: 64px; text-align: center; border-radius: 12px; background: var(--brand-tint); border: 1px solid var(--line); padding: 8px 0; align-self: start; }
+.ev-date b { display: block; font-size: 24px; line-height: 1.1; }
+.ev-date span { font-size: 12px; text-transform: uppercase; color: var(--ink-2); }
+.cm-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 800px) { .cm-split { grid-template-columns: 1fr; } }

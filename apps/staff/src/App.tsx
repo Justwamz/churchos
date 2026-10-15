@@ -4,6 +4,8 @@ import { Badge, Button, ErrorNote, HelpButton, LoginGate, Spinner } from '@churc
 import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
 import { EmailGate } from './EmailGate';
 import { Adverts } from './Adverts';
+import { Notices } from './Notices';
+import { Events } from './Events';
 import { Dashboard } from './Dashboard';
 import { Collections } from './Collections';
 import { Settlements } from './Settlements';
@@ -27,7 +29,7 @@ import { AuditPage } from './Audit';
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -41,6 +43,8 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'messages', label: 'Messages', any: ['messages.send', 'messages.view'], el: Messages },
   { id: 'wallets', label: 'Messaging wallets', any: ['wallets.view'], el: Wallets },
   { id: 'integrations', label: 'Messaging settings', any: ['integrations.manage', 'wallets.view'], el: Integrations },
+  { id: 'notices', label: 'Notices', any: ['notices.view', 'notices.manage'], el: Notices },
+  { id: 'events', label: 'Events', any: ['events.view', 'events.manage'], el: Events },
   { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: Adverts },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
