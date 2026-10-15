@@ -2,6 +2,7 @@ import { ROLE_TEMPLATES } from './auth';
 import type { Ctx } from './ctx';
 import { todayEat } from './members';
 import { ensureWallets } from './wallets';
+import { startOfDayEat } from './ctx';
 import { gradientPng } from './artwork';
 
 export const SEED_LOGINS = [
@@ -207,7 +208,8 @@ export async function seed(ctx: Ctx) {
   );
 
   // Notice board, events and group walls (L133 to L139). Dates are relative to the clock so the demo always has something coming up.
-  const at = (days: number, hour = 0) => new Date(ctx.clock.now().getTime() + days * 86400_000 + hour * 3600_000).toISOString();
+  // Days ahead at a given East Africa Time hour, so demo events start at sensible times.
+  const at = (days: number, hour = 0) => new Date(Date.parse(startOfDayEat(ctx.clock.now())) + days * 86400_000 + hour * 3600_000).toISOString();
   await db.query(`INSERT INTO groups (id, org_id, branch_id, name, description, created_by, created_at, join_policy, posting) VALUES ('grp_prayer','org_grace','br_grc001','Prayer Warriors','Wednesday prayer, open to everyone who wants to join','u_admin',$1,'request','members') ON CONFLICT DO NOTHING`, [now]);
   await db.query(`INSERT INTO group_members (group_id, membership_id, org_id, role, added_at) VALUES ('grp_prayer','m_jane','org_grace','leader',$1), ('grp_prayer','m_david','org_grace','member',$1) ON CONFLICT DO NOTHING`, [now]);
   await db.query(
