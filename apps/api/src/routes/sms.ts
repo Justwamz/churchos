@@ -3,6 +3,7 @@ import { toCents } from '@churchos/shared';
 import { normalizePhone } from '../auth';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 import { LOW_BALANCE_MESSAGES, notify, SMS_RATE_CENTS } from '../sms';
+import { maskPhoneSql } from './helpers';
 
 export function smsRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
@@ -26,7 +27,7 @@ export function smsRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get('/sms/wallet', auth, async (req) => {
     const scope = await staffScope(ctx, req, 'sms.manage');
-    const messages = await ctx.db.query<any>(`SELECT id, to_phone, kind, body, cost, status, created_at FROM sms_messages WHERE org_id=$1 ORDER BY created_at DESC LIMIT 100`, [scope.orgId]);
+    const messages = await ctx.db.query<any>(`SELECT id, ${maskPhoneSql('to_phone')} AS to_phone, kind, body, cost, status, created_at FROM sms_messages WHERE org_id=$1 ORDER BY created_at DESC LIMIT 100`, [scope.orgId]);
     const topups = await ctx.db.query<any>(`SELECT id, amount, status, created_at FROM sms_topups WHERE org_id=$1 ORDER BY created_at DESC LIMIT 20`, [scope.orgId]);
     return { ...(await walletOf(scope.orgId)), messages, topups };
   });

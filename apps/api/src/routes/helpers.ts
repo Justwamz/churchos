@@ -19,3 +19,7 @@ export function csv(rows: Record<string, unknown>[]): string {
   };
   return [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');
 }
+
+/** SQL for a masked phone column, for example 254711•••001. Used so full numbers are never even selected for staff screens (L109). */
+export const maskPhoneSql = (col: string) =>
+  `(CASE WHEN ${col} IS NULL THEN NULL WHEN length(${col}) < 9 THEN '••••' ELSE left(${col}, 6) || '•••' || right(${col}, 3) END)`;

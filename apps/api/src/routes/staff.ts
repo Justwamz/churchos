@@ -3,8 +3,9 @@ import { computeFee, toCents } from '@churchos/shared';
 import { branchesFor, loadGrants, PERMISSIONS, type Permission } from '../auth';
 import { HttpError, inList, requireSession, staffScope, startOfDayEat, bearer, type Ctx } from '../ctx';
 import { verifyToken } from '../auth';
-import { csv } from './helpers';
+import { csv, maskPhoneSql } from './helpers';
 import { nextMemberNumber } from '../members';
+import { diff, maskedSnapshot, PROJECT_SPECS, recordVersion } from '../audit';
 
 const DONE = `('pending','available','paid_out')`;
 
@@ -54,7 +55,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
         )
       )[0];
       const recent = await q.query<any>(
-        `SELECT p.id, p.method, p.purpose, p.amount_paid, p.net, (p.platform_fee + p.psp_cost) AS fee, p.stage, p.received_at, p.payer_phone, b.name AS branch
+        `SELECT p.id, p.method, p.purpose, p.amount_paid, p.net, (p.platform_fee + p.psp_cost) AS fee, p.stage, p.received_at, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch
            FROM payments p JOIN branches b ON b.id = p.branch_id WHERE ${where.replace(/branch_id/, 'p.branch_id').replace('stage', 'p.stage')}
           ORDER BY p.received_at DESC LIMIT 20`,
         ids,
@@ -94,7 +95,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       if (!e.branchId || !allowed.has(e.branchId)) return;
       const p = (
         await ctx.db.query<any>(
-          `SELECT p.id, p.method, p.purpose, p.amount_paid, p.net, (p.platform_fee + p.psp_cost) AS fee, p.stage, p.received_at, p.payer_phone, b.name AS branch, p.branch_id
+          `SELECT p.id, p.method, p.purpose, p.amount_paid, p.net, (p.platform_fee + p.psp_cost) AS fee, p.stage, p.received_at, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch, p.branch_id
              FROM payments p JOIN branches b ON b.id = p.branch_id WHERE p.id=$1`,
           [e.paymentId],
         )
@@ -128,7 +129,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     if (q.method) add('p.method = ?', String(q.method).toLowerCase());
     const rows = await ctx.db.asOrg(scope.orgId, async (db) => {
       const pay = await db.query<any>(
-        `SELECT p.id, p.received_at AS date, b.code AS branch, p.method, p.purpose, p.payer_phone AS phone, m.full_name AS member, m.member_number,
+        `SELECT p.id, p.received_at AS date, b.code AS branch, p.method, p.purpose, ${maskPhoneSql('p.payer_phone')} AS phone, m.full_name AS member, m.member_number,
                 p.amount_paid AS gross, (p.platform_fee + p.psp_cost) AS fee, p.net, p.stage AS status, p.provider_tx_id AS receipt
            FROM payments p JOIN branches b ON b.id = p.branch_id LEFT JOIN memberships m ON m.id = p.member_id
           WHERE ${where} ORDER BY p.received_at DESC LIMIT 1000`,
@@ -239,7 +240,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       `INSERT INTO cash_entries (id, org_id, branch_id, amount, purpose, note, status, counted_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,'counted',$7,$8)`,
       [id, scope.orgId, b.branchId, amount, purpose, b.note ?? null, req.session!.uid, ctx.clock.now().toISOString()],
     );
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'cash.count', entity: 'cash', entityId: id, meta: { amount } });
+    await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'cash.count', entity: 'cash', entityId: id, summary: `Counted KES ${(amount / 100).toLocaleString('en-KE')} of cash for ${purpose.toLowerCase()}, waiting for a second person`, changes: [{ field: 'amount', label: 'Counted amount (cents)', before: null, after: amount }, { field: 'purpose', label: 'Purpose', before: null, after: purpose }], links: { cashId: id } });
     return { id, status: 'counted' };
   });
 
@@ -255,7 +256,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     if (row.counted_by === req.session!.uid) throw new HttpError(403, 'A second person must sign off the count', 'same_person');
     if (!approve) {
       await ctx.db.query(`UPDATE cash_entries SET status='rejected', approved_by=$2, approved_at=$3 WHERE id=$1`, [id, req.session!.uid, ctx.clock.now().toISOString()]);
-      await ctx.ledger.audit({ orgId: row.org_id, actor: req.session!.uid, action: 'cash.reject', entity: 'cash', entityId: id });
+      await ctx.ledger.audit({ orgId: row.org_id, branchId: row.branch_id, actor: req.session!.uid, action: 'cash.reject', entity: 'cash', entityId: id, summary: 'Rejected a cash count', reason: (req.body as any)?.reason ? String((req.body as any).reason).slice(0, 200) : null, links: { cashId: id }, meta: { counted: Number(row.amount) } });
       return { id, status: 'rejected' };
     }
     const org = (await ctx.db.query<any>(`SELECT fee_schedule FROM organisations WHERE id=$1`, [row.org_id]))[0];
@@ -264,7 +265,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       await q.query(`UPDATE cash_entries SET status='approved', approved_by=$2, approved_at=$3, fee=$4 WHERE id=$1`, [id, req.session!.uid, ctx.clock.now().toISOString(), fee]);
       await ctx.ledger.chargeCashFee(q, row.branch_id, id, fee);
     });
-    await ctx.ledger.audit({ orgId: row.org_id, actor: req.session!.uid, action: 'cash.approve', entity: 'cash', entityId: id, meta: { fee } });
+    await ctx.ledger.audit({ orgId: row.org_id, branchId: row.branch_id, actor: req.session!.uid, action: 'cash.approve', entity: 'cash', entityId: id, summary: `Signed off a cash count of KES ${(Number(row.amount) / 100).toLocaleString('en-KE')}, fee KES ${(fee / 100).toLocaleString('en-KE')} charged`, links: { cashId: id, ledgerEntry: `cashfee:${id}` }, meta: { amount: Number(row.amount), fee, countedBy: row.counted_by } });
     return { id, status: 'approved', fee };
   });
 
@@ -295,7 +296,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       if (approve) await applyTransfer(ctx, q, t, now);
       await q.query(`UPDATE transfers SET status=$2, decided_by=$3, decided_at=$4 WHERE id=$1`, [t.id, approve ? 'approved' : 'rejected', req.session!.uid, now]);
     });
-    await ctx.ledger.audit({ orgId: t.to_org_id, actor: req.session!.uid, action: approve ? 'transfer.approve' : 'transfer.reject', entity: 'transfer', entityId: t.id });
+    await ctx.ledger.audit({ orgId: t.to_org_id, branchId: t.to_branch, actor: req.session!.uid, action: approve ? 'transfer.approve' : 'transfer.reject', entity: 'transfer', entityId: t.id, summary: `${approve ? 'Approved' : 'Rejected'} a member transfer`, changes: approve ? [{ field: 'branch_id', label: 'Branch', before: t.from_branch, after: t.to_branch }] : undefined, links: { membershipId: t.membership_id } });
     return { id: t.id, status: approve ? 'approved' : 'rejected' };
   });
 
@@ -323,7 +324,9 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       `INSERT INTO projects (id, org_id, branch_id, code, name, description, target, deadline, restricted, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [id, scope.orgId, b.branchId, code, String(b.name).trim(), b.description ?? null, target, b.deadline || null, !!b.restricted, ctx.clock.now().toISOString()],
     );
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'project.create', entity: 'project', entityId: id });
+    const projFlat = { name: String(b.name).trim(), code, description: b.description ?? null, target, deadline: b.deadline || null, restricted: !!b.restricted, status: 'open' };
+    const evt = await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'project.create', entity: 'project', entityId: id, summary: `Created the project ${projFlat.name}`, changes: diff(PROJECT_SPECS, null, projFlat) });
+    await recordVersion(ctx, { orgId: scope.orgId, branchId: b.branchId, entity: 'project', entityId: id, snapshot: maskedSnapshot(PROJECT_SPECS, projFlat), summary: 'Created', eventId: evt });
     return { id, code };
   });
 

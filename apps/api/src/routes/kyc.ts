@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { maskAccount } from '@churchos/shared';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 
 export const KYC_TYPES = ['registration_certificate', 'kra_pin', 'signatory_id', 'payout_proof'] as const;
@@ -83,7 +84,7 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
       [id, scope.orgId, b.type === 'payout_proof' ? b.branchId : null, b.type, String(b.filename ?? 'document').slice(0, 120), b.mime, bytes.length, b.data, b.note ?? null, req.session!.uid, ctx.clock.now().toISOString()],
     );
     await recomputeVerification(ctx, scope.orgId);
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'kyc.submit', entity: 'kyc_document', entityId: id, meta: { type: b.type } });
+    await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.type === 'payout_proof' ? b.branchId : null, actor: req.session!.uid, action: 'kyc.submit', entity: 'kyc_document', entityId: id, summary: `Uploaded a ${String(b.type).replace(/_/g, ' ')}`, links: { documentId: id }, meta: { type: b.type, filename: String(b.filename ?? 'document').slice(0, 120), bytes: bytes.length } });
     return { id, status: 'submitted' };
   });
 
@@ -120,7 +121,13 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`INSERT INTO payout_change_requests (id, org_id, branch_id, destination, requested_by, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [
       id, scope.orgId, b.branchId, JSON.stringify(d), req.session!.uid, ctx.clock.now().toISOString(),
     ]);
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'payout_destination.request', entity: 'branch', entityId: b.branchId });
+    const curDest = (await ctx.db.query<any>('SELECT payout_destination FROM branches WHERE id=$1', [b.branchId]))[0]?.payout_destination ?? {};
+    await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'payout_destination.request', entity: 'payout_destination', entityId: b.branchId, summary: 'Asked to change the payout account', links: { requestId: id },
+      changes: [
+        { field: 'bank', label: 'Bank', before: curDest.bank ?? null, after: d.bank ?? null },
+        { field: 'accountNumber', label: 'Account number', before: maskAccount(curDest.accountNumber), after: maskAccount(d.accountNumber), masked: true },
+        { field: 'accountName', label: 'Account name', before: curDest.accountName ?? null, after: d.accountName ?? null },
+      ] });
     return { id, status: 'requested', coolingOffHours: COOLING_OFF_HOURS };
   });
 
@@ -145,8 +152,9 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.get('/admin/kyc/documents/:id/file', adm, async (req, reply) => {
-    const d = (await ctx.db.query<any>(`SELECT filename, mime, data FROM kyc_documents WHERE id=$1`, [(req.params as any).id]))[0];
+    const d = (await ctx.db.query<any>(`SELECT org_id, branch_id, type, filename, mime, data FROM kyc_documents WHERE id=$1`, [(req.params as any).id]))[0];
     if (!d) throw new HttpError(404, 'document not found', 'not_found');
+    await ctx.ledger.audit({ orgId: d.org_id, branchId: d.branch_id, actor: req.session!.uid, action: 'access.view_file', category: 'access', entity: 'kyc_document', entityId: (req.params as any).id, summary: `Viewed a ${String(d.type).replace(/_/g, ' ')}` });
     reply.header('content-type', d.mime).header('content-disposition', `inline; filename="${String(d.filename).replace(/"/g, '')}"`);
     return reply.send(Buffer.from(d.data, 'base64'));
   });
@@ -162,7 +170,7 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
       d.id, approve ? 'approved' : 'rejected', approve ? null : String(b.reason).trim(), req.session!.uid, ctx.clock.now().toISOString(),
     ]);
     const verified = await recomputeVerification(ctx, d.org_id);
-    await ctx.ledger.audit({ orgId: d.org_id, actor: req.session!.uid, action: approve ? 'kyc.approve' : 'kyc.reject', entity: 'kyc_document', entityId: d.id, meta: { type: d.type } });
+    await ctx.ledger.audit({ orgId: d.org_id, branchId: d.branch_id, actor: req.session!.uid, action: approve ? 'kyc.approve' : 'kyc.reject', entity: 'kyc_document', entityId: d.id, summary: `${approve ? 'Approved' : 'Rejected'} the ${String(d.type).replace(/_/g, ' ')}`, reason: approve ? null : String(b.reason).trim(), links: { documentId: d.id }, meta: { type: d.type } });
     return { id: d.id, status: approve ? 'approved' : 'rejected', verified };
   });
 
@@ -184,7 +192,7 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`UPDATE payout_change_requests SET status=$2, decided_by=$3, decided_at=$4, effective_at=$5 WHERE id=$1`, [
       r.id, approve ? 'approved' : 'rejected', req.session!.uid, now.toISOString(), approve ? effective : null,
     ]);
-    await ctx.ledger.audit({ orgId: r.org_id, actor: req.session!.uid, action: approve ? 'payout_destination.approve' : 'payout_destination.reject', entity: 'branch', entityId: r.branch_id });
+    await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: approve ? 'payout_destination.approve' : 'payout_destination.reject', entity: 'payout_destination', entityId: r.branch_id, summary: approve ? `Approved the payout account change, it takes effect after the cooling-off` : 'Rejected the payout account change', reason: (req.body as any)?.reason ? String((req.body as any).reason).slice(0, 200) : null, links: { requestId: r.id }, meta: approve ? { effectiveAt: effective } : undefined });
     return { id: r.id, status: approve ? 'approved' : 'rejected', effectiveAt: approve ? effective : null };
   });
 }
@@ -193,9 +201,15 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
 export async function applyDuePayoutChanges(ctx: Ctx): Promise<number> {
   const due = await ctx.db.query<any>(`SELECT * FROM payout_change_requests WHERE status='approved' AND effective_at <= $1`, [ctx.clock.now().toISOString()]);
   for (const r of due) {
+    const prevDest = (await ctx.db.query<any>('SELECT payout_destination FROM branches WHERE id=$1', [r.branch_id]))[0]?.payout_destination ?? {};
     await ctx.ledger.setPayoutDestination(r.branch_id, r.destination);
     await ctx.db.query(`UPDATE payout_change_requests SET status='applied' WHERE id=$1`, [r.id]);
-    await ctx.ledger.audit({ orgId: r.org_id, action: 'payout_destination.applied', entity: 'branch', entityId: r.branch_id });
+    await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, action: 'payout_destination.applied', entity: 'payout_destination', entityId: r.branch_id, summary: 'The new payout account took effect', links: { requestId: r.id },
+      changes: [
+        { field: 'bank', label: 'Bank', before: prevDest.bank ?? null, after: r.destination.bank ?? null },
+        { field: 'accountNumber', label: 'Account number', before: maskAccount(prevDest.accountNumber), after: maskAccount(r.destination.accountNumber), masked: true },
+        { field: 'accountName', label: 'Account name', before: prevDest.accountName ?? null, after: r.destination.accountName ?? null },
+      ] });
   }
   return due.length;
 }

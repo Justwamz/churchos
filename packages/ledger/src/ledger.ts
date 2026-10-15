@@ -13,6 +13,7 @@ import {
 import type { InboundPayment, PaymentProvider, PayoutDestination } from '@churchos/payments';
 import type { Clock } from './clock';
 import type { Db } from './db';
+import { writeAudit, type AuditInput } from './audit';
 import { LEDGER_SCHEMA } from './schema';
 
 export interface LedgerOptions {
@@ -208,11 +209,26 @@ export class Ledger {
     return true;
   }
 
-  async audit(a: { orgId?: string | null; actor?: string | null; action: string; entity?: string; entityId?: string; meta?: unknown }) {
-    await this.db.query(
-      `INSERT INTO audit_log (org_id, actor, action, entity, entity_id, meta, at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [a.orgId ?? null, a.actor ?? null, a.action, a.entity ?? null, a.entityId ?? null, a.meta ? JSON.stringify(a.meta) : null, this.now()],
-    );
+  /**
+   * Supplies who and where for audit events written outside a request handler's own knowledge (the API sets this from the
+   * current request). Whatever the caller passes explicitly wins over it.
+   */
+  auditContext?: () => Partial<AuditInput> | undefined;
+
+  /**
+   * Records an audit event. `actor` is a shorthand for actorId. Returns the event id so a version snapshot can point at it.
+   */
+  async audit(a: Partial<AuditInput> & { action: string; actor?: string | null }): Promise<string> {
+    const ctx = this.auditContext?.() ?? {};
+    const actorId = a.actorId ?? a.actor ?? ctx.actorId ?? null;
+    const { actor: _actor, ...rest } = a;
+    return writeAudit(this.db, this.now(), {
+      ...ctx,
+      ...rest,
+      actorId,
+      actorName: a.actorName ?? (actorId && actorId === ctx.actorId ? ctx.actorName : null),
+      actorType: a.actorType ?? (actorId && actorId === ctx.actorId ? ctx.actorType : !actorId || actorId === 'system' ? 'system' : 'user'),
+    });
   }
 
   // ---------- intake (L8, L9, L10) ----------
@@ -496,7 +512,7 @@ export class Ledger {
       await this.postEntry(q, { idemKey: `reverse:${paymentId}`, kind: 'reversal', paymentId, postings, meta: { reason: opts.reason, receivable: remaining } });
       await q.query(`UPDATE payments SET stage='reversed', reversed_at=$2, reversal_reason=$3 WHERE id=$1`, [paymentId, this.now(), opts.reason]);
     });
-    await this.audit({ orgId: p.org_id, actor: opts.actor, action: 'payment.reverse', entity: 'payment', entityId: paymentId, meta: { reason: opts.reason } });
+    await this.audit({ orgId: p.org_id ?? null, branchId: p.branch_id ?? null, actor: opts.actor, action: 'payment.reverse', entity: 'payment', entityId: paymentId, summary: `Reversed payment ${p.provider_tx_id}`, reason: opts.reason, links: { paymentId, ledgerEntry: `reverse:${paymentId}` }, meta: { refunded: refundAmount, platformFeeReturned: p.platform_fee ?? 0 } });
   }
 
   /** Auto-refunds suspense payments that stayed unclaimed past the suspense period (L14). */

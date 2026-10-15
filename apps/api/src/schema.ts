@@ -281,6 +281,26 @@ CREATE TABLE IF NOT EXISTS record_issues (
   created_at timestamptz NOT NULL
 );
 
+-- Version history (L105): append-only, like the audit log.
+CREATE TABLE IF NOT EXISTS entity_versions (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  entity text NOT NULL,
+  entity_id text NOT NULL,
+  version int NOT NULL,
+  snapshot jsonb NOT NULL,
+  summary text NOT NULL,
+  changed_by text,
+  changed_by_name text,
+  changed_at text NOT NULL,
+  event_id text,
+  UNIQUE (entity, entity_id, version)
+);
+CREATE INDEX IF NOT EXISTS entity_versions_org_idx ON entity_versions(org_id, changed_at);
+DROP TRIGGER IF EXISTS entity_versions_no_change ON entity_versions;
+CREATE TRIGGER entity_versions_no_change BEFORE UPDATE OR DELETE ON entity_versions FOR EACH ROW EXECUTE FUNCTION audit_events_immutable();
+
 -- Help content (L82 to L86). Chunked for full-text search now and embeddings later.
 CREATE TABLE IF NOT EXISTS help_articles (
   id text PRIMARY KEY,
@@ -307,7 +327,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages','certificate_templates','branch_profiles','sacramental_records','record_issues'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

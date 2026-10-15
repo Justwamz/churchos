@@ -7,6 +7,7 @@ import { MockProvider } from '@churchos/payments';
 import { HttpError, type Ctx } from './ctx';
 import { loadHelp } from './help';
 import { adminRoutes } from './routes/admin';
+import { auditRoutes } from './routes/audit';
 import { helpRoutes } from './routes/help';
 import { kycRoutes } from './routes/kyc';
 import { smsRoutes } from './routes/sms';
@@ -17,6 +18,7 @@ import { publicRoutes } from './routes/public';
 import { memberRecordRoutes, publicRecordRoutes, recordRoutes } from './routes/records';
 import { staffRoutes } from './routes/staff';
 import { APP_SCHEMA } from './schema';
+import { als, auditContext } from './audit';
 
 export interface BuildOptions {
   db?: Db;
@@ -42,7 +44,13 @@ export async function buildApp(opts: BuildOptions = {}) {
     }
   });
 
+  ledger.auditContext = auditContext;
   const app = Fastify({ logger: opts.logger ?? false });
+  // Every event written while handling a request carries where it came from (L104).
+  app.addHook('onRequest', (req, _reply, done) => {
+    const app = req.headers['x-churchos-app'];
+    als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: typeof app === 'string' ? app.slice(0, 20) : null, requestId: String(req.id) }, done);
+  });
   await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] });
 
   // Keep the raw body, the PSP signature is computed over the exact bytes.
@@ -77,6 +85,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   publicRecordRoutes(app, ctx);
   memberRecordRoutes(app, ctx);
   adminRoutes(app, ctx);
+  auditRoutes(app, ctx);
 
   return { app, ctx };
 }

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
+import { diff, logAccess, MEMBER_SPECS, maskedSnapshot, NUMBER_FORMAT_SPECS, recordVersion } from '../audit';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import {
   ageOn, cleanCustomNumber, daysToBirthday, decorate, getSettings, householdLabel, nextMemberNumber, parseDob, renderNumber,
@@ -10,6 +11,14 @@ const BASE = `SELECT m.*, b.name AS branch_name FROM memberships m JOIN branches
 
 async function viewerFor(ctx: Ctx, uid: string): Promise<Viewer> {
   return { sensitiveBranches: new Set((await branchesFor(ctx.db, uid, 'members.sensitive')).map((r) => r.branchId)) };
+}
+
+/** A member's current values in one flat shape, for change tracking and version history. */
+async function memberFlat(ctx: Ctx, id: string): Promise<Record<string, any>> {
+  const m = (await ctx.db.query<any>('SELECT * FROM memberships WHERE id=$1', [id]))[0];
+  if (!m) return {};
+  const gs = await ctx.db.query<any>('SELECT mm.full_name FROM guardians g JOIN memberships mm ON mm.id=g.guardian_id WHERE g.child_id=$1 ORDER BY mm.full_name', [id]);
+  return { full_name: m.full_name, category: m.category, sex: m.sex, dob: m.dob, phone: m.phone, branch_id: m.branch_id, household_id: m.household_id, is_primary_contact: m.is_primary_contact, guardians: gs.map((g) => g.full_name) };
 }
 
 export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
@@ -33,7 +42,9 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     if (next !== undefined && (!Number.isInteger(next) || next < 1 || next > 99_999_999)) throw new HttpError(400, 'The next number must be a whole number from 1', 'bad_next');
     const cur = await getSettings(ctx.db, scope.orgId);
     await ctx.db.query(`UPDATE org_settings SET member_number_pattern=$2, member_number_next=$3 WHERE org_id=$1`, [scope.orgId, pattern, next ?? cur.next]);
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'members.number_format', meta: { pattern, next } });
+    const after = { pattern, next: next ?? cur.next };
+    const evt = await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'members.number_format', entity: 'member_number_format', entityId: scope.orgId, summary: 'Changed the member number format', changes: diff(NUMBER_FORMAT_SPECS, cur, after) });
+    await recordVersion(ctx, { orgId: scope.orgId, entity: 'member_number_format', entityId: scope.orgId, snapshot: maskedSnapshot(NUMBER_FORMAT_SPECS, after), summary: 'Changed the member number format', eventId: evt });
     const s = await getSettings(ctx.db, scope.orgId);
     return { ...s, preview: renderNumber(s.pattern, s.next, ctx.clock.now(), 'BR001') };
   });
@@ -51,17 +62,21 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
       where += ` AND (lower(m.full_name) LIKE $${params.length} OR lower(m.member_number) LIKE $${params.length} OR m.phone LIKE $${params.length})`;
     }
     const rows = await ctx.db.query<any>(`${BASE} WHERE ${where} ORDER BY m.full_name LIMIT 500`, params);
-    return decorate(ctx, rows, await viewerFor(ctx, req.session!.uid));
+    const out = await decorate(ctx, rows, await viewerFor(ctx, req.session!.uid));
+    await logAccess(ctx, { orgId: scope.orgId, what: 'dates of birth', count: out.filter((m) => 'dob' in m).length });
+    return out;
   });
 
   app.get('/members/grouped', auth, async (req) => {
     const q = req.query as any;
     const scope = await staffScope(ctx, req, 'members.view', q.branch);
     const rows = await ctx.db.query<any>(`${BASE} WHERE m.branch_id IN (${inList(1, scope.branchIds.length)}) AND m.status='active' ORDER BY m.full_name LIMIT 3000`, scope.branchIds);
-    const all = await decorate(ctx, rows, await viewerFor(ctx, req.session!.uid));
+    const all = await decorate(ctx, rows, await viewerFor(ctx, req.session!.uid), { raw: true });
+    await logAccess(ctx, { orgId: scope.orgId, what: 'dates of birth', count: all.filter((m) => 'dob' in m).length });
     const needle = String(q.q ?? '').trim().toLowerCase();
+    // Search runs on the real numbers on the server, but only masked values ever leave it.
     const hit = (m: any) =>
-      !needle || m.full_name.toLowerCase().includes(needle) || String(m.member_number).toLowerCase().includes(needle) || m.contact_phones.some((p: string) => p.includes(needle.replace(/^0/, '254')) || p.includes(needle));
+      !needle || m.full_name.toLowerCase().includes(needle) || String(m.member_number).toLowerCase().includes(needle) || (m._phones ?? []).some((p: string) => p.includes(needle.replace(/^0/, '254')) || p.includes(needle));
 
     const byHousehold = new Map<string, any[]>();
     const individuals: any[] = [];
@@ -79,9 +94,9 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
         members: members.sort((a, b) => (a.category === b.category ? a.full_name.localeCompare(b.full_name) : a.category === 'adult' ? -1 : 1)),
       }))
       .filter((h) => h.match)
-      .map(({ match: _m, ...h }) => h)
+      .map(({ match: _m, ...h }) => ({ ...h, members: h.members.map(({ _phones: _p, ...x }: any) => x) }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    const solo = individuals.filter(hit);
+    const solo = individuals.filter(hit).map(({ _phones: _p, ...x }: any) => x);
     return { households, individuals: solo, totals: { households: households.length, members: households.reduce((n, h) => n + h.members.length, 0) + solo.length } };
   });
 
@@ -198,7 +213,9 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
       for (const g of guardians) await q.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ($1,$2,$3)`, [id, g.id, scope.orgId]);
       return { memberNumber: number, householdId };
     });
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'member.create', entity: 'membership', entityId: id, meta: { category: b.category } });
+    const flat = await memberFlat(ctx, id);
+    const evt = await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'member.create', entity: 'membership', entityId: id, summary: `Added ${name} as ${b.category === 'child' ? 'a child' : 'an adult'}`, changes: diff(MEMBER_SPECS, null, flat), meta: { consent: true } });
+    await recordVersion(ctx, { orgId: scope.orgId, branchId: b.branchId, entity: 'membership', entityId: id, snapshot: maskedSnapshot(MEMBER_SPECS, flat), summary: 'Added', eventId: evt });
     return { id, ...result };
   });
 
@@ -207,6 +224,7 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     const m = (await ctx.db.query<any>(`SELECT * FROM memberships WHERE id=$1 AND status='active'`, [(req.params as any).id]))[0];
     if (!m) throw new HttpError(404, 'member not found', 'not_found');
     await staffScope(ctx, req, 'members.edit', m.branch_id);
+    const before = await memberFlat(ctx, m.id);
     const now = ctx.clock.now();
     const name = b.fullName !== undefined ? String(b.fullName).trim().replace(/\s+/g, ' ') : m.full_name;
     if (name.length < 2) throw new HttpError(400, 'Enter the member’s full name', 'bad_name');
@@ -234,8 +252,43 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
         for (const g of gs) await q.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ($1,$2,$3)`, [m.id, g.id, m.org_id]);
       }
     });
-    await ctx.ledger.audit({ orgId: m.org_id, actor: req.session!.uid, action: 'member.update', entity: 'membership', entityId: m.id });
+    const after = await memberFlat(ctx, m.id);
+    const changes = diff(MEMBER_SPECS, before, after);
+    if (changes.length) {
+      const evt = await ctx.ledger.audit({ orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'member.update', entity: 'membership', entityId: m.id, summary: `Updated ${after.full_name}: ${changes.map((c) => c.label).join(', ')}`, changes, reason: b.reason ? String(b.reason).slice(0, 200) : null });
+      await recordVersion(ctx, { orgId: m.org_id, branchId: m.branch_id, entity: 'membership', entityId: m.id, snapshot: maskedSnapshot(MEMBER_SPECS, after), summary: changes.map((c) => c.label).join(', '), eventId: evt });
+    }
     return { id: m.id, ok: true };
+  });
+
+  /**
+   * Shows the real phone number (and, with the extra permission, the date of birth) of one member. This is the only way staff
+   * see unmasked contact details, and every use is written to the audit log with the reason given (L109).
+   */
+  app.post('/members/:id/reveal', auth, async (req) => {
+    const b = (req.body ?? {}) as any;
+    const m = (await ctx.db.query<any>(`SELECT * FROM memberships WHERE id=$1 AND status='active'`, [(req.params as any).id]))[0];
+    if (!m) throw new HttpError(404, 'member not found', 'not_found');
+    // A member of another church looks exactly like a member who does not exist.
+    const allowed = await branchesFor(ctx.db, req.session!.uid, 'members.reveal');
+    if (allowed.length === 0) throw new HttpError(403, 'missing permission members.reveal', 'forbidden');
+    if (!allowed.some((x) => x.branchId === m.branch_id && x.orgId === m.org_id)) throw new HttpError(404, 'member not found', 'not_found');
+    const fields: string[] = Array.isArray(b.fields) && b.fields.length ? b.fields.map(String) : ['phone'];
+    if (fields.some((f) => f !== 'phone' && f !== 'dob')) throw new HttpError(400, 'You can reveal the phone number or the date of birth', 'bad_field');
+    const out: Record<string, any> = {};
+    if (fields.includes('phone')) {
+      if (m.category === 'child') {
+        const gs = await ctx.db.query<any>(`SELECT mm.full_name, mm.phone FROM guardians g JOIN memberships mm ON mm.id=g.guardian_id WHERE g.child_id=$1`, [m.id]);
+        out.contact_phones = gs.map((g) => ({ guardian: g.full_name, phone: g.phone }));
+      } else out.phone = m.phone;
+    }
+    if (fields.includes('dob')) {
+      const can = (await branchesFor(ctx.db, req.session!.uid, 'members.sensitive')).some((x) => x.branchId === m.branch_id);
+      if (!can) throw new HttpError(403, 'You do not have permission to see dates of birth', 'forbidden');
+      out.dob = m.dob;
+    }
+    await ctx.ledger.audit({ orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'membership', entityId: m.id, summary: `Revealed ${fields.join(' and ')} of ${m.full_name}`, reason: b.reason ? String(b.reason).slice(0, 200) : null, meta: { fields } });
+    return out;
   });
 
   // ---------- households (L92) ----------
@@ -269,6 +322,7 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
       const members = await ctx.db.query<any>(`SELECT full_name, is_primary_contact, category FROM memberships WHERE household_id=$1 AND status='active'`, [m.household_id]);
       throw new HttpError(409, `${m.full_name} already belongs to the ${householdLabel(members)}. A person can be in only one household. Move them instead?`, 'already_in_household');
     }
+    const beforeFlat = await memberFlat(ctx, m.id);
     const oldId: string | null = m.household_id;
     let newId: string | null = null;
     if (target === 'new') {
@@ -280,7 +334,9 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`UPDATE memberships SET household_id=$2, is_primary_contact=$3 WHERE id=$1`, [m.id, newId, !!newId && !hasPrimary && m.category === 'adult']);
     await ctx.db.query(`INSERT INTO membership_history (org_id, membership_id, event, from_branch, to_branch, at) VALUES ($1,$2,'household_move',$3,$4,$5)`, [m.org_id, m.id, oldId, newId, ctx.clock.now().toISOString()]);
     if (oldId) await afterLeave(m.org_id, oldId);
-    await ctx.ledger.audit({ orgId: m.org_id, actor: req.session!.uid, action: 'member.household_move', entity: 'membership', entityId: m.id });
+    const afterFlat = await memberFlat(ctx, m.id);
+    const evt = await ctx.ledger.audit({ orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'member.household_move', entity: 'membership', entityId: m.id, summary: `Moved ${m.full_name} ${newId ? 'to another household' : 'out of their household'}`, changes: diff(MEMBER_SPECS, beforeFlat, afterFlat) });
+    await recordVersion(ctx, { orgId: m.org_id, branchId: m.branch_id, entity: 'membership', entityId: m.id, snapshot: maskedSnapshot(MEMBER_SPECS, afterFlat), summary: 'Household changed', eventId: evt });
     return { ok: true, householdId: newId };
   });
 
@@ -291,6 +347,7 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     await staffScope(ctx, req, 'members.edit', m.branch_id);
     if (m.category !== 'adult') throw new HttpError(400, 'The primary contact must be an adult', 'not_adult');
     await ctx.db.query(`UPDATE memberships SET is_primary_contact = (id = $1) WHERE household_id=$2 AND status='active'`, [m.id, m.household_id]);
+    await ctx.ledger.audit({ orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'member.primary_contact', entity: 'membership', entityId: m.id, summary: `Made ${m.full_name} the primary contact of their household` });
     return { ok: true };
   });
 }

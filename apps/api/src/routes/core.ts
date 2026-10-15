@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { maskPhone } from '@churchos/shared';
 import { normalizePhone, signToken } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
 import { notify } from '../sms';
@@ -89,14 +90,19 @@ export function coreRoutes(app: FastifyInstance, ctx: Ctx) {
     const phone = normalizePhone(body.phone);
     if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
     const lock = attempts.get(phone);
-    if (lock && lock.until > Date.now() && lock.n >= MAX_ATTEMPTS) throw new HttpError(429, 'Too many attempts, try again in 15 minutes', 'rate_limited');
+    if (lock && lock.until > Date.now() && lock.n >= MAX_ATTEMPTS) {
+      await ctx.ledger.audit({ action: 'security.login_locked', category: 'security', summary: 'Too many wrong codes, sign-in locked for 15 minutes', meta: { phone: maskPhone(phone) } });
+      throw new HttpError(429, 'Too many attempts, try again in 15 minutes', 'rate_limited');
+    }
     const user = (await ctx.db.query<any>(`SELECT * FROM users WHERE phone = $1`, [phone]))[0];
     if (String(body.code) !== DEV_OTP || !user) {
       const cur = lock && lock.until > Date.now() ? lock : { n: 0, until: Date.now() + LOCK_MS };
       attempts.set(phone, { n: cur.n + 1, until: cur.until });
+      await ctx.ledger.audit({ action: 'security.login_failed', category: 'security', summary: user ? 'Wrong sign-in code' : 'Sign-in with an unknown number', actorType: 'system', meta: { phone: maskPhone(phone), attempt: cur.n + 1, knownNumber: !!user } });
       throw new HttpError(401, 'That code is not correct', 'bad_code');
     }
     attempts.delete(phone);
+    await ctx.ledger.audit({ action: 'security.login', category: 'security', actorId: user.id, actorName: user.name, actorType: user.is_platform_admin ? 'admin' : 'user', summary: `${user.name} signed in`, meta: { phone: maskPhone(phone) } });
     const token = signToken({ uid: user.id, phone, name: user.name, isAdmin: user.is_platform_admin });
     return { token, user: { id: user.id, name: user.name, phone, isAdmin: user.is_platform_admin } };
   });

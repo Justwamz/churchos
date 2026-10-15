@@ -8,6 +8,7 @@ export const SEED_LOGINS = [
   { app: 'Staff dashboard', who: 'Branch admin, Nairobi (second signer for cash)', phone: '0700000003' },
   { app: 'Staff dashboard', who: 'Regional finance lead, Coast region (Mombasa only)', phone: '0700000004' },
   { app: 'Staff dashboard', who: 'Hope Chapel owner (a different church, for isolation tests)', phone: '0700000005' },
+  { app: 'Staff dashboard', who: 'Grace auditor (read-only audit log, no other changes)', phone: '0700000007' },
   { app: 'Staff dashboard', who: 'New Hope Fellowship owner (unverified church, KYC onboarding)', phone: '0700000006' },
   { app: 'Platform admin', who: 'ChurchOS admin one', phone: '0700000099' },
   { app: 'Platform admin', who: 'ChurchOS admin two (second approver)', phone: '0700000098' },
@@ -35,6 +36,7 @@ export async function seed(ctx: Ctx) {
 
   const users: [string, string, string, boolean][] = [
     ['u_newhope', '254700000006', 'Joseph Kamau', false],
+    ['u_auditor', '254700000007', 'Aisha Auditor', false],
     ['u_owner', '254700000001', 'Daniel Mwangi', false],
     ['u_treas', '254700000002', 'Esther Njeri', false],
     ['u_admin', '254700000003', 'Samuel Kiptoo', false],
@@ -63,6 +65,7 @@ export async function seed(ctx: Ctx) {
   await assign('u_admin', 'org_grace', 'Branch Admin', 'branch', 'br_grc001');
   await assign('u_coast', 'org_grace', 'Treasurer', 'region', 'Coast');
   await assign('u_hope', 'org_hope', 'Organisation Owner', 'org', 'org_hope');
+  await assign('u_auditor', 'org_grace', 'Auditor', 'org', 'org_grace');
   await assign('u_newhope', 'org_newhope', 'Organisation Owner', 'org', 'org_newhope');
 
   // Grace and Hope are already verified. New Hope has submitted only its registration certificate.

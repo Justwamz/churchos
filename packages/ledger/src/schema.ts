@@ -108,16 +108,46 @@ CREATE TABLE IF NOT EXISTS sms_topups_ledger (
   created_at timestamptz NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS audit_log (
-  id bigserial PRIMARY KEY,
+-- One chained, append-only event log (L104, L107). The "at" column is ISO text so the hash is reproducible.
+CREATE TABLE IF NOT EXISTS audit_events (
+  seq bigserial PRIMARY KEY,
+  id text NOT NULL UNIQUE,
+  chain text NOT NULL,
+  at text NOT NULL,
   org_id text,
-  actor text,
+  branch_id text,
+  actor_id text,
+  actor_name text,
+  actor_type text NOT NULL,
   action text NOT NULL,
+  category text NOT NULL,
   entity text,
   entity_id text,
+  summary text NOT NULL,
+  changes jsonb,
+  reason text,
+  ip text,
+  user_agent text,
+  app text,
+  request_id text,
+  links jsonb,
   meta jsonb,
-  at timestamptz NOT NULL
+  prev_hash text,
+  hash text NOT NULL
 );
+CREATE INDEX IF NOT EXISTS audit_events_chain_idx ON audit_events(chain, seq);
+CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events(entity, entity_id);
+CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events(org_id, at);
+
+CREATE OR REPLACE FUNCTION audit_events_immutable() RETURNS trigger AS $fn$
+BEGIN
+  RAISE EXCEPTION 'audit_events is append-only';
+END;
+$fn$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS audit_events_no_change ON audit_events;
+CREATE TRIGGER audit_events_no_change BEFORE UPDATE OR DELETE ON audit_events FOR EACH ROW EXECUTE FUNCTION audit_events_immutable();
+DROP TRIGGER IF EXISTS audit_events_no_truncate ON audit_events;
+CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events FOR EACH STATEMENT EXECUTE FUNCTION audit_events_immutable();
 
 -- Row-level security: the restricted app_user role only ever sees its own organisation's rows.
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
@@ -127,10 +157,10 @@ ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payouts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cash_entries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['branches','payments','payouts','cash_entries','audit_log'] LOOP
+  FOREACH t IN ARRAY ARRAY['branches','payments','payouts','cash_entries','audit_events'] LOOP
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);
   END LOOP;

@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Clock, Db, Ledger } from '@churchos/ledger';
 import type { MockProvider } from '@churchos/payments';
 import { branchesFor, verifyToken, type Permission, type Session } from './auth';
+import { setActor } from './audit';
 
 export interface Ctx {
   db: Db;
@@ -35,6 +36,7 @@ export async function requireSession(req: FastifyRequest, _reply: FastifyReply) 
   const s = verifyToken(bearer(req));
   if (!s) throw new HttpError(401, 'sign in required', 'unauthenticated');
   req.session = s;
+  setActor(s);
 }
 
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {

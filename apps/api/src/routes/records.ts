@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor } from '../auth';
+import { BRANCH_PROFILE_SPECS, diff, flattenRecord, maskedSnapshot, RECORD_SPECS, recordVersion, sha, TEMPLATE_SPECS } from '../audit';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import {
   loadTemplate, newVerifyKey, nextSerial, renderPayload, requestIssue, validateFile, validateLogo, validateRecord, validateTemplate,
@@ -11,6 +12,8 @@ const LIST_SQL = `SELECT r.id, r.kind, r.subject_name, r.event_date, r.place, r.
        uc.name AS created_by_name, ue.name AS last_edited_by_name, r.created_by, r.last_edited_by, r.approved_at
   FROM sacramental_records r JOIN branches b ON b.id=r.branch_id LEFT JOIN users uc ON uc.id=r.created_by LEFT JOIN users ue ON ue.id=r.last_edited_by`;
 
+const recVersion = (flat: Record<string, any>, extra: Record<string, unknown>) => ({ ...maskedSnapshot(RECORD_SPECS, flat), ...extra });
+const tplFlat = (c: any, logoData: string | null) => ({ ...c, signatories: (c.signatories ?? []).map((s: any) => `${s.name} (${s.title})`), logo: logoData ? sha(logoData) : null });
 const FIELD_COLS: (keyof RecordFields)[] = ['subject_name', 'event_date', 'place', 'officiant', 'register_number', 'membership_id', 'details'];
 
 export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
@@ -50,6 +53,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = (req.body ?? {}) as any;
     const scope = await staffScope(ctx, req, 'templates.manage');
     const config = validateTemplate(b.config);
+    const beforeT = await loadTemplate(ctx.db, scope.orgId);
     const cur = (await ctx.db.query<any>(`SELECT logo_mime, logo_data FROM certificate_templates WHERE org_id=$1`, [scope.orgId]))[0];
     let logo = cur ? { mime: cur.logo_mime, data: cur.logo_data } : { mime: null, data: null };
     if (b.logo === null) logo = { mime: null, data: null };
@@ -59,7 +63,11 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
        ON CONFLICT (org_id) DO UPDATE SET config=$2, logo_mime=$3, logo_data=$4, updated_by=$5, updated_at=$6`,
       [scope.orgId, JSON.stringify(config), logo.mime, logo.data, req.session!.uid, ctx.clock.now().toISOString()],
     );
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'template.update', entity: 'organisation', entityId: scope.orgId });
+    const beforeFlat = tplFlat(beforeT.config, beforeT.logo ? beforeT.logo.split(',')[1] ?? null : null);
+    const afterFlat = tplFlat(config, logo.data);
+    const changes = diff(TEMPLATE_SPECS, beforeFlat, afterFlat);
+    const evt = await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'template.update', entity: 'template', entityId: scope.orgId, summary: 'Changed the certificate design', changes });
+    await recordVersion(ctx, { orgId: scope.orgId, entity: 'template', entityId: scope.orgId, snapshot: maskedSnapshot(TEMPLATE_SPECS, afterFlat), summary: changes.map((c) => c.label).join(', ') || 'Saved without changes', eventId: evt });
     return { ok: true };
   });
 
@@ -70,11 +78,18 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     const f = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max) || null;
     const email = f(b.email, 120);
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, 'Enter a valid email address', 'bad_email');
+    const beforeP = (await ctx.db.query<any>('SELECT address, town, phone, email FROM branch_profiles WHERE branch_id=$1', [branchId]))[0] ?? null;
+    const afterP = { address: f(b.address, 160), town: f(b.town, 80), phone: f(b.phone, 40), email };
     await ctx.db.query(
       `INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (branch_id) DO UPDATE SET address=$3, town=$4, phone=$5, email=$6`,
-      [branchId, scope.orgId, f(b.address, 160), f(b.town, 80), f(b.phone, 40), email],
+      [branchId, scope.orgId, afterP.address, afterP.town, afterP.phone, afterP.email],
     );
+    const changes = diff(BRANCH_PROFILE_SPECS, beforeP, afterP);
+    if (changes.length) {
+      const evt = await ctx.ledger.audit({ orgId: scope.orgId, branchId, actor: req.session!.uid, action: 'template.branch_profile', entity: 'branch_profile', entityId: branchId, summary: 'Changed the branch address and contact details', changes });
+      await recordVersion(ctx, { orgId: scope.orgId, branchId, entity: 'branch_profile', entityId: branchId, snapshot: maskedSnapshot(BRANCH_PROFILE_SPECS, afterP), summary: changes.map((c) => c.label).join(', '), eventId: evt });
+    }
     return { ok: true };
   });
 
@@ -111,7 +126,9 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
       [id, scope.orgId, b.branchId, b.kind, fields.membership_id, fields.subject_name, fields.event_date, fields.place, fields.officiant, fields.register_number, JSON.stringify(fields.details),
        b.submit ? 'pending_approval' : 'draft', file?.name ?? null, file?.mime ?? null, file?.data ?? null, req.session!.uid, now],
     );
-    await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'record.create', entity: 'record', entityId: id, meta: { kind: b.kind } });
+    const createdFlat = flattenRecord({ ...fields, file_name: file?.name ?? null, file_data: file?.data ?? null });
+    const evt = await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'record.create', entity: 'record', entityId: id, summary: `Created a ${b.kind} record for ${fields.subject_name}${b.submit ? ' and sent it for approval' : ''}`, changes: diff(RECORD_SPECS, null, createdFlat), meta: { kind: b.kind } });
+    await recordVersion(ctx, { orgId: scope.orgId, branchId: b.branchId, entity: 'record', entityId: id, snapshot: recVersion(createdFlat, { status: b.submit ? 'pending_approval' : 'draft', serial: null }), summary: b.submit ? 'Created and sent for approval' : 'Created as a draft', eventId: evt });
     return { id, status: b.submit ? 'pending_approval' : 'draft' };
   });
 
@@ -132,7 +149,10 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     if (r.status === 'approved') {
       const changes = { ...fields, file: file ? { name: file.name, mime: file.mime, data: file.data } : undefined };
       await ctx.db.query(`UPDATE sacramental_records SET pending_changes=$2, last_edited_by=$3, updated_at=$4 WHERE id=$1`, [r.id, JSON.stringify(changes), req.session!.uid, now]);
-      await ctx.ledger.audit({ orgId: r.org_id, actor: req.session!.uid, action: 'record.amend', entity: 'record', entityId: r.id });
+      const proposedFlat = flattenRecord({ ...fields, file_name: file?.name ?? r.file_name, file_data: file?.data ?? r.file_data });
+      const fieldDiff = diff(RECORD_SPECS, flattenRecord(r), proposedFlat);
+      const evt = await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: 'record.amend', entity: 'record', entityId: r.id, summary: `Proposed changes to the approved ${r.kind} record for ${r.subject_name}`, changes: fieldDiff, links: { serial: r.serial } });
+      await recordVersion(ctx, { orgId: r.org_id, branchId: r.branch_id, entity: 'record', entityId: r.id, snapshot: recVersion(proposedFlat, { status: 'change proposed, waiting for approval', serial: r.serial }), summary: 'Changes proposed', eventId: evt });
       return { id: r.id, status: 'approved', pendingChanges: true };
     }
     await ctx.db.query(
@@ -140,6 +160,12 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
               file_name=COALESCE($9,file_name), file_mime=COALESCE($10,file_mime), file_data=COALESCE($11,file_data), last_edited_by=$12, updated_at=$13 WHERE id=$1`,
       [r.id, fields.membership_id, fields.subject_name, fields.event_date, fields.place, fields.officiant, fields.register_number, JSON.stringify(fields.details), file?.name ?? null, file?.mime ?? null, file?.data ?? null, req.session!.uid, now],
     );
+    {
+      const editedFlat = flattenRecord({ ...fields, file_name: file?.name ?? r.file_name, file_data: file?.data ?? r.file_data });
+      const changes = diff(RECORD_SPECS, flattenRecord(r), editedFlat);
+      const evt = await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: 'record.edit', entity: 'record', entityId: r.id, summary: `Edited the ${r.kind} record for ${fields.subject_name}`, changes });
+      await recordVersion(ctx, { orgId: r.org_id, branchId: r.branch_id, entity: 'record', entityId: r.id, snapshot: recVersion(editedFlat, { status: 'draft', serial: r.serial }), summary: changes.map((c) => c.label).join(', ') || 'Saved without changes', eventId: evt });
+    }
     return { id: r.id, status: 'draft' };
   });
 
@@ -154,6 +180,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/records/:id/file', auth, async (req, reply) => {
     const r = await loadRecord(req, 'records.view');
     if (!r.file_data) throw new HttpError(404, 'There is no scan attached to this record', 'no_file');
+    await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: 'access.view_file', category: 'access', entity: 'record', entityId: r.id, summary: `Viewed the scan of the ${r.kind} record for ${r.subject_name}` });
     reply.header('content-type', r.file_mime).header('content-disposition', `inline; filename="${String(r.file_name ?? 'scan').replace(/"/g, '')}"`);
     return reply.send(Buffer.from(r.file_data, 'base64'));
   });
@@ -163,7 +190,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     if (r.status !== 'draft' && r.status !== 'rejected') throw new HttpError(409, 'Only a draft can be sent for approval', 'bad_state');
     if (r.kind === 'marriage' && !r.file_data) throw new HttpError(400, 'Attach the scan or photo of the marriage certificate first', 'scan_required');
     await ctx.db.query(`UPDATE sacramental_records SET status='pending_approval', rejection_reason=NULL, updated_at=$2 WHERE id=$1`, [r.id, ctx.clock.now().toISOString()]);
-    await ctx.ledger.audit({ orgId: r.org_id, actor: req.session!.uid, action: 'record.submit', entity: 'record', entityId: r.id });
+    await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: 'record.submit', entity: 'record', entityId: r.id, summary: `Sent the ${r.kind} record for ${r.subject_name} for approval` });
     return { id: r.id, status: 'pending_approval' };
   });
 
@@ -187,7 +214,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
       if (!reason) throw new HttpError(400, 'Give a reason so the person who entered it knows what to fix', 'reason_required');
       if (isNew) await ctx.db.query(`UPDATE sacramental_records SET status='rejected', rejection_reason=$2, updated_at=$3 WHERE id=$1`, [r.id, reason, now]);
       else await ctx.db.query(`UPDATE sacramental_records SET pending_changes=NULL, updated_at=$2 WHERE id=$1`, [r.id, now]);
-      await ctx.ledger.audit({ orgId: r.org_id, actor: me, action: 'record.reject', entity: 'record', entityId: r.id, meta: { reason } });
+      await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: me, action: 'record.reject', entity: 'record', entityId: r.id, summary: isNew ? `Rejected the ${r.kind} record for ${r.subject_name}` : `Rejected the proposed changes to the ${r.kind} record for ${r.subject_name}`, reason, links: { serial: r.serial ?? '' } });
       return { id: r.id, status: isNew ? 'rejected' : 'approved' };
     }
 
@@ -199,7 +226,9 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
         await q.query(`UPDATE sacramental_records SET status='approved', serial=$2, verify_key=$3, approved_by=$4, approved_at=$5, updated_at=$5 WHERE id=$1`, [r.id, serial, newVerifyKey(), me, now]);
         return serial;
       });
-      await ctx.ledger.audit({ orgId: r.org_id, actor: me, action: 'record.approve', entity: 'record', entityId: r.id, meta: { serial: result } });
+      const approvedFlat = flattenRecord(r);
+      const evt = await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: me, action: 'record.approve', entity: 'record', entityId: r.id, summary: `Approved the ${r.kind} record for ${r.subject_name}, serial ${result}`, links: { serial: result }, meta: { serial: result, enteredBy: r.created_by } });
+      await recordVersion(ctx, { orgId: r.org_id, branchId: r.branch_id, entity: 'record', entityId: r.id, snapshot: recVersion(approvedFlat, { status: 'approved', serial: result, recordVersion: 1 }), summary: 'Approved', eventId: evt });
       return { id: r.id, status: 'approved', serial: result };
     }
 
@@ -209,7 +238,10 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
               file_name=COALESCE($9,file_name), file_mime=COALESCE($10,file_mime), file_data=COALESCE($11,file_data), pending_changes=NULL, approved_by=$12, approved_at=$13, updated_at=$13 WHERE id=$1`,
       [r.id, c.membership_id, c.subject_name, c.event_date, c.place, c.officiant, c.register_number, JSON.stringify(c.details), c.file?.name ?? null, c.file?.mime ?? null, c.file?.data ?? null, me, now],
     );
-    await ctx.ledger.audit({ orgId: r.org_id, actor: me, action: 'record.amend_approve', entity: 'record', entityId: r.id });
+    const appliedFlat = flattenRecord({ ...c, details: c.details, file_name: c.file?.name ?? r.file_name, file_data: c.file?.data ?? r.file_data });
+    const changes = diff(RECORD_SPECS, flattenRecord(r), appliedFlat);
+    const evt = await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: me, action: 'record.amend_approve', entity: 'record', entityId: r.id, summary: `Approved the changes to the ${r.kind} record for ${c.subject_name}`, changes, links: { serial: r.serial } });
+    await recordVersion(ctx, { orgId: r.org_id, branchId: r.branch_id, entity: 'record', entityId: r.id, snapshot: recVersion(appliedFlat, { status: 'approved', serial: r.serial, recordVersion: r.version + 1 }), summary: 'Changes approved', eventId: evt });
     return { id: r.id, status: 'approved', version: r.version + 1 };
   });
 

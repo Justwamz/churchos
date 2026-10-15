@@ -219,6 +219,15 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L102. Copies are logged, and a church may price them** (D6). The first card is issued free. A copy for a priced church is paid through the normal giving flow, and becomes available once paid. Staff with approval rights can waive the fee, and every waiver is logged.
 - **L103. Members see their own records in the member app,** read-only, including records held by a church they have left (L64).
 
+### 4.22 Audit, version history and personal data protection
+- **L104. One audit service records every change.** Each event stores who did it (and in what capacity), what they did, which record, when, from where (IP address and app), why when a reason was given, and the changed fields as old and new values. No screen writes its own log.
+- **L105. Version history for documents and settings.** Baptism and marriage records, certificate templates, member details, fee schedules, projects, and the member number format keep every earlier version with who changed it and when. Any earlier version can be opened and compared with the current one.
+- **L106. Money and decision events are on the same timeline.** Reversal requests, approvals, rejections, fee waivers, payout-account changes, cash sign-offs, suspense claims, settlement runs, and sign-in events appear in the audit log and link to the ledger entries they relate to.
+- **L107. The audit log cannot be altered and proves itself.** Events cannot be edited or deleted. Each event carries a fingerprint chained to the one before, and an integrity check reports any entry that was changed or removed.
+- **L108. Who can read it.** The organisation owner, branch admins (their own branches) and a read-only **Auditor** role, which owners can assign, see their own church's log. Export is a separate permission. ChurchOS admins see every church. Events are kept for at least seven years, to be confirmed with advisers.
+- **L109. Personal data is masked by default.** Phone numbers and similar contact details show partly hidden everywhere in lists, reports, exports, and logs (for example `254711•••001`). Someone with the reveal permission can reveal a value on request, and every reveal is logged. Sensitive values in the audit log (phone, date of birth, account numbers) are stored masked. Viewing sensitive data, such as exact dates of birth and verification files, is itself logged.
+- **L110. Messages are sent to lists, not to numbers.** (Direction only: staff pick an audience such as "all parishioners" and the system delivers, without staff seeing phone numbers or member numbers. Group messaging by SMS and WhatsApp follows in a later slice, once the channel and group decisions are made.)
+
 ---
 
 ## 5. Money engine

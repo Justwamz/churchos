@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { MockProvider } from '@churchos/payments';
-import { Clock, createDb, Ledger } from './index';
+import { Clock, createDb, Ledger, verifyChains, writeAudit } from './index';
 
 async function setup(opts: { feeBearer?: 'church' | 'member' } = {}) {
   const db = await createDb();
@@ -283,5 +283,76 @@ describe('SMS wallet (L57 to L60)', () => {
     expect(await ledger.chargeSms('org1', 100, 'm4')).toBe(false);
     expect(await ledger.smsBalance('org1')).toBe(50);
     expect(await ledger.balance('sms_revenue')).toBe(200);
+  });
+});
+
+describe('audit log: append-only and tamper-evident (L104, L107)', () => {
+  it('chains events per organisation and verifies clean', async () => {
+    const { ledger, db } = await setup();
+    await ledger.audit({ orgId: 'org1', actor: 'u1', action: 'member.update', entity: 'membership', entityId: 'm1' });
+    await ledger.audit({ orgId: 'org1', actor: 'u1', action: 'payment.reverse', entity: 'payment', entityId: 'p1' });
+    await ledger.audit({ orgId: 'org2', actor: 'u2', action: 'member.update', entity: 'membership', entityId: 'm9' });
+    await ledger.audit({ action: 'settlement.run' });
+    const rows = await db.query<any>(`SELECT chain, prev_hash, hash, category FROM audit_events ORDER BY seq`);
+    expect(rows.map((r) => r.chain)).toEqual(['org1', 'org1', 'org2', 'platform']);
+    expect(rows[0].prev_hash).toBeNull();
+    expect(rows[1].prev_hash).toBe(rows[0].hash); // chained
+    expect(rows[2].prev_hash).toBeNull(); // each organisation has its own chain
+    expect(rows[1].category).toBe('money');
+    const report = await verifyChains(db);
+    expect(report.every((r) => r.ok)).toBe(true);
+    expect(report.find((r) => r.chain === 'org1')!.events).toBe(2);
+  });
+
+  it('REVIEW FOCUS 1: the database refuses to change, delete or truncate an event', async () => {
+    const { ledger, db } = await setup();
+    await ledger.audit({ orgId: 'org1', actor: 'u1', action: 'member.update' });
+    await expect(db.query(`UPDATE audit_events SET summary='nothing happened'`)).rejects.toThrow(/append-only/);
+    await expect(db.query(`DELETE FROM audit_events`)).rejects.toThrow(/append-only/);
+    await expect(db.exec(`TRUNCATE audit_events`)).rejects.toThrow(/append-only/);
+    expect((await db.query<any>(`SELECT COUNT(*) AS n FROM audit_events`))[0].n).toBe(1);
+  });
+
+  it('REVIEW FOCUS 1: if someone bypasses the trigger, the integrity check names the first bad event', async () => {
+    const { ledger, db } = await setup();
+    for (const a of ['a.one', 'a.two', 'a.three', 'a.four']) await ledger.audit({ orgId: 'org1', actor: 'u1', action: a });
+    const seqs = (await db.query<any>(`SELECT seq FROM audit_events ORDER BY seq`)).map((r) => r.seq);
+
+    await db.exec(`ALTER TABLE audit_events DISABLE TRIGGER USER`);
+    await db.query(`UPDATE audit_events SET summary='quietly edited' WHERE seq=$1`, [seqs[1]]);
+    let r = (await verifyChains(db, 'org1'))[0];
+    expect(r).toMatchObject({ ok: false, brokenAtSeq: seqs[1] });
+    expect(r.reason).toMatch(/changed/);
+
+    // Undo the edit, then delete an event in the middle instead.
+    await db.query(`UPDATE audit_events SET summary='a two' WHERE seq=$1`, [seqs[1]]);
+    expect((await verifyChains(db, 'org1'))[0].ok).toBe(true); // restoring the exact original value restores the proof
+    await db.query(`DELETE FROM audit_events WHERE seq=$1`, [seqs[2]]);
+    r = (await verifyChains(db, 'org1'))[0];
+    expect(r.ok).toBe(false);
+    await db.exec(`ALTER TABLE audit_events ENABLE TRIGGER USER`);
+  });
+
+  it('records field changes and request context in the hash', async () => {
+    const { db } = await setup();
+    const clock = new Date().toISOString();
+    await writeAudit(db, clock, {
+      orgId: 'org1', actorId: 'u1', actorName: 'Esther', actorType: 'user', action: 'member.update', entity: 'membership', entityId: 'm1',
+      changes: [{ field: 'fullName', before: 'Jane', after: 'Jane W.' }, { field: 'phone', before: '254711•••001', after: '254711•••009', masked: true }],
+      ip: '10.0.0.7', app: 'staff', requestId: 'req-1', reason: 'Corrected spelling', links: { paymentId: 'p1' },
+    });
+    const e = (await db.query<any>(`SELECT * FROM audit_events`))[0];
+    expect(e.changes).toHaveLength(2);
+    expect(e.ip).toBe('10.0.0.7');
+    expect(e.links).toEqual({ paymentId: 'p1' });
+    expect((await verifyChains(db))[0].ok).toBe(true);
+  });
+
+  it('isolates audit events by organisation at the database', async () => {
+    const { ledger, db } = await setup();
+    await ledger.audit({ orgId: 'org1', actor: 'u1', action: 'member.update' });
+    await ledger.audit({ orgId: 'org2', actor: 'u2', action: 'member.update' });
+    const mine = await db.asOrg('org1', (q) => q.query<any>(`SELECT org_id FROM audit_events`));
+    expect(mine.map((r) => r.org_id)).toEqual(['org1']);
   });
 });

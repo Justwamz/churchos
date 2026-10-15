@@ -3,7 +3,9 @@ import { DEFAULT_FEE_SCHEDULE, toCents, type FeeSchedule } from '@churchos/share
 import { HttpError, requireAdmin, type Ctx } from '../ctx';
 import { decideReversal, listReversalRequests } from './reversals';
 import { handleWebhook } from './core';
+import { maskPhoneSql } from './helpers';
 import { applyDuePayoutChanges } from './kyc';
+import { diff, FEE_SPECS, flattenFees, maskedSnapshot, recordVersion } from '../audit';
 import { runMemberHousekeeping } from '../members';
 
 function validSchedule(s: any): s is FeeSchedule {
@@ -51,9 +53,13 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     if (b.feeBearer !== 'church' && b.feeBearer !== 'member') throw new HttpError(400, 'Fee bearer must be church or member', 'bad_bearer');
     if (!validSchedule(b.feeSchedule)) throw new HttpError(400, 'The fee schedule is not valid', 'bad_schedule');
     const id = (req.params as any).id;
+    const beforeOrg = (await ctx.db.query<any>('SELECT fee_bearer, fee_schedule FROM organisations WHERE id=$1', [id]))[0];
     const r = await ctx.db.query(`UPDATE organisations SET fee_bearer=$2, fee_schedule=$3 WHERE id=$1 RETURNING id`, [id, b.feeBearer, JSON.stringify(b.feeSchedule)]);
     if (r.length === 0) throw new HttpError(404, 'tenant not found', 'not_found');
-    await ctx.ledger.audit({ orgId: id, actor: req.session!.uid, action: 'fees.update', entity: 'organisation', entityId: id, meta: { feeBearer: b.feeBearer } });
+    const afterFees = flattenFees(b.feeBearer, b.feeSchedule);
+    const changes = diff(FEE_SPECS, beforeOrg ? flattenFees(beforeOrg.fee_bearer, beforeOrg.fee_schedule) : null, afterFees);
+    const evt = await ctx.ledger.audit({ orgId: id, actor: req.session!.uid, action: 'fees.update', entity: 'fee_schedule', entityId: id, summary: 'Changed the fee settings', changes, reason: b.reason ? String(b.reason).slice(0, 200) : null });
+    await recordVersion(ctx, { orgId: id, entity: 'fee_schedule', entityId: id, snapshot: maskedSnapshot(FEE_SPECS, afterFees), summary: changes.map((c) => c.label).join(', ') || 'Saved without changes', eventId: evt });
     return { ok: true };
   });
 
@@ -62,16 +68,24 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const q = req.query as any;
     const stage = q.stage ? String(q.stage) : null;
     return ctx.db.query<any>(
-      `SELECT p.id, p.provider_tx_id, p.received_at, p.method, p.reference, p.purpose, p.payer_phone, p.amount_paid, p.net, p.platform_fee, p.psp_cost, p.stage,
+      `SELECT p.id, p.provider_tx_id, p.received_at, p.method, p.reference, p.purpose, ${maskPhoneSql('p.payer_phone')} AS payer_phone, p.amount_paid, p.net, p.platform_fee, p.psp_cost, p.stage,
               b.name AS branch_name, b.code AS branch_code
          FROM payments p LEFT JOIN branches b ON b.id=p.branch_id ${stage ? 'WHERE p.stage=$1' : ''} ORDER BY p.received_at DESC LIMIT 200`,
       stage ? [stage] : [],
     );
   });
 
+  /** Shows the real payer number of one payment to a platform admin. Always logged (L109). */
+  app.post('/admin/payments/:id/reveal', adm, async (req) => {
+    const p = (await ctx.db.query<any>('SELECT id, org_id, branch_id, payer_phone, provider_tx_id FROM payments WHERE id=$1', [(req.params as any).id]))[0];
+    if (!p) throw new HttpError(404, 'payment not found', 'not_found');
+    await ctx.ledger.audit({ orgId: p.org_id, branchId: p.branch_id, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'payment', entityId: p.id, summary: `Revealed the payer phone of payment ${p.provider_tx_id}`, reason: (req.body as any)?.reason ? String((req.body as any).reason).slice(0, 200) : null, meta: { fields: ['payer_phone'] } });
+    return { payer_phone: p.payer_phone };
+  });
+
   app.get('/admin/suspense', adm, async () => {
     const rows = await ctx.db.query<any>(
-      `SELECT id, provider_tx_id, received_at, method, reference, payer_phone, amount_paid, psp_cost FROM payments WHERE stage='suspense' ORDER BY received_at`,
+      `SELECT id, provider_tx_id, received_at, method, reference, ${maskPhoneSql('payer_phone')} AS payer_phone, amount_paid, psp_cost FROM payments WHERE stage='suspense' ORDER BY received_at`,
     );
     const expiresMs = ctx.ledger.opts.suspenseHours * 3600_000;
     return rows.map((r) => ({ ...r, expiresAt: new Date(new Date(r.received_at).getTime() + expiresMs).toISOString() }));
@@ -90,7 +104,7 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get('/admin/reversal-requests', adm, async (req) => listReversalRequests(ctx, (req.query as any).status));
   app.post('/admin/reversal-requests/:id/decide', adm, async (req) =>
-    decideReversal(ctx, (req.params as any).id, req.session!.uid, (req.body as any)?.approve !== false),
+    decideReversal(ctx, (req.params as any).id, req.session!.uid, (req.body as any)?.approve !== false, (req.body as any)?.reason),
   );
 
   app.post('/admin/settlement/run', adm, async (req) => {
@@ -113,7 +127,6 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     ctx.db.query<any>(`SELECT po.*, b.name AS branch_name FROM payouts po JOIN branches b ON b.id=po.branch_id ORDER BY po.created_at DESC LIMIT 100`),
   );
 
-  app.get('/admin/audit', adm, async () => ctx.db.query<any>(`SELECT * FROM audit_log ORDER BY id DESC LIMIT 100`));
 
   app.get('/admin/revenue', adm, async () => {
     const r = (

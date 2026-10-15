@@ -1,4 +1,5 @@
 import { HttpError, inList, type Ctx } from '../ctx';
+import { maskPhoneSql } from './helpers';
 
 /** Reversals above this amount need two different approvers (D1, KES 50,000). */
 export const SECOND_APPROVER_ABOVE = 5_000_000;
@@ -50,7 +51,7 @@ export async function createReversalRequest(
     `INSERT INTO reversal_requests (id, payment_id, requested_by, source, message, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
     [id, payment.id, a.requestedBy, a.source, a.message ?? null, a.reason?.trim() || 'Requested by user', ctx.clock.now().toISOString()],
   );
-  await ctx.ledger.audit({ orgId: payment.org_id, actor: a.requestedBy, action: 'reversal.request', entity: 'payment', entityId: payment.id });
+  await ctx.ledger.audit({ orgId: payment.org_id, branchId: payment.branch_id, actor: a.requestedBy, action: 'reversal.request', entity: 'payment', entityId: payment.id, summary: `Asked for a reversal of payment ${payment.provider_tx_id}`, reason: a.reason?.trim() || null, links: { paymentId: payment.id, reversalRequestId: id } });
   return {
     id,
     status: 'pending',
@@ -61,7 +62,7 @@ export async function createReversalRequest(
 /**
  * Admin decision. Above the threshold the first approval parks the request and a different admin must approve it (maker-checker, L35).
  */
-export async function decideReversal(ctx: Ctx, requestId: string, adminId: string, approve: boolean) {
+export async function decideReversal(ctx: Ctx, requestId: string, adminId: string, approve: boolean, reason?: string) {
   const r = (await ctx.db.query<any>(`SELECT * FROM reversal_requests WHERE id=$1`, [requestId]))[0];
   if (!r) throw new HttpError(404, 'request not found', 'not_found');
   if (r.status !== 'pending' && r.status !== 'awaiting_second') throw new HttpError(409, 'This request was already decided', 'already_decided');
@@ -69,13 +70,13 @@ export async function decideReversal(ctx: Ctx, requestId: string, adminId: strin
 
   if (!approve) {
     await ctx.db.query(`UPDATE reversal_requests SET status='rejected', first_approver=COALESCE(first_approver,$2) WHERE id=$1`, [requestId, adminId]);
-    await ctx.ledger.audit({ actor: adminId, action: 'reversal.reject', entity: 'reversal_request', entityId: requestId });
+    await ctx.ledger.audit({ orgId: payment.org_id, branchId: payment.branch_id, actor: adminId, action: 'reversal.reject', entity: 'reversal_request', entityId: requestId, summary: `Rejected the reversal of payment ${payment.provider_tx_id}`, reason: reason?.trim() || null, links: { paymentId: payment.id, reversalRequestId: requestId } });
     return { id: requestId, status: 'rejected' };
   }
   const needsTwo = payment.amount_paid > SECOND_APPROVER_ABOVE;
   if (needsTwo && r.status === 'pending') {
     await ctx.db.query(`UPDATE reversal_requests SET status='awaiting_second', first_approver=$2 WHERE id=$1`, [requestId, adminId]);
-    await ctx.ledger.audit({ actor: adminId, action: 'reversal.first_approval', entity: 'reversal_request', entityId: requestId });
+    await ctx.ledger.audit({ orgId: payment.org_id, branchId: payment.branch_id, actor: adminId, action: 'reversal.first_approval', entity: 'reversal_request', entityId: requestId, summary: `First approval of the reversal of payment ${payment.provider_tx_id}, a second admin must approve`, links: { paymentId: payment.id, reversalRequestId: requestId } });
     return { id: requestId, status: 'awaiting_second' };
   }
   if (needsTwo && r.first_approver === adminId) throw new HttpError(403, 'A different admin must give the second approval', 'same_person');
@@ -87,13 +88,14 @@ export async function decideReversal(ctx: Ctx, requestId: string, adminId: strin
     throw new HttpError(409, e.message, e.code ?? 'reversal_failed');
   }
   await ctx.db.query(`UPDATE reversal_requests SET status='approved', second_approver=$2 WHERE id=$1`, [requestId, needsTwo ? adminId : null]);
+  await ctx.ledger.audit({ orgId: payment.org_id, branchId: payment.branch_id, actor: adminId, action: 'reversal.approve', entity: 'reversal_request', entityId: requestId, summary: `Approved the reversal of payment ${payment.provider_tx_id}${needsTwo ? ' (second approval)' : ''}`, reason: reason?.trim() || null, links: { paymentId: payment.id, reversalRequestId: requestId, ledgerEntry: `reverse:${payment.id}` }, meta: { amount: payment.amount_paid } });
   if (!needsTwo) await ctx.db.query(`UPDATE reversal_requests SET first_approver=$2 WHERE id=$1`, [requestId, adminId]);
   return { id: requestId, status: 'approved' };
 }
 
 export async function listReversalRequests(ctx: Ctx, status?: string) {
   return ctx.db.query<any>(
-    `SELECT r.*, p.amount_paid, p.provider_tx_id, p.stage AS payment_stage, p.reference, p.payer_phone, b.name AS branch_name, u.name AS requested_by_name
+    `SELECT r.*, p.amount_paid, p.provider_tx_id, p.stage AS payment_stage, p.reference, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch_name, u.name AS requested_by_name
        FROM reversal_requests r JOIN payments p ON p.id=r.payment_id LEFT JOIN branches b ON b.id=p.branch_id LEFT JOIN users u ON u.id=r.requested_by
       ${status ? `WHERE r.status IN (${inList(1, status.split(',').length)})` : ''} ORDER BY r.created_at DESC LIMIT 200`,
     status ? status.split(',') : [],

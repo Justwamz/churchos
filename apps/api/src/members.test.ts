@@ -93,14 +93,14 @@ describe('adding members (L91, L94 to L96)', () => {
     expect((await add(ADMIN, { fullName: 'Little One', category: 'child', dob: '2018-01-01', guardianIds: [mary.id], phone: '0799999999' })).statusCode).toBe(200);
     const kid = await find('Little One');
     expect(kid.phone).toBeNull(); // children never get an own phone
-    expect(kid.contact_phones).toEqual(['254712000111']);
+    expect(kid.contact_phones).toEqual(['254712•••111']); // masked for staff (L109)
     expect(kid.household_id).toBe(mary.household_id); // defaults to the guardian's household
   });
 
   it('shows every guardian phone for a child with two parents', async () => {
     const ruth = await find('Ruth Wanjiku');
     expect(ruth.guardians.map((g: any) => g.full_name).sort()).toEqual(['David Wanjiku', 'Jane Wanjiku']);
-    expect(ruth.contact_phones.sort()).toEqual(['254711000001', '254711000004']);
+    expect(ruth.contact_phones.sort()).toEqual(['254711•••001', '254711•••004']); // masked for staff (L109)
     expect(ruth.category).toBe('child');
   });
 

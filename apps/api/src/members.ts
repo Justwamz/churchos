@@ -1,4 +1,5 @@
 import type { Db } from '@churchos/ledger';
+import { maskPhone } from '@churchos/shared';
 import { HttpError, type Ctx } from './ctx';
 import { notify } from './sms';
 
@@ -112,7 +113,7 @@ export interface Viewer {
 }
 
 /** Adds guardians, contact phones, age band and, only where permitted, the date of birth. */
-export async function decorate(ctx: Ctx, rows: any[], viewer: Viewer): Promise<any[]> {
+export async function decorate(ctx: Ctx, rows: any[], viewer: Viewer, opts: { raw?: boolean } = {}): Promise<any[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const links = await ctx.db.query<any>(
@@ -135,8 +136,11 @@ export async function decorate(ctx: Ctx, rows: any[], viewer: Viewer): Promise<a
       branch_name: r.branch_name,
       household_id: r.household_id,
       is_primary_contact: r.is_primary_contact,
-      phone: r.phone,
-      contact_phones: contactPhones,
+      // Phone numbers are masked for staff. Revealing one is a separate, logged action (L109).
+      phone: maskPhone(r.phone),
+      contact_phones: contactPhones.map((p: string) => maskPhone(p)),
+      phone_masked: true,
+      ...(opts.raw ? { _phones: contactPhones } : {}),
       guardians: gs.map((g) => ({ id: g.guardian_id, full_name: g.full_name, member_number: g.member_number })),
       age_band: age === null ? null : ageBand(age),
       birthday: r.dob ? r.dob.slice(5) : null,
