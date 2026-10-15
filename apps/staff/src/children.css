@@ -1,0 +1,54 @@
+.kd { max-width: 760px; margin: 0 auto; display: grid; gap: 14px; }
+.kd button, .kd input:not([type='checkbox']), .kd .btn { min-height: 46px; }
+.kd .modal button, .modal .kd-pick input { min-height: 0; }
+.kd-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.kd-over { color: var(--bad); font-weight: 700; font-size: 14px; }
+.kd-count { text-align: center; background: var(--brand-tint); border-radius: 14px; padding: 8px 16px; display: grid; }
+.kd-count b { font-size: 34px; line-height: 1; }
+.kd-count span { font-size: 12px; color: var(--ink-3); }
+.kd-alt { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .kd-alt { grid-template-columns: 1fr; } }
+.kd-list { display: grid; gap: 10px; }
+.kd-child { display: flex; gap: 12px; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: var(--paper); }
+.kd-child.late { border-color: var(--warn); background: var(--warn-tint); }
+.kd-tag { flex: none; width: 54px; height: 54px; border-radius: 12px; background: var(--brand); color: #fff; font-size: 24px; font-weight: 800; display: grid; place-items: center; }
+.kd-info { min-width: 0; display: grid; gap: 4px; flex: 1; }
+.kd-name { font-weight: 700; font-size: 17px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.kd-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.kd-actions .btn { min-height: 40px; }
+.kd-toggle { background: none; border: 0; text-align: left; font: inherit; font-weight: 700; color: var(--ink); cursor: pointer; padding: 6px 0; }
+.kd-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.kd-class { display: grid; gap: 6px; align-content: start; }
+.kd-class.off { opacity: 0.65; }
+.kd-sec h3 { margin: 0; }
+.kd-picks { display: grid; gap: 8px; }
+.kd-pick { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; background: var(--paper); }
+.kd-pick.off { opacity: 0.55; cursor: not-allowed; }
+.kd-tag-sm { display: inline-block; background: var(--brand-tint); border-radius: 8px; padding: 1px 8px; font-weight: 700; font-size: 13px; }
+.kd-amber { display: block; color: var(--warn); font-weight: 700; font-size: 13px; margin-top: 2px; }
+.kd-results { display: grid; gap: 8px; }
+.kd-guardian { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--paper); }
+.kd-guardian > div { min-width: 0; overflow-wrap: anywhere; }
+.kd-hint { font-size: 12px; color: var(--warn); font-weight: 600; margin-top: 2px; }
+.kd-code { font-size: 28px; letter-spacing: 0.3em; text-align: center; font-weight: 800; }
+.kd-details { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.kd-details summary { cursor: pointer; font-weight: 700; }
+.kd-tagcard { text-align: center; display: grid; gap: 10px; width: min(420px, 100%); }
+.kd-tag-big { font-size: 64px; font-weight: 900; line-height: 1; color: var(--brand); }
+.kd-who { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.kd-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+.kd-filter-btn .btn { width: 100%; }
+.kd-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.kd-totals .card { display: grid; text-align: center; padding: 12px; }
+.kd-totals b { font-size: 28px; }
+.kd-desktop { display: none; }
+@media (min-width: 1180px) { .kd-desktop { display: block; } .kd-mobile { display: none; } }
+
+/* The answer must be seen at once, wherever the page is scrolled: a banner over the top of the screen. */
+.kd-result { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 20px)); z-index: 90; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); cursor: pointer; border-radius: 16px; padding: 18px 16px; text-align: center; display: grid; gap: 6px; border: 2px solid; }
+.kd-result.good { background: var(--good-tint); color: var(--good); border-color: var(--good); }
+.kd-result.warn { background: var(--warn-tint); color: var(--warn); border-color: var(--warn); }
+.kd-result.bad { background: var(--bad-tint); color: var(--bad); border-color: var(--bad); }
+.kd-mark { font-size: 44px; line-height: 1; font-weight: 800; }
+.kd-title { font-size: 24px; font-weight: 800; }
+.modal-head { flex-wrap: nowrap; gap: 10px; }

@@ -10,7 +10,7 @@ const api = createApi('churchos:admin-token');
 const num = (v: unknown) => Number(v ?? 0);
 const errText = (e: any) => (e && typeof e.message === 'string' && !e.message.trim().startsWith('{') ? e.message : 'Something went wrong. Please try again.');
 
-type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'messaging' | 'outbox' | 'tariffs' | 'providers' | 'adverts';
+type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'messaging' | 'outbox' | 'smsbox' | 'tariffs' | 'providers' | 'adverts';
 const PAGES: { id: Page; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'tenants', label: 'Tenants and fees' },
@@ -25,6 +25,7 @@ const PAGES: { id: Page; label: string }[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'adverts', label: 'Adverts' },
   { id: 'outbox', label: 'Email outbox' },
+  { id: 'smsbox', label: 'SMS outbox' },
   { id: 'tools', label: 'Test tools' },
   { id: 'audit', label: 'Audit log' },
 ];
@@ -65,6 +66,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {page === 'payout-requests' && <PayoutRequests {...p} />}
         {page === 'messaging' && <Messaging />}
         {page === 'outbox' && <Outbox />}
+        {page === 'smsbox' && <SmsOutbox />}
         {page === 'tariffs' && <Tariffs toast={toast.show} />}
         {page === 'providers' && <Providers toast={toast.show} />}
         {page === 'adverts' && <Adverts toast={toast.show} />}
@@ -1033,6 +1035,43 @@ function Outbox() {
                     </td></tr>,
                   ];
                 })}
+              </Table>
+            );
+          }}
+        </Load>
+      </Card>
+    </>
+  );
+}
+
+// ---------------- SMS outbox ----------------
+
+function SmsOutbox() {
+  const s = useAsync(() => api.get<any[]>('/admin/sms-outbox'));
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
+  return (
+    <>
+      <Head title="SMS outbox" sub={<Badge tone="warn">Development only: simulated SMS</Badge>} action={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <Note>Single messages such as receipts, children's pick-up codes and late pick-up alerts are written here as well as being sent to the simulated SMS provider. Phone numbers are partly hidden.</Note>
+      <div style={{ height: 16 }} />
+      <Card>
+        <div className="outbox-filter"><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the message or number" aria-label="Search SMS" /></div>
+        <Load s={s}>
+          {(all) => {
+            const rows = needle ? all.filter((r) => `${r.body} ${r.to_phone}`.toLowerCase().includes(needle)) : all;
+            if (all.length === 0) return <Empty>No SMS yet.</Empty>;
+            if (rows.length === 0) return <Empty>No SMS match that search.</Empty>;
+            return (
+              <Table head={['Time', 'To', 'Message', 'Status']}>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td>{shortDate(r.created_at)}</td>
+                    <td>{r.to_phone}</td>
+                    <td>{r.body}</td>
+                    <td><Badge tone={r.status === 'sent' ? 'good' : 'bad'}>{r.status === 'sent' ? 'Sent' : 'Not sent'}</Badge></td>
+                  </tr>
+                ))}
               </Table>
             );
           }}

@@ -5,17 +5,21 @@ import { runCommunityJobs } from './routes/community';
 import { runBookingJobs } from './routes/bookings';
 import { runShopJobs } from './routes/shop';
 import { runTicketJobs } from './routes/tickets';
+import { runKidsJobs } from './routes/kids';
+import { seedKidsDemo } from './seed-kids';
 import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 
 const port = Number(process.env.PORT ?? 4000);
 const { app, ctx } = await buildApp({ logger: false });
 await seed(ctx);
+await seedKidsDemo(ctx);
 await runMemberHousekeeping(ctx);
 // Graduation and birthday wishes run hourly. The platform clock can be advanced in development, so this uses it too.
 setInterval(() => void runMemberHousekeeping(ctx).catch((e) => console.error('housekeeping failed', e)), 3600_000).unref();
 // Scheduled messages go out within 30 seconds of their time (L118).
 setInterval(() => void runScheduledMessages(ctx).catch((e) => console.error('scheduler failed', e)), 30_000).unref();
 setInterval(() => void runTicketJobs(ctx).catch((e) => console.error('ticket scheduler failed', e)), 30_000).unref();
+setInterval(() => void runKidsJobs(ctx).catch((e) => console.error('children scheduler failed', e)), 30_000).unref();
 setInterval(() => void runShopJobs(ctx).catch((e) => console.error('shop scheduler failed', e)), 30_000).unref();
 setInterval(() => void runBookingJobs(ctx).catch((e) => console.error('booking scheduler failed', e)), 30_000).unref();
 setInterval(() => void runCommunityJobs(ctx).catch((e) => console.error('community scheduler failed', e)), 30_000).unref();

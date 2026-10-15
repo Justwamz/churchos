@@ -850,11 +850,121 @@ CREATE TABLE IF NOT EXISTS help_chunks (
 );
 CREATE INDEX IF NOT EXISTS help_chunks_tsv_idx ON help_chunks USING gin(tsv);
 
+-- Children's check-in and pick-up (L179 to L187). Nothing here is ever deleted: the log is the record.
+CREATE TABLE IF NOT EXISTS kids_classes (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  name text NOT NULL,
+  room text,
+  teachers jsonb NOT NULL DEFAULT '[]',
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kids_sessions (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  class_id text NOT NULL,
+  class_name text NOT NULL,
+  starts_at timestamptz NOT NULL,
+  ends_at timestamptz NOT NULL,
+  grace_min int NOT NULL DEFAULT 15,
+  escalate_min int NOT NULL DEFAULT 30,
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  tag_next int NOT NULL DEFAULT 1,
+  opened_by text NOT NULL,
+  opened_by_name text NOT NULL,
+  closed_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS kids_checkins (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  session_id text NOT NULL,
+  class_id text NOT NULL,
+  child_id text NOT NULL,
+  child_name text NOT NULL,
+  tag text NOT NULL,
+  status text NOT NULL DEFAULT 'in' CHECK (status IN ('in','out')),
+  in_at timestamptz NOT NULL,
+  in_by text NOT NULL,
+  in_by_name text NOT NULL,
+  in_device text,
+  in_method text NOT NULL,
+  dropper_id text NOT NULL,
+  dropper_name text NOT NULL,
+  dropper_device text,
+  out_at timestamptz,
+  out_by text,
+  out_by_name text,
+  out_device text,
+  out_method text,
+  collector_id text,
+  collector_name text,
+  collector_kind text,
+  collector_device text,
+  alerted_at timestamptz,
+  escalated_at timestamptz,
+  escalated_by text,
+  escalation_kind text,
+  escalation_note text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS kids_checkins_one_in ON kids_checkins(child_id) WHERE status='in';
+CREATE INDEX IF NOT EXISTS kids_checkins_session_idx ON kids_checkins(session_id);
+CREATE TABLE IF NOT EXISTS kids_pickup_people (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  guardian_id text NOT NULL,
+  name text NOT NULL,
+  phone text NOT NULL,
+  relation text,
+  id_number text,
+  active boolean NOT NULL DEFAULT true,
+  created_by text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS kids_codes (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  session_id text NOT NULL,
+  checkin_ids jsonb NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('dropoff','collect')),
+  to_name text NOT NULL,
+  to_phone text NOT NULL,
+  subject_kind text NOT NULL,
+  subject_id text NOT NULL,
+  code_hash text NOT NULL,
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
+CREATE TABLE IF NOT EXISTS kids_log (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  at timestamptz NOT NULL,
+  action text NOT NULL,
+  result text NOT NULL,
+  session_id text,
+  class_name text,
+  staff_id text,
+  staff_name text,
+  staff_device text,
+  subject_id text,
+  subject_name text,
+  subject_device text,
+  method text,
+  children text,
+  detail text
+);
+CREATE INDEX IF NOT EXISTS kids_log_idx ON kids_log(org_id, at DESC);
+
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

@@ -391,5 +391,11 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     return rows.map((r) => ({ ...r, to_email: maskEmail(r.to_email) }));
   });
 
+  // The development SMS outbox: single messages such as receipts, pick-up codes and late alerts. Numbers are masked.
+  app.get('/admin/sms-outbox', adm, async () => {
+    const rows = await ctx.db.query<any>(`SELECT id, org_id, to_phone, kind, body, cost, status, created_at FROM sms_messages ORDER BY created_at DESC LIMIT 200`);
+    return rows.map((r) => ({ ...r, cost: Number(r.cost), to_phone: r.to_phone && r.to_phone.length >= 10 ? `0${r.to_phone.slice(3, 6)} *** ${r.to_phone.slice(-3)}` : r.to_phone }));
+  });
+
   void csv;
 }

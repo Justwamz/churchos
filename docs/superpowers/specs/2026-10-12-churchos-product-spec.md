@@ -314,6 +314,19 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L177. Reports.** Per ticket type: available, sold, held, left, takings, checked in. An attendee list with CSV export. Reminders go to ticket holders the day before.
 - **L178. Adverts can sell tickets.** An advert can lead straight to the ticket purchase for an event (L168).
 
+### 4.32 Children's check-in and pick-up (decided in discussion)
+
+- **L179. Classes and sessions.** A branch sets up children's classes (Sunday School, Nursery) with a room and one or more teachers. A teacher opens a session for a class with an expected finish time, and closes it when every child has gone home. A child can be in only one class at a time.
+- **L180. The guardian's code.** In the member app each guardian has a QR code that changes every 30 seconds, so a photo or screenshot is useless. It is only issued to a signed-in guardian and is tied to the device that asked for it.
+- **L181. Drop-off.** The teacher scans the guardian's code, sees the children linked to that guardian, ticks the ones being dropped off, and each drop-off gets a tag number. The guardian is told in the app. A guardian with no app is found by name or phone number and gets an SMS with the tag number and a six-digit pick-up code.
+- **L182. Pick-up.** The teacher scans the guardian's code again. Any registered guardian of the child may collect, and if it is not the person who dropped off, the screen says so and the person who dropped off is told. A guardian without the app reads out the pick-up code from their SMS.
+- **L183. Other people collecting.** A guardian can list approved pick-up people (name, phone, relation, ID number). At pick-up the teacher chooses that person, an SMS code goes to their phone, and they read it out. Nobody else can collect a child. Cash and passwords are never involved.
+- **L184. Not collected.** If a child is still in when the session's finish time plus a grace period has passed (default 15 minutes), every guardian is told by SMS, WhatsApp (if opted in), email and in-app. After a further wait (default 30 minutes after the finish time) the church staff for that branch are alerted. A teacher can escalate at any time, which alerts staff and shows the guardians' phone numbers so they can be called.
+- **L185. Everything is logged.** Each scan, code sent, refusal, alert and escalation is recorded with the time, the teacher, the teacher's device, the guardian, the guardian's device, and the children. The log is searchable, can be downloaded, and is part of the audit trail.
+- **L186. Permissions.** Teachers need "Check children in and out" and see only their branch. Setting up classes, the log and reports need "Manage children's classes". Teachers see guardians' phone numbers only for a child who is late or escalated.
+- **L187. Not in this slice.** Child photos, medical and allergy notes, and flagging a child who must not be released are deferred by decision.
+
+
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).
 - **P1. Order of work:** bookings and assets first, then prayer and pastoral requests, then live sessions with video and chat.

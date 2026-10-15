@@ -147,3 +147,12 @@ needs a float policy for this.
 - **The email:** admin console > **Email outbox** shows the confirmation with each ticket and its QR code.
 - **At the door:** staff app > **Check-in** (Daniel `0700000001`, or give anyone the Check-in permission under Team). Scan with the camera, or type a ticket code such as `GALA01-0001`. The first scan is valid, the second says already used.
 - **Refunds:** no self-service. Cancel a ticket or the event, and the church arranges the money through Payment help.
+
+## Children's check-in and pick-up (Slice 13)
+
+- **Teacher (staff app > Children):** Lucy `0700000008` teaches Sunday School. Open a session, then scan a guardian's code to drop children off (each drop-off gets a tag number) and scan again to hand them over. A guardian with no app is found by name or phone and gets an SMS with a pick-up code. Mary Kamau (`M00102`) has no app, and her child is Tom.
+- **Guardian (member app > Children):** Jane `0711000001` has a QR code that changes every 30 seconds, her children, and one approved pick-up person (an aunt) who collects with an SMS code on her own phone. David `0711000004` is the other guardian of Joy and Ruth.
+- **Read the SMS codes:** admin console > **SMS outbox** (development only).
+- **Late pick-up:** open a session, check a child in, then in admin console > Test tools move the clock forward. Guardians are told after the grace period (SMS, WhatsApp if opted in, email, in-app). Then the church office is alerted. A teacher can alert the office by hand and then sees the guardians' phone numbers.
+- **Managers (Daniel `0700000001`):** Children > Classes (add classes and teachers), Log (who scanned, which device, whose code, every SMS and alert; download as CSV) and Reports.
+- Not in this slice by decision: child photos, medical and allergy notes, and a "must not be released" flag.

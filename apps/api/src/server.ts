@@ -22,6 +22,7 @@ import { bookingRoutes } from './routes/bookings';
 import { teamRoutes } from './routes/team';
 import { shopRoutes } from './routes/shop';
 import { ticketRoutes } from './routes/tickets';
+import { kidsRoutes } from './routes/kids';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -97,6 +98,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   teamRoutes(app, ctx);
   shopRoutes(app, ctx);
   ticketRoutes(app, ctx);
+  kidsRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

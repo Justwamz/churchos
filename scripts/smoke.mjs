@@ -321,5 +321,48 @@ step('Staff see sales, takings and who has checked in', s12Sales.json.totals.sol
 const s12Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 12 activity', s12Rec.json.ok === true);
 
+// 20. Slice 13: children's check-in and pick-up.
+const s13Lucy = await login('0700000008');
+const s13Davt = await login('0711000004');
+const s13Classes = await call('GET', '/kids/classes', undefined, s13Lucy);
+step('A Sunday school teacher sees only their class', s13Classes.json.classes.length === 1 && s13Classes.json.classes[0].name === 'Sunday School' && s13Classes.json.canManage === false);
+const s13Open = await call('POST', `/kids/classes/${s13Classes.json.classes[0].id}/sessions`, { minutes: 60, device: 'Smoke tablet' }, s13Lucy);
+const s13Sess = s13Open.json.id;
+const s13Qr = async (tok, m) => (await call('POST', '/me/family/qr', { membershipId: m, device: 'Smoke phone' }, tok)).json.token;
+const s13Scan = async (tok, m) => (await call('POST', `/kids/sessions/${s13Sess}/scan`, { token: await s13Qr(tok, m), device: 'Smoke tablet' }, s13Lucy)).json;
+const s13Jane = await s13Scan(janeTok, 'm_jane');
+step('Scanning a guardian shows their children', s13Jane.result === 'ok' && s13Jane.dropOff.some((d) => d.name === 'Joy Wanjiku'));
+const s13In = await call('POST', `/kids/sessions/${s13Sess}/checkin`, { proof: s13Jane.proof, childIds: ['m_joy'], device: 'Smoke tablet' }, s13Lucy);
+step('A child is checked in and gets a tag', s13In.json.tag === '01');
+const s13Mary = (await call('GET', `/kids/sessions/${s13Sess}/guardians?q=Kamau`, undefined, s13Lucy)).json.guardians[0];
+const s13Find = await call('POST', `/kids/sessions/${s13Sess}/find`, { guardianId: s13Mary.id, device: 'Smoke tablet' }, s13Lucy);
+const s13Tom = await call('POST', `/kids/sessions/${s13Sess}/checkin`, { proof: s13Find.json.proof, childIds: ['m_tom'], device: 'Smoke tablet' }, s13Lucy);
+step('A guardian with no app is found by name and gets an SMS with a pick-up code', s13Mary.hasApp === false && s13Tom.json.codeSent === true);
+const s13Sms = (await call('GET', '/admin/sms-outbox', undefined, admin)).json.find((m) => /Tom Kamau checked in/.test(m.body));
+const s13Code = /pick-up code (\d{6})/.exec(s13Sms?.body ?? '')?.[1];
+const s13Look = await call('POST', `/kids/sessions/${s13Sess}/lookup`, { code: s13Code ?? '000000', device: 'Smoke tablet' }, s13Lucy);
+const s13Out1 = await call('POST', `/kids/sessions/${s13Sess}/checkout`, { proof: s13Look.json.proof, checkinIds: (s13Look.json.children ?? []).map((c) => c.id), device: 'Smoke tablet' }, s13Lucy);
+step('The code from the SMS hands the child over, once', s13Look.json.result === 'ok' && s13Out1.json.done?.length === 1 && (await call('POST', `/kids/sessions/${s13Sess}/lookup`, { code: s13Code }, s13Lucy)).json.result === 'bad_code');
+const s13David = await s13Scan(s13Davt, 'm_david');
+const s13Out2 = await call('POST', `/kids/sessions/${s13Sess}/checkout`, { proof: s13David.proof, checkinIds: s13David.collect.map((c) => c.id), device: 'Smoke tablet' }, s13Lucy);
+step('The other guardian can collect, and the screen says it is not who dropped off', s13David.collect[0]?.byDifferentPerson === true && s13Out2.json.done?.length === 1);
+const s13Peter = await s13Scan(await login('0711000002'), 'm_peter');
+step('Someone else\'s code collects nobody', s13Peter.collect.length === 0);
+const s13Jane2 = await s13Scan(janeTok, 'm_jane');
+await call('POST', `/kids/sessions/${s13Sess}/checkin`, { proof: s13Jane2.proof, childIds: ['m_ruth'], device: 'Smoke tablet' }, s13Lucy);
+const s13Adv = await call('POST', '/admin/clock/advance', { hours: 3 }, admin);
+step('A child left past the finish time alerts the guardians, then the church office', s13Adv.json.kids?.alerted >= 1 && s13Adv.json.kids?.escalated >= 1);
+const s13Ruth = (await call('GET', `/kids/sessions/${s13Sess}`, undefined, s13Lucy)).json.children.find((c) => c.name === 'Ruth Wanjiku' && c.status === 'in');
+const s13Contacts = await call('GET', `/kids/checkins/${s13Ruth.id}/contacts`, undefined, s13Lucy);
+step('The teacher can then see who to call', s13Contacts.json.guardians?.length === 2);
+const s13Jane3 = await s13Scan(janeTok, 'm_jane');
+await call('POST', `/kids/sessions/${s13Sess}/checkout`, { proof: s13Jane3.proof, checkinIds: s13Jane3.collect.map((c) => c.id), device: 'Smoke tablet' }, s13Lucy);
+step('The session closes once every child has gone home', (await call('POST', `/kids/sessions/${s13Sess}/close`, {}, s13Lucy)).status === 200);
+const s13Log = (await call('GET', '/kids/log', undefined, daniel)).json.log;
+step('The log shows who scanned, on what device, and whose code', s13Log.some((l) => l.action === 'check_in' && l.teacher === 'Lucy Wairimu' && /Smoke tablet/.test(l.teacherDevice) && /Smoke phone/.test(l.guardianDevice ?? 'Smoke phone')));
+step('A teacher cannot read the log', (await call('GET', '/kids/log', undefined, s13Lucy)).status === 403);
+const s13Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 13 activity', s13Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

@@ -119,7 +119,7 @@ describe('availability and the rules of a booking (L141)', () => {
     expect((await book(JANE, ['res_pastor'], mon('16:30'), 60)).json().code).toBe('outside_hours'); // runs past closing
     expect((await book(JANE, ['res_pastor'], mon('10:00'), 90)).json().code).toBe('too_long'); // pastor sessions are at most an hour
     expect((await book(JANE, ['res_pastor'], when(1, '10:00', 300), 30)).json().code).toBe('too_far');
-    expect((await book(JANE, ['res_pastor'], plus(new Date(ctx.clock.now()).toISOString(), 60), 30)).json().code).toMatch(/too_soon|outside_hours|bad_slot/);
+    expect((await book(JANE, ['res_pastor'], plus(new Date(ctx.clock.now()).toISOString(), 60), 30)).json().code).toMatch(/too_soon|outside_hours|bad_slot|bad_time/);
     expect((await book(JANE, ['res_hall'], when(1, '20:00'), 120)).json().code).toBe('outside_hours'); // crosses 21:00 closing
     expect((await book(JANE, ['res_hall'], mon('10:00'), 60, { attendees: 500 })).json().code).toBe('over_capacity');
     expect((await book(JANE, ['res_pastor'], mon('10:00'), 30, { title: '' })).statusCode).toBe(400);

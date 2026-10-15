@@ -47,6 +47,8 @@ export const PERMISSIONS = [
   'shop.sell',
   'shop.manage',
   'events.checkin',
+  'kids.checkin',
+  'kids.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -82,6 +84,8 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'notices.manage': { group: 'Community', label: 'Publish notices' },
   'events.view': { group: 'Community', label: 'See events' },
   'events.checkin': { group: 'Community', label: 'Check people in at the door', hint: 'Scan tickets. Does not show anything else.' },
+  'kids.checkin': { group: 'Community', label: 'Check children in and out', hint: 'Sunday school teachers. Scan guardians and hand children over.' },
+  'kids.manage': { group: 'Community', label: "Manage children's classes", hint: 'Set up classes and teachers, see the check-in log and late pick-ups.' },
   'events.manage': { group: 'Community', label: 'Create and manage events' },
   'adverts.view': { group: 'Community', label: 'See adverts' },
   'adverts.manage': { group: 'Community', label: 'Create and manage adverts' },
@@ -105,10 +109,11 @@ export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   // Only the organisation owner sees or changes payout destinations (L35).
   'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
   Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
-  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'bookings.view'],
+  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).
+  "Children's Teacher": ['kids.checkin'],
   Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
-  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin'],
+  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin', 'kids.checkin', 'kids.manage'],
 };
 
 export interface Session {
@@ -142,6 +147,21 @@ export function verifyToken(token: string | undefined): Session | null {
   } catch {
     return null;
   }
+}
+
+/** Signs any small object so it cannot be changed on the way: the guardian's rotating QR code and the scan proof the teacher holds. */
+export function signData(obj: Record<string, unknown>): string {
+  const payload = Buffer.from(JSON.stringify(obj)).toString('base64url');
+  return `${payload}.${createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
+}
+
+export function verifyData(token: string): Record<string, any> | null {
+  const [payload, sig] = String(token ?? '').split('.');
+  if (!payload || !sig) return null;
+  const a = Buffer.from(sig);
+  const b = Buffer.from(createHmac('sha256', SECRET).update(payload).digest('base64url'));
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  try { return JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
 }
 
 export function normalizePhone(raw: string): string | null {
