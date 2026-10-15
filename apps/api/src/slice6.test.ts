@@ -276,7 +276,7 @@ describe('adverts: approval, audience and the member slider (L131, L132)', () =>
     await call(JANE, 'POST', `/me/adverts/${id}/tap`);
     await call(JANE, 'POST', `/me/adverts/${id}/tap`);
     expect((await call(AMINA, 'POST', `/me/adverts/${id}/view`)).statusCode).toBe(404); // cannot see it, cannot inflate it
-    expect((await call(ADMIN, 'GET', `/adverts/${id}`)).json().stats).toEqual({ views: 1, taps: 1, viewers: 1 });
+    expect((await call(ADMIN, 'GET', `/adverts/${id}`)).json().stats).toMatchObject({ views: 1, taps: 1, viewers: 1, orders: 0 });
     ctx.clock.advance(26 * 3600_000);
     await call(JANE, 'POST', `/me/adverts/${id}/view`);
     expect((await call(ADMIN, 'GET', `/adverts/${id}`)).json().stats).toMatchObject({ views: 2, viewers: 1 });
