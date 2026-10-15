@@ -4,7 +4,7 @@ import {
   AuditLog, Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, HistoryButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table,
   createApi, kes, phonePretty, shortDate, useAsync, useToast,
 } from '@churchos/ui';
-import { Adverts, Providers, Tariffs } from './MessagingAdmin';
+import { Adverts, MessagingPlan, Providers, Tariffs } from './MessagingAdmin';
 
 const api = createApi('churchos:admin-token');
 const num = (v: unknown) => Number(v ?? 0);
@@ -253,6 +253,7 @@ const centsOf = (kesStr: string) => Math.round(Number(kesStr || 0) * 100);
 
 function Tenants({ toast }: PageProps) {
   const t = useAsync(() => api.get<any[]>('/admin/tenants'));
+  const tariffs = useAsync(() => api.get<any[]>('/admin/tariffs'));
   return (
     <>
       <Head title="Tenants and fees" sub="Churches on the platform, their balances, and what each one is charged." />
@@ -261,7 +262,7 @@ function Tenants({ toast }: PageProps) {
       <Load s={t}>
         {(orgs) => orgs.length === 0 ? <Empty>No organisations yet.</Empty> : (
           <div className="grid" style={{ gap: 20 }}>
-            {orgs.map((o) => <TenantCard key={o.id} org={o} toast={toast} onSaved={t.reload} />)}
+            {orgs.map((o) => <TenantCard key={o.id} org={o} tariffs={tariffs.data ?? []} toast={toast} onSaved={t.reload} />)}
           </div>
         )}
       </Load>
@@ -269,7 +270,7 @@ function Tenants({ toast }: PageProps) {
   );
 }
 
-function TenantCard({ org, toast, onSaved }: { org: any; toast: PageProps['toast']; onSaved: () => void }) {
+function TenantCard({ org, tariffs, toast, onSaved }: { org: any; tariffs: any[]; toast: PageProps['toast']; onSaved: () => void }) {
   const init: FeeSchedule = org.feeSchedule ?? DEFAULT_FEE_SCHEDULE;
   const [open, setOpen] = useState(false);
   const [bearer, setBearer] = useState<'church' | 'member'>(org.feeBearer ?? 'church');
@@ -310,6 +311,7 @@ function TenantCard({ org, toast, onSaved }: { org: any; toast: PageProps['toast
 
   return (
     <Card title={org.name} action={<div className="row"><Badge tone="info">{org.feeBearer === 'member' ? 'Member pays on top' : 'Church absorbs'}</Badge><HistoryButton api={api} base="/admin/audit" entity="fee_schedule" entityId={org.id} title={`${org.name} fees`} label="Fee history" /><Button kind="ghost" small onClick={() => setOpen(!open)}>{open ? 'Hide fee editor' : 'Edit fees'}</Button></div>}>
+      {tariffs.length > 0 && <MessagingPlan org={org} tariffs={tariffs} toast={toast} onSaved={onSaved} />}
       <Table head={['Branch', 'Code', 'In 48h hold', 'Ready to pay out', 'Owed to us', 'Payouts']}>
         {org.branches.map((b: any) => (
           <tr key={b.id}>

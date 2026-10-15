@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { ApiError, Button, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:checkout');
@@ -12,6 +12,11 @@ const EXPIRED = 'This payment link has expired or was already used.';
 /** Stands in for a payment provider's hosted card page. Card details stay in component state only. */
 export function Checkout() {
   const { id = '' } = useParams();
+  const [search] = useSearchParams();
+  const gift = search.get('gift') ?? '';
+  // Where to send the person afterwards. Only the same site (any port) is allowed, so the link cannot be used to redirect elsewhere.
+  const back = (() => { try { const u = new URL(search.get('return') ?? '/', location.href); return u.hostname === location.hostname ? u.toString() : '/'; } catch { return '/'; } })();
+  const [receipt, setReceipt] = useState<{ church: string; purpose: string; receipt: string | null } | undefined>();
   const [info, setInfo] = useState<{ amount: number; merchant: string } | undefined>();
   const [state, setState] = useState<'loading' | 'ready' | 'expired' | 'paid'>('loading');
   const [number, setNumber] = useState('');
@@ -40,6 +45,16 @@ export function Checkout() {
       await api.post(`/public/checkout/${encodeURIComponent(id)}/pay`, { number: number.replace(/\s/g, ''), expiry, cvc });
       clear();
       setState('paid');
+      if (gift) {
+        // The gift is recorded a moment after the card is accepted, so look for the receipt for a few seconds.
+        for (let i = 0; i < 8; i++) {
+          try {
+            const g = await api.get<any>(`/public/give/${encodeURIComponent(gift)}`);
+            if (g.status === 'completed') { setReceipt({ church: g.church, purpose: g.purpose, receipt: g.receipt }); break; }
+          } catch { /* keep trying */ }
+          await new Promise((r) => setTimeout(r, 800));
+        }
+      }
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
       if (status === 404) { clear(); setState('expired'); }
@@ -62,7 +77,13 @@ export function Checkout() {
         <div className="co-card center stack" aria-live="polite">
           <div className="tick" aria-hidden="true">&#10003;</div>
           <h2>Payment received</h2>
-          <p className="muted">Payment received. You can close this tab and return to ChurchOS.</p>
+          {gift ? (
+            <>
+              <p className="muted">{receipt ? `Thank you. Your gift to ${receipt.church} has been received.` : 'Thank you. Your gift is being recorded.'}</p>
+              {receipt?.receipt && <p className="tiny">Receipt reference <b className="mono">{receipt.receipt}</b></p>}
+              <a className="btn primary" href={back}>Back to ChurchOS</a>
+            </>
+          ) : <p className="muted">Payment received. You can close this tab and return to ChurchOS.</p>}
         </div>
       )}
       {state === 'ready' && info && (

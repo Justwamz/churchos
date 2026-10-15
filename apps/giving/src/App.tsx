@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Checkout } from './Checkout';
 import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
+import { networkMismatch, phoneHint } from '@churchos/shared';
 
 const api = createApi('churchos:giving:token');
 
@@ -37,6 +38,15 @@ interface Church {
 interface CertInfo { serial: string; kind: string; price: number; churchCode: string; church: string; purpose: string }
 interface AdInfo { code: string; title: string; advertiser: string; price: number; startsAt: string; endsAt: string | null; churchCode: string; church: string; purpose: string }
 interface Intent { status: string; church: string; purpose: string; amountPaid: number | string; receipt: string | null }
+
+function PhoneField({ method, phone, setPhone, error }: { method: string; phone: string; setPhone: (v: string) => void; error?: string }) {
+  const h = phoneHint(method);
+  return (
+    <Field label={h.label} hint={h.help} error={error}>
+      <input type="tel" inputMode="tel" autoComplete="tel" placeholder={h.placeholder} value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!error} />
+    </Field>
+  );
+}
 
 const validPhone = (p: string) => /^(?:0[17]\d{8}|(?:\+?254)[17]\d{8})$/.test(p.replace(/[\s-]/g, ''));
 const parseAmount = (s: string) => (/^\d+(\.\d{1,2})?$/.test(s.trim()) ? Number(s) : NaN);
@@ -224,6 +234,7 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
   const phoneOk = validPhone(phone);
   const amountErr = amountText && !amountOk ? (Number.isFinite(amount) ? `Enter an amount between KES ${MIN_KES} and KES ${MAX_KES.toLocaleString('en-KE')}` : 'Enter the amount as a number, for example 500') : undefined;
   const phoneErr = phone && !phoneOk ? 'Enter a Kenyan number like 0712 345 678' : undefined;
+  const mismatch = phoneOk ? networkMismatch(method, phone) : null;
 
   const project = purpose.startsWith('PROJ-') ? church.projects.find((p) => `PROJ-${p.code}` === purpose) : undefined;
   const methods = church.methods.length ? church.methods : Object.keys(METHOD_LABEL);
@@ -265,11 +276,13 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (busy || !phoneOk || !amountOk) return;
+    if (busy || !phoneOk || !amountOk || mismatch) return;
     setBusy(true); setApiError(undefined);
     try {
       const r = await api.post('/public/give', { code: church.code, purpose, phone: phone.replace(/[\s-]/g, ''), amount, method });
       store.set(PHONE_KEY, phone);
+      // A card is paid on the payment provider's own page, then that page brings the person back with their receipt.
+      if (r.checkoutUrl) { window.location.assign(r.checkoutUrl); return; }
       setPhase({ t: 'waiting', id: r.intentId, message: r.message, slow: false, amount, purpose });
     } catch (err) {
       setApiError(errMsg(err));
@@ -359,12 +372,10 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
             ))}
           </div>
           <div className="g-gap" />
-          <Field label="Phone number" hint="The number that will receive the payment prompt" error={touched || phone ? phoneErr : undefined}>
-            <input type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!phoneErr} />
-          </Field>
+          <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
         </Card>
         <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
-        <Button type="submit" disabled={busy || (touched && !phoneOk)}>{busy ? 'Sending request...' : `Pay ${kes(ad.price)}`}</Button>
+        <Button type="submit" disabled={busy || (touched && (!phoneOk || !!mismatch))}>{busy ? 'Sending request...' : `Pay ${kes(ad.price)}`}</Button>
       </form>
     );
   }
@@ -388,12 +399,10 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
             ))}
           </div>
           <div className="g-gap" />
-          <Field label="Phone number" hint="The number that will receive the payment prompt" error={touched || phone ? phoneErr : undefined}>
-            <input type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!phoneErr} />
-          </Field>
+          <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
         </Card>
         <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
-        <Button type="submit" disabled={busy || (touched && !phoneOk)}>{busy ? 'Sending request...' : `Pay ${kes(cert.price)}`}</Button>
+        <Button type="submit" disabled={busy || (touched && (!phoneOk || !!mismatch))}>{busy ? 'Sending request...' : `Pay ${kes(cert.price)}`}</Button>
       </form>
     );
   }
@@ -447,14 +456,12 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
           ))}
         </div>
         <div className="g-gap" />
-        <Field label="Phone number" hint="The number that will receive the payment prompt" error={touched || phone ? phoneErr : undefined}>
-          <input type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!phoneErr} />
-        </Field>
+        <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
       </Card>
 
       <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
-      <Button type="submit" disabled={busy || (touched && (!phoneOk || !amountOk))}>
-        {busy ? 'Sending request...' : amountOk ? `Give ${kes(amount * 100)}` : 'Give'}
+      <Button type="submit" disabled={busy || (touched && (!phoneOk || !amountOk || !!mismatch))}>
+        {busy ? (method === 'card' ? 'Opening card page...' : 'Sending request...') : amountOk ? `${method === 'card' ? 'Pay by card' : 'Give'} ${kes(amount * 100)}` : 'Give'}
       </Button>
 
       <details className="paybill">

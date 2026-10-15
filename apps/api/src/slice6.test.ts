@@ -377,3 +377,55 @@ describe('adverts: dates (L131)', () => {
     expect(await titles(JANE)).toContain('Christmas Carols Night'); // no end date: still running
   });
 });
+
+describe('giving by card and by the right mobile network', () => {
+  const gift = (extra: any = {}) => call(null, 'POST', '/public/give', { code: 'GRC001', phone: '0711000001', amount: 800, purpose: 'OFFERING', method: 'card', ...extra });
+  const txOf = (url: string) => new URL(url).pathname.split('/').pop()!;
+
+  it('a card gift goes to the hosted card page and completes into the normal giving flow', async () => {
+    const g = (await gift()).json();
+    expect(g).toMatchObject({ status: 'initiated', method: 'card' });
+    expect(g.checkoutUrl).toMatch(/\/checkout\/CARD[A-Z0-9]+\?gift=int_/);
+    const info = (await call(null, 'GET', `/public/checkout/${txOf(g.checkoutUrl)}`)).json();
+    expect(info).toMatchObject({ amount: 80000, merchant: 'Giving to Grace Nairobi' });
+    expect((await call(null, 'GET', `/public/give/${g.intentId}`)).json().status).toBe('initiated'); // nothing is counted before the card is paid
+    expect((await call(null, 'POST', `/public/checkout/${txOf(g.checkoutUrl)}/pay`, { number: '4242 4242 4242 4242', expiry: '12/30', cvc: '123' })).json().status).toBe('paid');
+    expect(await wait(async () => (await call(null, 'GET', `/public/give/${g.intentId}`)).json().status === 'completed')).toBe(true);
+    const p = (await ctx.db.query<any>(`SELECT method, amount_paid, platform_fee, psp_cost, stage FROM payments WHERE provider_tx_id=$1`, [txOf(g.checkoutUrl)]))[0];
+    expect(p.method).toBe('card');
+    expect(Number(p.amount_paid)).toBe(80000);
+    expect(Number(p.platform_fee) + Number(p.psp_cost)).toBeGreaterThan(0);
+    expect(await wait(async () => (await call(JANE, 'GET', '/me/notifications')).json().rows.some((n: any) => n.kind === 'receipt' && /800/.test(n.body)))).toBe(true);
+    expect((await call(null, 'POST', `/public/checkout/${txOf(g.checkoutUrl)}/pay`, { number: '4242 4242 4242 4242', expiry: '12/30', cvc: '123' })).statusCode).toBe(404); // a link works once
+  });
+
+  it('a declined card takes nothing and the gift stays unpaid', async () => {
+    const g = (await gift({ amount: 900 })).json();
+    expect((await call(null, 'POST', `/public/checkout/${txOf(g.checkoutUrl)}/pay`, { number: '4000 0000 0000 0002', expiry: '12/30', cvc: '123' })).statusCode).toBe(402);
+    expect((await call(null, 'GET', `/public/give/${g.intentId}`)).json().status).not.toBe('completed');
+    expect((await ctx.db.query<any>(`SELECT 1 FROM payments WHERE provider_tx_id=$1`, [txOf(g.checkoutUrl)])).length).toBe(0);
+  });
+
+  it('card still follows the amount limits and who bears the fee', async () => {
+    expect((await gift({ amount: 5 })).json().code).toBe('amount_too_small');
+    expect((await call(null, 'GET', '/public/fee?code=GRC001&amount=1000&method=card')).statusCode).toBe(200);
+  });
+
+  it('a mobile money method needs a number on that network', async () => {
+    expect((await gift({ method: 'airtel', phone: '0711000001' })).json().code).toBe('wrong_network'); // Safaricom number
+    expect((await gift({ method: 'mpesa', phone: '0733000001' })).json().code).toBe('wrong_network'); // Airtel number
+    expect((await gift({ method: 'tkash', phone: '0711000001' })).json().code).toBe('wrong_network');
+    expect((await gift({ method: 'airtel', phone: '0733000001' })).statusCode).toBe(200);
+    expect((await gift({ method: 'mpesa', phone: '0112000001' })).statusCode).toBe(200); // a range we are not sure about is accepted
+    expect((await gift({ method: 'card', phone: '0733000001' })).statusCode).toBe(200); // a card can use any phone
+  });
+});
+
+describe('the messaging plan of each church (L124)', () => {
+  it('the tenant list says which plan every church is on', async () => {
+    const t = (await call(PA1, 'GET', '/admin/tenants')).json();
+    expect(t.find((o: any) => o.id === 'org_newhope').messagingPlan).toMatchObject({ name: 'Volume bands', tiered: true, assigned: true });
+    expect(t.find((o: any) => o.id === 'org_grace').messagingPlan).toMatchObject({ name: 'Standard', tiered: false, assigned: false, isDefault: true });
+    expect((await call(OWNER, 'GET', '/admin/tenants')).statusCode).toBe(403);
+  });
+});

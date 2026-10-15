@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { networkMismatch } from '@churchos/shared';
 import { buildReference, computeFee, normalizeMethod, toCents } from './helpers';
 import { normalizePhone } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
@@ -65,6 +66,10 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     if (base < MIN_CENTS) throw new HttpError(400, 'The minimum gift is KES 10', 'amount_too_small');
     if (base > MAX_CENTS) throw new HttpError(400, 'The maximum for one gift is KES 150,000', 'amount_too_large');
     const method = normalizeMethod(body.method);
+    if (method === 'cash') throw new HttpError(400, 'Cash is recorded by the church, not paid here', 'bad_method');
+    // A mobile money prompt can only reach a number on that network (L8).
+    const mismatch = networkMismatch(method, phone);
+    if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
 
     const purpose = String(body.purpose ?? 'OFFERING').trim().toUpperCase();
     let projectId: string | null = null;
@@ -89,13 +94,26 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
 
     const fee = computeFee(b.fee_schedule, method, base, b.fee_bearer);
     const reference = buildReference(b.code, purpose);
-    const { providerTxId } = await ctx.provider.initiateStkPush({ phone, amount: fee.amountPaid, reference, method });
+    // Cards are paid on the payment provider's own page, so card details never reach ChurchOS. Mobile money gets a prompt on the phone.
+    const isCard = method === 'card';
+    const { providerTxId } = isCard
+      ? await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone })
+      : await ctx.provider.initiateStkPush({ phone, amount: fee.amountPaid, reference, method });
     const intentId = ctx.newId('int');
     await ctx.db.query(
       `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [intentId, providerTxId, b.org_id, b.id, purpose, projectId, phone, method, base, fee.amountPaid, JSON.stringify(fee), ctx.clock.now().toISOString()],
     );
+    if (isCard) {
+      return {
+        intentId, status: 'initiated', method: 'card',
+        checkoutUrl: `${ctx.givingUrl}/checkout/${providerTxId}?gift=${intentId}`,
+        message: 'Complete the payment on the secure card page.',
+        amountPaid: fee.amountPaid,
+        memberFee: b.fee_bearer === 'member' ? fee.totalFee : 0,
+      };
+    }
     return {
       intentId,
       status: 'initiated',

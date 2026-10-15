@@ -475,3 +475,46 @@ export function Adverts({ toast }: { toast: Toast }) {
     </>
   );
 }
+
+/** Which messaging plan a church is on: the standard (default) tariff, or a specific one such as volume tiers. Shown on the tenant card (L124). */
+export function MessagingPlan({ org, tariffs, toast, onSaved }: { org: any; tariffs: any[]; toast: Toast; onSaved: () => void }) {
+  const plan = org.messagingPlan ?? {};
+  const isTiered = (t: any) => !!t.current && (t.current.bands.sms.length > 1 || t.current.bands.whatsapp.length > 1);
+  const def = tariffs.find((t) => t.isDefault);
+  const others = tariffs.filter((t) => !t.isDefault);
+  const [kind, setKind] = useState<'standard' | 'custom'>(plan.assigned && !plan.isDefault ? 'custom' : 'standard');
+  const [tid, setTid] = useState<string>(plan.assigned && !plan.isDefault ? plan.tariffId : others[0]?.id ?? '');
+  const [busy, setBusy] = useState(false);
+  const dirty = kind === 'standard' ? plan.assigned && !plan.isDefault : tid !== plan.tariffId || !plan.assigned;
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put(`/admin/orgs/${org.id}/tariff`, { tariffId: kind === 'standard' ? null : tid });
+      toast(kind === 'standard' ? `${org.name} is on the standard plan` : `${org.name} is on ${others.find((t) => t.id === tid)?.name}`);
+      onSaved();
+    } catch (e: any) { toast(errText(e), 'bad'); }
+    setBusy(false);
+  };
+  const radio = { width: 'auto', minHeight: 0 } as const;
+  return (
+    <div style={{ margin: '0 0 18px', padding: 14, border: '1px solid var(--line)', borderRadius: 12 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ margin: 0 }}>Messaging plan</h3>
+        <Badge tone={plan.tiered ? 'info' : 'muted'}>{plan.name ?? 'None'} · {plan.tiered ? 'Tiered by monthly volume' : 'Flat price'}</Badge>
+      </div>
+      <div style={{ display: 'grid', gap: 8, margin: '10px 0' }}>
+        <label><input type="radio" style={radio} checked={kind === 'standard'} onChange={() => setKind('standard')} /> Standard: the platform default{def ? ` (${def.name}${isTiered(def) ? ', tiered' : ', flat price'})` : ''}</label>
+        <label><input type="radio" style={radio} checked={kind === 'custom'} disabled={others.length === 0} onChange={() => setKind('custom')} /> A specific plan, for example tiered by monthly volume</label>
+        {kind === 'custom' && (
+          <select value={tid} aria-label={`Messaging plan for ${org.name}`} onChange={(e) => setTid(e.target.value)} style={{ maxWidth: 360 }}>
+            {others.map((t) => <option key={t.id} value={t.id}>{t.name} ({isTiered(t) ? 'tiered' : 'flat'})</option>)}
+          </select>
+        )}
+      </div>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <Button small disabled={busy || !dirty} onClick={save}>{busy ? 'Saving' : 'Save plan'}</Button>
+        <span className="tiny">Applies to messages sent from now on. Bands are defined on the Tariffs page.</span>
+      </div>
+    </div>
+  );
+}

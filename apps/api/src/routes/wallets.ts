@@ -353,7 +353,9 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/public/checkout/:id', async (req) => {
     const info = ctx.provider.checkoutInfo((req.params as any).id);
     if (!info) throw new HttpError(404, 'This payment link has expired or was already used', 'not_found');
-    return { amount: info.amount, merchant: 'ChurchOS messaging credit' };
+    // A gift shows the church being paid, a wallet top-up shows the messaging credit.
+    const gift = (await ctx.db.query<any>(`SELECT b.name, g.purpose FROM give_intents g JOIN branches b ON b.id=g.branch_id WHERE g.provider_tx_id=$1`, [(req.params as any).id]))[0];
+    return { amount: info.amount, merchant: gift ? `Giving to ${gift.name}` : 'ChurchOS messaging credit' };
   });
 
   app.post('/public/checkout/:id/pay', async (req) => {

@@ -44,7 +44,12 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
           receivable: await ctx.ledger.balance('receivable', b.id),
         });
       }
-      out.push({ id: o.id, name: o.name, feeBearer: o.fee_bearer, feeSchedule: o.fee_schedule, branches: withBalances });
+      // The messaging plan: the standard (default) tariff, or a specific one such as a volume-tiered plan (L124).
+      const own = (await ctx.db.query<any>(`SELECT tariff_id FROM org_tariffs WHERE org_id=$1`, [o.id]))[0];
+      const tid = own?.tariff_id ?? (await ctx.db.query<any>(`SELECT id FROM tariffs WHERE is_default LIMIT 1`))[0]?.id;
+      const tr = (await ctx.db.query<any>(`SELECT t.name, t.is_default, (SELECT bands FROM tariff_versions v WHERE v.tariff_id=t.id AND v.effective_from <= $2 ORDER BY v.effective_from DESC, v.version DESC LIMIT 1) AS bands FROM tariffs t WHERE t.id=$1`, [tid, ctx.clock.now().toISOString()]))[0];
+      const tiered = !!tr?.bands && (tr.bands.sms.length > 1 || tr.bands.whatsapp.length > 1);
+      out.push({ id: o.id, name: o.name, feeBearer: o.fee_bearer, feeSchedule: o.fee_schedule, messagingPlan: { tariffId: tid, name: tr?.name ?? null, assigned: !!own, isDefault: !!tr?.is_default, tiered }, branches: withBalances });
     }
     return out;
   });

@@ -1,3 +1,4 @@
+import { networkMismatch, phoneHint } from '@churchos/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
 import type { CertificatePayload } from '@churchos/ui';
@@ -296,6 +297,8 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
     if (initPurpose && purposes.some((p) => p.key === initPurpose)) setPurpose(initPurpose);
   }, [nav.k, purposes.length]); // eslint-disable-line
 
+  const hint = phoneHint(method);
+  const mismatch = networkMismatch(method, phone);
   const n = Number(amount);
   const valid = Number.isFinite(n) && n >= 10 && n <= 150000;
   const bearerMember = church.data?.feeBearer === 'member';
@@ -330,6 +333,8 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
     setBusy(true); setError(undefined);
     try {
       const r = await api.post('/public/give', { code, phone, amount: n, method, purpose });
+      // A card is paid on the payment provider's own page, which sends the person back here with the receipt in Messages.
+      if (r.checkoutUrl) { window.location.assign(`${r.checkoutUrl}&return=${encodeURIComponent(`${location.origin}/#inbox`)}`); return; }
       setIntent({ id: r.intentId, message: r.message });
     } catch (e) { setError(errText(e)); }
     setBusy(false);
@@ -399,13 +404,13 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
               ))}
             </div>
           </div>
-          <Field label="Phone to pay from"><input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+          <Field label={hint.label} hint={hint.help} error={mismatch ?? undefined}><input type="tel" inputMode="tel" autoComplete="tel" placeholder={hint.placeholder} value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!mismatch} /></Field>
           {bearerMember && valid && fee > 0 && <Note tone="info">A service fee of {kes(fee)} is added. You will pay {kes(Math.round(n * 100) + fee)} in total.</Note>}
           {error && <ErrorNote>{error}</ErrorNote>}
         </div>
       </Card>
       <div className="sticky-cta">
-        <Button disabled={!online || busy || !valid || phone.trim().length < 9} onClick={give}>{busy ? 'Sending…' : valid ? `Give ${kes(Math.round(n * 100))}` : 'Give'}</Button>
+        <Button disabled={!online || busy || !valid || phone.trim().length < 9 || !!mismatch} onClick={give}>{busy ? (method === 'card' ? 'Opening card page…' : 'Sending…') : valid ? `${method === 'card' ? 'Pay by card' : 'Give'} ${kes(Math.round(n * 100))}` : 'Give'}</Button>
       </div>
 
       <GiftSuccess r={result && result.status === 'completed' ? result : null} onClose={reset} onMessages={() => { reset(); go('inbox'); }} />
