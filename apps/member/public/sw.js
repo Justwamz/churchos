@@ -1,25 +1,74 @@
-// Minimal app-shell cache. API calls are network-first and never cached for auth or non-GET requests.
-const CACHE = 'churchos-member-v1';
-const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
+// ChurchOS member app service worker (L121).
+// - The app shell and icons are cached, so the installed app opens instantly and shows its screens offline.
+// - Sign-in, personal data and every non-GET request are never cached.
+// - Public reads (church pages) go network first and fall back to the last copy.
+const VERSION = 'v3';
+const SHELL_CACHE = `churchos-member-shell-${VERSION}`;
+const PUBLIC_CACHE = `churchos-member-public-${VERSION}`;
+const SHELL = [
+  '/',
+  '/manifest.webmanifest',
+  '/icon.svg',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+  '/icons/icon-maskable-512.png',
+  '/icons/apple-touch-icon.png',
+];
+
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
+
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil(
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => ![SHELL_CACHE, PUBLIC_CACHE].includes(k)).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
 });
+
+self.addEventListener('message', (e) => {
+  if (e.data === 'skip-waiting') self.skipWaiting();
+});
+
+const PRIVATE = ['/auth', '/me', '/wallets', '/messages', '/groups', '/members', '/records', '/staff', '/admin', '/audit', '/kyc'];
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.pathname.startsWith('/auth') || url.pathname.startsWith('/me')) return; // never cache sign-in or personal data
+
+  // The API lives on another origin in development. Only public reads are ever kept.
   if (url.origin !== location.origin) {
-    // API on another origin: network first, fall back to cache for public reads only.
-    if (!url.pathname.startsWith('/public')) return;
-    e.respondWith(fetch(req).then((r) => { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); return r; }).catch(() => caches.match(req)));
+    if (PRIVATE.some((p) => url.pathname.startsWith(p)) || !url.pathname.startsWith('/public')) return;
+    e.respondWith(
+      fetch(req)
+        .then((r) => {
+          if (r.ok) { const copy = r.clone(); caches.open(PUBLIC_CACHE).then((c) => c.put(req, copy)); }
+          return r;
+        })
+        .catch(() => caches.match(req)),
+    );
     return;
   }
+
+  // Pages: network first so updates arrive, the cached shell when there is no network.
+  if (req.mode === 'navigate') {
+    e.respondWith(fetch(req).catch(() => caches.match('/')));
+    return;
+  }
+
+  // Built files, icons and the manifest: use the cache, refresh it in the background.
   e.respondWith(
-    fetch(req).then((r) => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return r; })
-      .catch(() => caches.match(req).then((m) => m || caches.match('/'))),
+    caches.match(req).then((hit) => {
+      const net = fetch(req)
+        .then((r) => {
+          if (r.ok) { const copy = r.clone(); caches.open(SHELL_CACHE).then((c) => c.put(req, copy)); }
+          return r;
+        })
+        .catch(() => hit);
+      return hit || net;
+    }),
   );
 });

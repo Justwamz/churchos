@@ -80,3 +80,16 @@ needs a float policy for this.
 - **Masked data:** phone numbers show as `254711•••001`. Roles with the reveal permission (owner, branch admin, secretary, pastor) get **Show number**, which is logged with the reason. Try it as Samuel, then look in the Audit log.
 - **Admin console** (`0700000099`): the Audit log covers every church, the Overview shows an integrity banner, and payer numbers are masked with a logged reveal.
 - **Try tampering** (development only): the database refuses to change or delete audit rows, so a tamper test has to disable the trigger first; the ledger tests do this and show the integrity check naming the changed event.
+
+## Messaging, wallets and groups (Slice 5)
+
+- **Messages** (staff dashboard): pick an audience (whole church, region, branch or group, narrowed by adults, parents of children, age band, sex) and channels (in-app always on, SMS, WhatsApp). See how many people will be reached and the cost, then send now or schedule. Nobody ever sees a phone number. Try it as `0700000001` Daniel (owner) or `0700000003` Samuel (Nairobi branch admin, can only reach his branch).
+- **Messaging wallets**: Grace runs each branch as its **own cost centre** (per-branch mode): headquarters, Nairobi and Mombasa each have SMS and WhatsApp wallets, and each pays for its own people. Mombasa starts empty, so an SMS to Amina is skipped while the in-app message still goes. Hope Chapel uses **shared** wallets. Balances are on the page, with a banner when one is low or empty.
+- **Top up** by M-Pesa prompt or card (the simulated hosted card page at `/checkout/...` accepts `4242 4242 4242 4242`). Or by paybill reference, for example `SMS#GRC001` or `WA#GRACE` from Test tools in the admin console.
+- **Low-balance alerts** go to everyone who can view the wallet, in the app (the bell) and by email. Emails land in the admin console's **Email outbox** in development.
+- **Integrations** (owner only to change): who pays (shared or per branch), SMS sender name, WhatsApp number, extra alert emails, branch overrides, and a test message to yourself.
+- **Consent:** WhatsApp only goes to people who opted in (Jane and Peter have; Amina and David have not). David opted out of SMS. Members change their own choices in the member app, and staff can record a choice with its source.
+- **Groups:** Youth Fellowship (Peter leads) and Mothers Union (Jane leads). Leaders message their group from the **member app**; they see names and cost, never numbers.
+- **Scheduled:** a "Sunday service reminder" is scheduled two days ahead. In the admin console (Test tools) advance the clock 49 hours and it goes out.
+- **PWA:** the member app is installable, with real icons and an offline shell. Open http://localhost:3002 in Chrome or Edge and look for the install button.
+- **Staff email:** add your email under **My profile** to receive alerts. Daniel, Samuel, Esther and Grace Achieng already have one.

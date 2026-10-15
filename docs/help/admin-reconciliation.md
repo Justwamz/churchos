@@ -13,7 +13,7 @@ version: 1
 The Overview page compares two independent numbers: the balance in ChurchOS's ledger for the shared wallet, and the balance the payment provider reports.
 
 ## Balanced
-The two numbers match and every ledger entry sums to zero. All church balances, the holding account, fees and SMS wallets add up to the money in the wallet.
+The two numbers match and every ledger entry sums to zero. All church balances, the holding account, fees and messaging wallets add up to the money in the wallet.
 
 ## Mismatch
 Treat a mismatch as urgent. Do not run settlement until you understand it. Common causes are a payment the provider received that ChurchOS has not recorded, a provider fee taken from the wallet, or a payout or refund the provider processed but ChurchOS did not confirm.

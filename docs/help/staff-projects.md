@@ -20,4 +20,4 @@ Tick **Restricted fund** when the money must be spent only on that project. Repo
 Members can pledge an amount and pay over time. Open a project to see each pledge, how much has been paid, and what is left.
 
 ## Send reminders
-Use **Send reminders** on a project to remind members whose pledge is not fully paid. Reminders always appear in the member's app. They also go by SMS if your church has SMS credit. See *The SMS wallet*.
+Use **Send reminders** on a project to remind members whose pledge is not fully paid. Reminders always appear in the member's app. They also go by SMS if the wallet that pays for your branch has SMS credit. See *Messaging wallets, top-ups and low-balance alerts*.

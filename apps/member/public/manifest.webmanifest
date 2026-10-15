@@ -1,11 +1,25 @@
 {
+  "id": "/",
   "name": "ChurchOS",
   "short_name": "ChurchOS",
-  "description": "Give, track your giving and manage your church membership.",
+  "description": "Give, read messages from your church, join groups and keep your records.",
+  "lang": "en",
+  "dir": "ltr",
   "display": "standalone",
-  "start_url": "/",
+  "orientation": "portrait",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "theme_color": "#0e5a52",
   "background_color": "#faf8f3",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "categories": ["lifestyle", "finance", "social"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Give", "short_name": "Give", "url": "/#give", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Messages", "short_name": "Messages", "url": "/#home", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
 }

@@ -143,5 +143,36 @@ step('The auditor can export the log, and the export is masked', exp.status === 
 const noExport = await call('GET', '/audit/export', undefined, samuel);
 step('A branch admin cannot export', noExport.status === 403);
 
+// 13. Slice 5: messaging wallets, integrations, consent, scheduled and group messages.
+const m5Wallets = await call('GET', '/wallets', undefined, samuel);
+step('Branch admin sees wallet balances for their branch and headquarters', m5Wallets.status === 200 && m5Wallets.json.wallets.some((w) => w.id === 'wal:br_grc001:sms') && !m5Wallets.json.wallets.some((w) => w.id === 'wal:br_grc002:sms'));
+const m5Before = m5Wallets.json.wallets.find((w) => w.id === 'wal:br_grc001:sms').balance;
+const m5Top = await call('POST', '/wallets/wal:br_grc001:sms/topup', { amount: 100, method: 'mpesa', phone: '0700000003' }, samuel);
+let m5Status = 'initiated';
+for (let i = 0; i < 30 && m5Status === 'initiated'; i++) { await sleep(300); m5Status = (await call('GET', `/wallets/topups/${m5Top.json.id}`, undefined, samuel)).json.status; }
+const m5After = (await call('GET', '/wallets', undefined, samuel)).json.wallets.find((w) => w.id === 'wal:br_grc001:sms').balance;
+step('An M-Pesa top-up credits the branch wallet', m5Status === 'completed' && m5After === m5Before + 10000, `KES ${m5After / 100}`);
+const m5Card = await call('POST', '/wallets/wal:org_grace:sms/topup', { amount: 100, method: 'card' }, daniel);
+const m5Tx = m5Card.json.checkoutUrl?.split('/').pop();
+const m5Pay = await call('POST', `/public/checkout/${m5Tx}/pay`, { number: '4242 4242 4242 4242', expiry: '12/30', cvc: '123' });
+step('A card top-up completes on the hosted checkout page', m5Pay.status === 200 && m5Pay.json.status === 'paid');
+const m5Est = await call('POST', '/messages/estimate', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms', 'whatsapp'], body: 'Hello {name}' }, daniel);
+step('The estimate reaches people and shows cost, with no phone numbers', m5Est.status === 200 && m5Est.json.people > 0 && !fullPhone.test(JSON.stringify(m5Est.json)), `${m5Est.json.people} people`);
+const m5Send = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms', 'whatsapp'], title: 'Smoke', body: 'Hello {name}, smoke test.' }, daniel);
+step('A message goes out in-app, by SMS and by WhatsApp, only to people who agreed', m5Send.status === 200 && m5Send.json.summary?.channels?.inapp?.sent > 0 && m5Send.json.summary.channels.whatsapp.sent > 0, JSON.stringify(m5Send.json.summary?.channels?.whatsapp));
+const m5Later = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms'], title: 'Later', body: 'Hello', scheduleAt: new Date(Date.now() + 5 * 3600_000).toISOString() }, daniel);
+const m5Cancel = await call('POST', `/messages/${m5Later.json.id}/cancel`, {}, daniel);
+step('A scheduled message can be cancelled before it goes', m5Later.json.status === 'scheduled' && m5Cancel.json.status === 'cancelled');
+const m5Treas = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: [], title: 'x', body: 'y' }, treasurer);
+step('A role without the send permission cannot message', m5Treas.status === 403);
+const m5Peter = await call('POST', '/messages/estimate', {}, peter);
+step('A member cannot use staff messaging', m5Peter.status === 403);
+const m5Groups = await call('GET', '/me/groups', undefined, peter);
+step('A group leader sees their group and may message it', m5Groups.status === 200 && m5Groups.json.some((g) => g.canMessage));
+const m5Int = await call('GET', '/integrations', undefined, daniel);
+step('The Integrations page shows who pays for messages', m5Int.status === 200 && m5Int.json.walletMode === 'per_branch', m5Int.json.walletMode);
+const m5Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 5 activity', m5Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

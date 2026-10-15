@@ -10,7 +10,11 @@ import { Members, Transfers } from './Members';
 import { Projects } from './Projects';
 import { Help } from './Help';
 import { Verification } from './Verification';
-import { Sms } from './Sms';
+import { Messages } from './Messages';
+import { Wallets } from './Wallets';
+import { Integrations } from './Integrations';
+import { Groups } from './Groups';
+import { Profile } from './Profile';
 import { Payout } from './Payout';
 import { Records } from './Records';
 import { Template } from './Template';
@@ -19,7 +23,7 @@ import { AuditPage } from './Audit';
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', sms: 'staff.sms', payout: 'staff.payout', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -29,14 +33,19 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'cash', label: 'Cash', any: ['cash.count', 'cash.approve'], el: Cash },
   { id: 'members', label: 'Members', any: ['members.view', 'members.edit'], el: Members },
   { id: 'transfers', label: 'Transfers', any: ['transfers.approve'], el: Transfers },
+  { id: 'groups', label: 'Groups', any: ['members.view', 'groups.manage'], el: Groups },
+  { id: 'messages', label: 'Messages', any: ['messages.send', 'messages.view'], el: Messages },
+  { id: 'wallets', label: 'Messaging wallets', any: ['wallets.view'], el: Wallets },
+  { id: 'integrations', label: 'Integrations', any: ['integrations.manage', 'wallets.view'], el: Integrations },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
   { id: 'records', label: 'Records', any: ['records.view'], el: Records },
   { id: 'template', label: 'Certificate design', any: ['records.view'], el: Template },
   { id: 'audit', label: 'Audit log', any: ['audit.view'], el: AuditPage },
   { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: Verification },
-  { id: 'sms', label: 'SMS wallet', any: ['sms.manage'], el: Sms },
   { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: Payout },
+  // Everyone signed in has a profile, so there is no permission to check ('*').
+  { id: 'profile', label: 'My profile', any: ['*'], el: Profile },
 ];
 
 function Shell({ signOut }: { signOut: () => void }) {
@@ -95,7 +104,7 @@ function Shell({ signOut }: { signOut: () => void }) {
     );
   }
 
-  const visible = PAGES.filter((p) => p.any.some((a) => session.can(a)));
+  const visible = PAGES.filter((p) => p.any.includes('*') || p.any.some((a) => session.can(a)));
   const current = visible.find((p) => p.id === page) ?? visible[0];
   const Page = current?.el;
 
