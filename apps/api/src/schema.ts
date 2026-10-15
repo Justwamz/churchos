@@ -468,6 +468,72 @@ CREATE TABLE IF NOT EXISTS group_join_requests (
   PRIMARY KEY (group_id, user_id)
 );
 
+-- Resources and bookings (L140 to L148). Times are ISO text so they compare directly.
+CREATE TABLE IF NOT EXISTS resources (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  kind text NOT NULL CHECK (kind IN ('person','place','thing')),
+  name text NOT NULL,
+  description text,
+  capacity int,
+  owner_user_id text,
+  slot_minutes int NOT NULL DEFAULT 60,
+  max_minutes int,
+  hours jsonb NOT NULL,
+  min_notice_hours int NOT NULL DEFAULT 24,
+  max_advance_days int NOT NULL DEFAULT 90,
+  approval text NOT NULL DEFAULT 'manual' CHECK (approval IN ('auto','manual')),
+  price bigint,
+  price_per text NOT NULL DEFAULT 'booking' CHECK (price_per IN ('booking','hour')),
+  active boolean NOT NULL DEFAULT true,
+  created_by text NOT NULL,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS resource_blocks (
+  id text PRIMARY KEY,
+  resource_id text NOT NULL,
+  org_id text NOT NULL,
+  starts_at text NOT NULL,
+  ends_at text NOT NULL,
+  reason text,
+  created_by text NOT NULL,
+  removed_at text
+);
+CREATE TABLE IF NOT EXISTS bookings (
+  id text PRIMARY KEY,
+  code text NOT NULL UNIQUE,
+  org_id text NOT NULL,
+  branch_id text,
+  requester_id text NOT NULL,
+  requester_name text NOT NULL,
+  title text NOT NULL,
+  note text,
+  attendees int,
+  starts_at text NOT NULL,
+  ends_at text NOT NULL,
+  status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','approved','awaiting_payment','confirmed','declined','cancelled','completed','no_show','lapsed')),
+  price bigint,
+  payment_id text,
+  reason text,
+  hold_until text,
+  reminder_sent boolean NOT NULL DEFAULT false,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS booking_items (
+  booking_id text NOT NULL,
+  resource_id text NOT NULL,
+  org_id text NOT NULL,
+  status text NOT NULL DEFAULT 'requested' CHECK (status IN ('requested','approved','declined')),
+  decided_by text,
+  decided_at text,
+  reason text,
+  PRIMARY KEY (booking_id, resource_id)
+);
+CREATE INDEX IF NOT EXISTS booking_items_resource_idx ON booking_items(resource_id);
+
 -- One pending confirmation code per person (L123).
 CREATE TABLE IF NOT EXISTS email_codes (
   user_id text PRIMARY KEY,
@@ -624,7 +690,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

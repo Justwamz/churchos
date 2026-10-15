@@ -233,6 +233,23 @@ export async function seed(ctx: Ctx) {
   );
   await db.query(`INSERT INTO group_comments (id, org_id, group_id, post_id, author_id, author_name, body, created_at) VALUES ('gco_1','org_grace','grp_youth','gpo_2','u_peter','Peter Otieno','I will. The hall has a projector as well.',$1) ON CONFLICT DO NOTHING`, [now]);
 
+  // Things members can book (L140): a pastor's diary, a hall that costs money, a sound system that needs no approval, and the Mombasa grounds.
+  const week = (ranges: string[][], days = ['mon', 'tue', 'wed', 'thu', 'fri']) => Object.fromEntries(days.map((d) => [d, ranges]));
+  await db.query(
+    `INSERT INTO resources (id, org_id, branch_id, kind, name, description, capacity, owner_user_id, slot_minutes, max_minutes, hours, min_notice_hours, max_advance_days, approval, price, price_per, created_by, created_at, updated_at) VALUES
+      ('res_pastor','org_grace','br_grc001','person','Pastor Daniel','Talk to the pastor, pray together or plan a visit. Sessions are 30 minutes.',NULL,'u_owner',30,60,$1,12,60,'manual',NULL,'booking','u_owner',$5,$5),
+      ('res_hall','org_grace','br_grc001','place','Main hall, Nairobi','Seats 200. Chairs, tables and a kitchen are included.',200,NULL,60,480,$2,24,180,'manual',150000,'hour','u_owner',$5,$5),
+      ('res_sound','org_grace','br_grc001','thing','Sound system','Speakers, two microphones and a mixer.',NULL,NULL,60,240,$3,24,90,'auto',NULL,'booking','u_owner',$5,$5),
+      ('res_grounds','org_grace','br_grc002','place','Church grounds, Mombasa','Open grounds for weddings and picnics.',500,NULL,60,480,$4,48,180,'auto',NULL,'booking','u_owner',$5,$5) ON CONFLICT DO NOTHING`,
+    [
+      JSON.stringify(week([['09:00', '12:00'], ['14:00', '17:00']])),
+      JSON.stringify(week([['08:00', '21:00']], ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])),
+      JSON.stringify(week([['08:00', '18:00']], ['sat', 'sun'])),
+      JSON.stringify(week([['07:00', '19:00']], ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])),
+      now,
+    ],
+  );
+
   // Adverts for the member app's home slider (L130 to L132). Daniel approves what Samuel creates. Artwork is generated so the slider has something to show.
   const art = (a: [number, number, number], b: [number, number, number]) => gradientPng(1280, 720, a, b);
   const inTwoWeeks = new Date(ctx.clock.now().getTime() + 14 * 86400_000).toISOString();
