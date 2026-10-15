@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@churchos/ledger": "workspace:*",
+    "@churchos/messaging": "workspace:*",
     "@churchos/payments": "workspace:*",
     "@churchos/shared": "workspace:*",
     "@fastify/cors": "^10.0.1",

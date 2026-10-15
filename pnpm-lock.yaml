@@ -57,6 +57,9 @@ importers:
       '@churchos/ledger':
         specifier: workspace:*
         version: link:../../packages/ledger
+      '@churchos/messaging':
+        specifier: workspace:*
+        version: link:../../packages/messaging
       '@churchos/payments':
         specifier: workspace:*
         version: link:../../packages/payments
@@ -174,6 +177,8 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.2.17
         version: 0.2.17
+
+  packages/messaging: {}
 
   packages/payments:
     dependencies:

@@ -23,7 +23,13 @@ export const PERMISSIONS = [
   'payouts.view',
   'payouts.manage',
   'kyc.manage',
-  'sms.manage',
+  'messages.send',
+  'messages.view',
+  'wallets.view',
+  'wallets.topup',
+  'wallets.manage',
+  'integrations.manage',
+  'groups.manage',
   'reversals.request',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -32,12 +38,12 @@ export type Permission = (typeof PERMISSIONS)[number];
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export'),
-  Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request'],
-  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve'],
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
+  Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup'],
+  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
-  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit'],
+  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage'],
 };
 
 export interface Session {

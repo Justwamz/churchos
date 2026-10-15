@@ -1,6 +1,7 @@
 import { ROLE_TEMPLATES } from './auth';
 import type { Ctx } from './ctx';
 import { todayEat } from './members';
+import { ensureWallets } from './wallets';
 
 export const SEED_LOGINS = [
   { app: 'Staff dashboard', who: 'Grace Community owner (all branches, HQ view)', phone: '0700000001' },
@@ -156,7 +157,40 @@ export async function seed(ctx: Ctx) {
   const give = (ref: string, amount: number, phone: string, method: 'mpesa' | 'airtel' | 'card' = 'mpesa') =>
     ctx.provider.simulatePaybill({ phone, amount, reference: ref, method });
   // Grace has SMS credit (KES 500) so receipts go out by SMS. Hope's wallet is empty, so it falls back to in-app only (L59).
+  // ---------- messaging: wallets, integrations, consent, groups, a scheduled message (L111 to L122) ----------
+  // Grace runs each branch as its own cost centre. Hope Chapel shares one wallet. New Hope has not set anything up yet.
+  await db.query(
+    `INSERT INTO integration_settings (org_id, wallet_mode, sms_sender_id, whatsapp_display_name, whatsapp_number, alert_emails) VALUES
+       ('org_grace','per_branch','GRACECHURCH','Grace Community Church','254700123456','["finance@grace.example"]'),
+       ('org_hope','shared',NULL,NULL,NULL,'[]'), ('org_newhope','shared',NULL,NULL,NULL,'[]') ON CONFLICT DO NOTHING`,
+  );
+  for (const org of ['org_grace', 'org_hope', 'org_newhope']) await ensureWallets(ctx, org);
+  // Staff emails, so low-balance alerts reach people by email as well as in the app (L115).
+  for (const [id, email] of [['u_owner', 'daniel@grace.example'], ['u_admin', 'samuel@grace.example'], ['u_treas', 'esther@grace.example'], ['u_hope', 'grace@hope.example']]) {
+    await db.query('UPDATE users SET email=$2 WHERE id=$1', [id, email]);
+  }
+  // Opening balances go through the real top-up path. GRC002 and Hope start empty, to show the empty-wallet behaviour.
   await give('SMS#GRACE', 50000, '254700000001');
+  await give('WA#GRACE', 30000, '254700000001');
+  await give('SMS#GRC001', 20000, '254700000002');
+  await give('WA#GRC001', 10000, '254700000002');
+  // Choices about church messages: Jane and Peter agreed to WhatsApp, David opted out of SMS.
+  await db.query(`INSERT INTO contact_prefs (phone, whatsapp_opt_in, sms_opt_out, source, updated_at, updated_by) VALUES
+     ('254711000001', true, false, 'member', $1, 'u_jane'), ('254711000002', true, false, 'member', $1, 'u_peter'), ('254711000004', false, true, 'member', $1, 'u_david') ON CONFLICT DO NOTHING`, [now]);
+  // Two groups. Peter leads the youth fellowship, so he can message it from the member app (L122).
+  await db.query(`INSERT INTO groups (id, org_id, branch_id, name, description, created_by, created_at) VALUES
+     ('grp_youth','org_grace','br_grc001','Youth Fellowship','Teens and young adults, Fridays at 6pm','u_admin',$1),
+     ('grp_mothers','org_grace','br_grc001','Mothers Union','Monthly prayer and support','u_admin',$1) ON CONFLICT DO NOTHING`, [now]);
+  await db.query(`INSERT INTO group_members (group_id, membership_id, org_id, role, added_at) VALUES
+     ('grp_youth','m_peter','org_grace','leader',$1), ('grp_youth','m_ruth','org_grace','member',$1), ('grp_youth','m_brian','org_grace','member',$1), ('grp_youth','m_amina','org_grace','member',$1),
+     ('grp_mothers','m_jane','org_grace','leader',$1), ('grp_mothers','m_amina','org_grace','member',$1) ON CONFLICT DO NOTHING`, [now]);
+  // A message waiting to go out in two days.
+  await db.query(
+    `INSERT INTO messages (id, org_id, branch_id, sender_id, sender_name, source, audience, channels, title, body, status, scheduled_at, summary, created_at)
+     VALUES ('msg_demo','org_grace',NULL,'u_owner','Daniel Mwangi','staff',$1,'["inapp","sms"]','Sunday service reminder','Hello {name}, we meet this Sunday at 9am. Bring a friend. God bless you.','scheduled',$2,'{"estimated":4}',$3) ON CONFLICT DO NOTHING`,
+    [JSON.stringify({ scope: { type: 'org' }, who: 'all', allowedBranchIds: ['br_grc001', 'br_grc002'] }), new Date(ctx.clock.now().getTime() + 48 * 3600_000).toISOString(), now],
+  );
+
   await give('GRC001#TITHE', 250000, '254711000001');
   await give('GRC001#OFFERING', 50000, '254711000002');
   await give('GRC001#PROJ-ROOF', 1000000, '254711000001');

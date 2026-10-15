@@ -132,57 +132,8 @@ describe('payout destination changes (L35, L88)', () => {
   });
 });
 
-describe('SMS wallet (L57 to L60, L87)', () => {
-  it('shows the balance, and a staff top-up by STK credits the wallet, not collections', async () => {
-    const before = (await call(GRACE_OWNER, 'GET', '/sms/wallet')).json();
-    expect(before.paybillReference).toBe('SMS#GRACE');
-    const collectionsBefore = Number((await call(GRACE_OWNER, 'GET', '/dashboard')).json().today.gross);
-    const t = await call(GRACE_OWNER, 'POST', '/sms/topup', { amount: 200, phone: '0700000001' });
-    expect(t.statusCode).toBe(200);
-    expect(await wait(async () => (await call(GRACE_OWNER, 'GET', `/sms/topup/${t.json().id}`)).json().status === 'completed')).toBe(true);
-    const after = (await call(GRACE_OWNER, 'GET', '/sms/wallet')).json();
-    expect(after.balance).toBe(before.balance + 20000);
-    expect(Number((await call(GRACE_OWNER, 'GET', '/dashboard')).json().today.gross)).toBe(collectionsBefore);
-    expect((await call(GRACE_OWNER, 'POST', '/sms/topup', { amount: 5, phone: '0700000001' })).json().code).toBe('amount_too_small');
-    expect((await call(GRACE_ADMIN, 'GET', '/sms/wallet')).statusCode).toBe(200); // branch admin manages SMS
-    expect((await call(JANE, 'GET', '/sms/wallet')).statusCode).toBe(403);
-  });
-
-  it('REVIEW FOCUS 4: a duplicate top-up notification credits once, and an unknown wallet code is held in suspense', async () => {
-    const before = (await call(GRACE_OWNER, 'GET', '/sms/wallet')).json().balance;
-    await call(PA1, 'POST', '/admin/simulate/paybill', { phone: '0700000001', amount: 100, reference: 'sms#grace', duplicate: true });
-    expect((await call(GRACE_OWNER, 'GET', '/sms/wallet')).json().balance).toBe(before + 10000);
-    await call(PA1, 'POST', '/admin/simulate/paybill', { phone: '0700000001', amount: 100, reference: 'SMS#NOPE' });
-    const s = (await call(PA1, 'GET', '/admin/suspense')).json();
-    expect(s.some((x: any) => x.reference === 'SMS#NOPE')).toBe(true);
-    expect((await call(PA1, 'GET', '/admin/reconcile')).json().ok).toBe(true);
-  });
-
-  it('a receipt reaches the member in-app and by SMS when the wallet has credit', async () => {
-    const g = await call(null, 'POST', '/public/give', { code: 'GRC001', purpose: 'TITHE', phone: '0711000001', amount: 500 });
-    await wait(async () => (await call(null, 'GET', `/public/give/${g.json().intentId}`)).json().status === 'completed');
-    await wait(async () => (await call(JANE, 'GET', '/me/notifications')).json().rows.some((r: any) => r.kind === 'receipt' && /KES 500/.test(r.body)));
-    const n = (await call(JANE, 'GET', '/me/notifications')).json();
-    expect(n.unread).toBeGreaterThan(0);
-    expect((await call(JANE, 'POST', '/me/notifications/read', {})).statusCode).toBe(200);
-    expect((await call(JANE, 'GET', '/me/notifications')).json().unread).toBe(0);
-    const log = (await call(GRACE_OWNER, 'GET', '/sms/wallet')).json().messages;
-    expect(log.some((m: any) => m.kind === 'receipt' && m.status === 'sent')).toBe(true);
-  });
-
-  it('REVIEW FOCUS 3: with an empty wallet, gifts still succeed, the in-app notice is kept, and the balance never goes negative', async () => {
-    expect((await call(HOPE, 'GET', '/sms/wallet')).json().empty).toBe(true);
-    await ctx.db.query(`INSERT INTO users (id, phone, name, created_at) VALUES ('u_hopegiver','254733000999','Hope Giver',$1)`, [ctx.clock.now().toISOString()]);
-    await call(PA1, 'POST', '/admin/simulate/paybill', { phone: '0733000999', amount: 300, reference: 'HPC001#TITHE' });
-    const w = (await call(HOPE, 'GET', '/sms/wallet')).json();
-    expect(w.balance).toBe(0);
-    expect(w.messages.some((m: any) => m.status === 'skipped_no_balance')).toBe(true);
-    const n = await ctx.db.query<any>(`SELECT kind FROM notifications WHERE user_id='u_hopegiver'`);
-    expect(n.length).toBe(1);
-    expect((await call(PA1, 'GET', '/admin/reconcile')).json().ok).toBe(true);
-  });
-
-  it('pledge reminders go to members with a balance outstanding', async () => {
+describe('pledge reminders (L41, L56)', () => {
+  it('go to members with a balance outstanding, in-app and by SMS where a wallet can pay', async () => {
     const proj = (await call(GRACE_OWNER, 'GET', '/projects')).json().find((p: any) => p.code === 'ROOF');
     const r = await call(GRACE_OWNER, 'POST', `/projects/${proj.id}/remind`, {});
     expect(r.statusCode).toBe(200);

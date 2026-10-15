@@ -34,9 +34,9 @@ export const DEFAULT_OPTIONS: LedgerOptions = {
 
 /** Debit-normal accounts show sum(postings). Everything else is credit-normal and shows -sum. */
 const DEBIT_NORMAL = new Set(['wallet', 'receivable']);
-const PLATFORM_KINDS = ['wallet', 'suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit', 'sms_revenue'] as const;
+const PLATFORM_KINDS = ['wallet', 'suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit', 'sms_revenue', 'whatsapp_revenue'] as const;
 const BRANCH_KINDS = ['pending', 'available', 'receivable'] as const;
-export type AccountKind = (typeof PLATFORM_KINDS)[number] | (typeof BRANCH_KINDS)[number] | 'sms_wallet';
+export type AccountKind = (typeof PLATFORM_KINDS)[number] | (typeof BRANCH_KINDS)[number] | 'msg_wallet';
 
 export interface Posting {
   accountId: string;
@@ -83,11 +83,6 @@ export class Ledger {
        ON CONFLICT (id) DO NOTHING`,
       [o.id, o.name, o.feeBearer ?? 'church', JSON.stringify(o.feeSchedule ?? DEFAULT_FEE_SCHEDULE), o.smsCode?.toUpperCase() ?? null, this.now()],
     );
-    // The SMS wallet is one account per organisation (L87), kept apart from collections (L58).
-    await this.db.query(`INSERT INTO accounts (id, org_id, branch_id, kind) VALUES ($1,$2,NULL,'sms_wallet') ON CONFLICT DO NOTHING`, [
-      `${o.id}:sms_wallet`,
-      o.id,
-    ]);
   }
 
   async createBranch(b: {
@@ -136,54 +131,101 @@ export class Ledger {
     await this.db.query(`UPDATE branches SET payout_destination=$2 WHERE id=$1`, [branchId, JSON.stringify(destination)]);
   }
 
-  // ---------- SMS wallet (L57 to L60, L87) ----------
+  // ---------- messaging wallets (L112, L113, L116) ----------
 
-  async smsBalance(orgId: string, q: Db = this.db): Promise<Cents> {
-    const r = await q.query<{ s: number }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings WHERE account_id=$1`, [`${orgId}:sms_wallet`]);
+  /** Wallet account ids are `wallet:<walletId>`. One per channel and scope, created by the API when a wallet is created. */
+  walletAccountId(walletId: string): string {
+    return `wallet:${walletId}`;
+  }
+
+  async createWallet(walletId: string, orgId: string) {
+    await this.db.query(`INSERT INTO accounts (id, org_id, branch_id, kind) VALUES ($1,$2,NULL,'msg_wallet') ON CONFLICT DO NOTHING`, [this.walletAccountId(walletId), orgId]);
+  }
+
+  async walletBalance(walletId: string, q: Db = this.db): Promise<Cents> {
+    const r = await q.query<{ s: number }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings WHERE account_id=$1`, [this.walletAccountId(walletId)]);
     const sum = Number(r[0]?.s ?? 0);
     return sum === 0 ? 0 : -sum;
   }
 
-  /** Credits an organisation's SMS wallet from a direct payment. A top-up is never mixed with collections. Idempotent. */
-  async receiveSmsTopup(orgId: string, inb: InboundPayment): Promise<'credited' | 'duplicate'> {
+  /** Credits a wallet from a direct payment. A top-up is never mixed with collections. Idempotent per provider transaction. */
+  async receiveWalletTopup(walletId: string, orgId: string, inb: InboundPayment): Promise<'credited' | 'duplicate'> {
     return this.db.tx(async (q) => {
       const ins = await q.query(
-        `INSERT INTO sms_topups_ledger (provider_tx_id, org_id, amount, created_at) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING RETURNING provider_tx_id`,
-        [inb.providerTxId, orgId, inb.amount, this.now()],
+        `INSERT INTO wallet_topups_ledger (provider_tx_id, wallet_id, org_id, amount, created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING provider_tx_id`,
+        [inb.providerTxId, walletId, orgId, inb.amount, this.now()],
       );
       if (ins.length === 0) return 'duplicate';
       await this.postEntry(q, {
-        idemKey: `smstopup:${inb.providerTxId}`,
-        kind: 'sms_topup',
+        idemKey: `wallettopup:${inb.providerTxId}`,
+        kind: 'wallet_topup',
         postings: [
           { accountId: this.accountId('wallet'), amount: inb.amount },
-          { accountId: `${orgId}:sms_wallet`, amount: -inb.amount },
+          { accountId: this.walletAccountId(walletId), amount: -inb.amount },
         ],
       });
       return 'credited';
     });
   }
 
-  /** Deducts one message cost. Returns false, and changes nothing, when the balance cannot cover it (L59). */
-  async chargeSms(orgId: string, cost: Cents, idemKey: string): Promise<boolean> {
+  /**
+   * Spends from a wallet. Returns false and changes nothing when the balance cannot cover it (L59). Used with an idempotency key,
+   * so running the same batch twice charges once.
+   */
+  async chargeWallet(walletId: string, amount: Cents, idemKey: string, channel: 'sms' | 'whatsapp'): Promise<boolean> {
+    if (amount <= 0) return true;
     return this.db.tx(async (q) => {
-      if ((await this.smsBalance(orgId, q)) < cost) return false;
+      const exists = await q.query(`SELECT 1 FROM journal_entries WHERE idem_key=$1`, [`msg:${idemKey}`]);
+      if (exists.length) return true; // already charged for this batch
+      if ((await this.walletBalance(walletId, q)) < amount) return false;
       await this.postEntry(q, {
-        idemKey: `sms:${idemKey}`,
-        kind: 'sms_charge',
+        idemKey: `msg:${idemKey}`,
+        kind: 'message_charge',
         postings: [
-          { accountId: `${orgId}:sms_wallet`, amount: cost },
-          { accountId: this.accountId('sms_revenue'), amount: -cost },
+          { accountId: this.walletAccountId(walletId), amount },
+          { accountId: this.accountId(channel === 'sms' ? 'sms_revenue' : 'whatsapp_revenue'), amount: -amount },
         ],
       });
       return true;
     });
   }
 
+  /** Gives back the cost of messages the provider could not deliver. Revenue is reversed too, and a repeat does nothing. */
+  async refundWallet(walletId: string, amount: Cents, idemKey: string, channel: 'sms' | 'whatsapp'): Promise<void> {
+    if (amount <= 0) return;
+    await this.db.tx(async (q) => {
+      await this.postEntry(q, {
+        idemKey: `msgrefund:${idemKey}`,
+        kind: 'message_refund',
+        postings: [
+          { accountId: this.accountId(channel === 'sms' ? 'sms_revenue' : 'whatsapp_revenue'), amount },
+          { accountId: this.walletAccountId(walletId), amount: -amount },
+        ],
+      });
+    });
+  }
+
+  /** Moves credit between two wallets of the same organisation, for example headquarters to a branch (L113). */
+  async transferWallet(fromId: string, toId: string, amount: Cents, idemKey: string): Promise<boolean> {
+    return this.db.tx(async (q) => {
+      if (amount <= 0) return false;
+      if ((await this.walletBalance(fromId, q)) < amount) return false;
+      await this.postEntry(q, {
+        idemKey: `wtransfer:${idemKey}`,
+        kind: 'wallet_transfer',
+        postings: [
+          { accountId: this.walletAccountId(fromId), amount },
+          { accountId: this.walletAccountId(toId), amount: -amount },
+        ],
+      });
+      return true;
+    });
+  }
+
+  // ---------- core ----------
+
   async balance(kind: AccountKind, branchId?: string, q: Db = this.db): Promise<Cents> {
-    const rows = await q.query<{ s: number | null }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings WHERE account_id = $1`, [
-      this.accountId(kind, branchId),
-    ]);
+    const rows = await q.query<{ s: number | null }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings WHERE account_id = $1`, [this.accountId(kind, branchId)]);
     const sum = Number(rows[0]?.s ?? 0);
     if (sum === 0) return 0;
     return DEBIT_NORMAL.has(kind) ? sum : -sum;
@@ -539,9 +581,9 @@ export class Ledger {
     const z = await this.db.query<{ s: number }>(`SELECT COALESCE(SUM(amount),0) AS s FROM postings`);
     const zeroSum = Number(z[0].s) === 0;
     const liabilities: Record<string, Cents> = {};
-    for (const k of ['suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit', 'sms_revenue'] as const) liabilities[k] = await this.balance(k);
-    const sms = await this.db.query<{ s: number }>(`SELECT COALESCE(SUM(p.amount),0) AS s FROM postings p JOIN accounts a ON a.id=p.account_id WHERE a.kind='sms_wallet'`);
-    liabilities.sms_wallets = Number(sms[0].s) === 0 ? 0 : -Number(sms[0].s);
+    for (const k of ['suspense', 'fee_revenue', 'psp_cost_payable', 'in_transit', 'sms_revenue', 'whatsapp_revenue'] as const) liabilities[k] = await this.balance(k);
+    const sms = await this.db.query<{ s: number }>(`SELECT COALESCE(SUM(p.amount),0) AS s FROM postings p JOIN accounts a ON a.id=p.account_id WHERE a.kind='msg_wallet'`);
+    liabilities.message_wallets = Number(sms[0].s) === 0 ? 0 : -Number(sms[0].s);
     const rows = await this.db.query<{ kind: string; s: number }>(
       `SELECT a.kind, COALESCE(SUM(p.amount),0) AS s FROM accounts a LEFT JOIN postings p ON p.account_id=a.id WHERE a.branch_id IS NOT NULL GROUP BY a.kind`,
     );

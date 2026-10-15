@@ -1,19 +1,19 @@
 import type { Ctx } from './ctx';
+import { checkLowBalance, integrationSettings, RATES, walletFor } from './wallets';
 
-/** Per-message price, set by the platform (L87). KES 1.00. */
-export const SMS_RATE_CENTS = 100;
-/** Below this many messages' worth, admins see a low-balance warning (L59). */
-export const LOW_BALANCE_MESSAGES = 20;
+/** Kept for callers that still think in terms of the SMS price. The price is set per channel in wallets.ts (L112). */
+export const SMS_RATE_CENTS = RATES.sms;
 
 export type SmsKind = 'receipt' | 'reminder' | 'announcement';
 
 /**
- * Sends a message. Every message creates an in-app notification when the recipient has an account (L56).
- * SMS goes out only if the organisation's wallet can pay for it. An empty wallet never fails the caller (L59).
+ * A single message about the person's own giving or membership: a receipt, a pledge reminder, a graduation notice. Every one
+ * becomes an in-app notification when the person has an account (L56). SMS goes out only if the wallet that pays for that branch
+ * can cover it, and an empty wallet never fails the caller (L59).
  */
 export async function notify(
   ctx: Ctx,
-  a: { orgId: string; phone: string; kind: SmsKind; title: string; body: string; idemKey: string; sms?: boolean },
+  a: { orgId: string; branchId?: string | null; phone: string; kind: SmsKind; title: string; body: string; idemKey: string; sms?: boolean },
 ): Promise<{ sms: 'sent' | 'skipped_no_balance' | 'not_requested'; inApp: boolean }> {
   const now = ctx.clock.now().toISOString();
   const user = (await ctx.db.query<any>(`SELECT id FROM users WHERE phone=$1`, [a.phone]))[0];
@@ -23,14 +23,25 @@ export async function notify(
     ]);
   }
   if (a.sms === false) return { sms: 'not_requested', inApp: !!user };
-  let paid = false;
+
+  let sent = false;
+  let walletId: string | null = null;
   try {
-    paid = await ctx.ledger.chargeSms(a.orgId, SMS_RATE_CENTS, a.idemKey);
+    const w = await walletFor(ctx, a.orgId, a.branchId ?? null, 'sms');
+    if (w && (await ctx.ledger.chargeWallet(w.id, RATES.sms, a.idemKey, 'sms'))) {
+      walletId = w.id;
+      const settings = await integrationSettings(ctx.db, a.orgId);
+      const [res] = await ctx.messaging.send('sms', [{ to: a.phone, body: a.body, from: settings.smsSenderId }]);
+      sent = res?.status === 'sent';
+      if (!sent) await ctx.ledger.refundWallet(w.id, RATES.sms, a.idemKey, 'sms');
+    }
+    if (w) await checkLowBalance(ctx, w.id);
   } catch {
-    paid = false;
+    sent = false;
   }
   await ctx.db.query(`INSERT INTO sms_messages (id, org_id, to_phone, kind, body, cost, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
-    ctx.newId('sms'), a.orgId, a.phone, a.kind, a.body, paid ? SMS_RATE_CENTS : 0, paid ? 'sent' : 'skipped_no_balance', now,
+    ctx.newId('sms'), a.orgId, a.phone, a.kind, a.body, sent ? RATES.sms : 0, sent ? 'sent' : 'skipped_no_balance', now,
   ]);
-  return { sms: paid ? 'sent' : 'skipped_no_balance', inApp: !!user };
+  void walletId;
+  return { sms: sent ? 'sent' : 'skipped_no_balance', inApp: !!user };
 }

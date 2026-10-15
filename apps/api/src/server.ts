@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { Clock, createDb, Ledger, type Db } from '@churchos/ledger';
 import { MockProvider } from '@churchos/payments';
+import { MockEmailProvider, MockMessagingProvider } from '@churchos/messaging';
 import { HttpError, type Ctx } from './ctx';
 import { loadHelp } from './help';
 import { adminRoutes } from './routes/admin';
@@ -11,6 +12,8 @@ import { auditRoutes } from './routes/audit';
 import { helpRoutes } from './routes/help';
 import { kycRoutes } from './routes/kyc';
 import { smsRoutes } from './routes/sms';
+import { messageRoutes } from './routes/messages';
+import { walletRoutes } from './routes/wallets';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -34,7 +37,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   await ledger.migrate();
   await db.exec(APP_SCHEMA);
 
-  const ctx: Ctx = { db, ledger, provider, clock, events: new EventEmitter(), newId: (p) => `${p}_${randomUUID().slice(0, 12)}` };
+  const ctx: Ctx = { db, ledger, provider, messaging: new MockMessagingProvider(), email: new MockEmailProvider(), givingUrl: process.env.GIVING_URL ?? 'http://localhost:3001', clock, events: new EventEmitter(), newId: (p) => `${p}_${randomUUID().slice(0, 12)}` };
   ctx.events.setMaxListeners(0);
   provider.setDeliver(async (raw, headers) => {
     try {
@@ -77,6 +80,8 @@ export async function buildApp(opts: BuildOptions = {}) {
   helpRoutes(app, ctx);
   kycRoutes(app, ctx);
   smsRoutes(app, ctx);
+  walletRoutes(app, ctx);
+  messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);
   memberRoutes(app, ctx);

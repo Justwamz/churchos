@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   id text PRIMARY KEY,
   phone text NOT NULL UNIQUE,
   name text NOT NULL,
+  email text,
   is_platform_admin boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL
 );
@@ -186,13 +187,118 @@ CREATE TABLE IF NOT EXISTS payout_change_requests (
   created_at timestamptz NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS sms_topups (
+-- Messaging wallets (L112, L113). branch_id NULL is the organisation-level wallet. One per channel and scope.
+CREATE TABLE IF NOT EXISTS wallets (
   id text PRIMARY KEY,
-  provider_tx_id text UNIQUE,
+  org_id text NOT NULL,
+  branch_id text,
+  channel text NOT NULL CHECK (channel IN ('sms','whatsapp')),
+  code text NOT NULL,
+  low_threshold bigint NOT NULL,
+  state text NOT NULL DEFAULT 'ok' CHECK (state IN ('ok','low','empty')),
+  created_at timestamptz NOT NULL,
+  UNIQUE (channel, code)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS wallets_scope_idx ON wallets (org_id, COALESCE(branch_id, ''), channel);
+
+CREATE TABLE IF NOT EXISTS integration_settings (
+  org_id text PRIMARY KEY,
+  wallet_mode text NOT NULL DEFAULT 'shared' CHECK (wallet_mode IN ('shared','per_branch')),
+  sms_sender_id text,
+  whatsapp_display_name text,
+  whatsapp_number text,
+  alert_emails jsonb NOT NULL DEFAULT '[]'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS branch_integrations (
+  branch_id text PRIMARY KEY,
+  org_id text NOT NULL,
+  sms_sender_id text,
+  whatsapp_number text
+);
+
+-- A person's own choices about church messages (L119). Keyed by phone because a person is one identity across churches.
+CREATE TABLE IF NOT EXISTS contact_prefs (
+  phone text PRIMARY KEY,
+  whatsapp_opt_in boolean NOT NULL DEFAULT false,
+  sms_opt_out boolean NOT NULL DEFAULT false,
+  source text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  updated_by text
+);
+
+CREATE TABLE IF NOT EXISTS wallet_topups (
+  id text PRIMARY KEY,
+  wallet_id text NOT NULL,
   org_id text NOT NULL,
   amount bigint NOT NULL,
-  phone text NOT NULL,
+  method text NOT NULL CHECK (method IN ('mpesa','card')),
+  phone text,
+  provider_tx_id text UNIQUE,
   status text NOT NULL DEFAULT 'initiated' CHECK (status IN ('initiated','completed')),
+  created_by text,
+  created_at timestamptz NOT NULL
+);
+
+-- Groups (L122). Members and leaders are people already registered in the church.
+CREATE TABLE IF NOT EXISTS groups (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  name text NOT NULL,
+  description text,
+  created_by text,
+  created_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_members (
+  group_id text NOT NULL,
+  membership_id text NOT NULL,
+  org_id text NOT NULL,
+  role text NOT NULL DEFAULT 'member' CHECK (role IN ('leader','member')),
+  added_at timestamptz NOT NULL,
+  PRIMARY KEY (group_id, membership_id)
+);
+
+-- Messages and what happened to each recipient. Recipient rows hold no phone numbers (L118, L109).
+CREATE TABLE IF NOT EXISTS messages (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  sender_id text NOT NULL,
+  sender_name text,
+  source text NOT NULL CHECK (source IN ('staff','group_leader')),
+  group_id text,
+  audience jsonb NOT NULL,
+  channels jsonb NOT NULL,
+  title text NOT NULL,
+  body text NOT NULL,
+  status text NOT NULL CHECK (status IN ('scheduled','sending','sent','cancelled','failed')),
+  scheduled_at text,
+  sent_at text,
+  cancelled_at text,
+  summary jsonb,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_due_idx ON messages(status, scheduled_at);
+
+CREATE TABLE IF NOT EXISTS message_recipients (
+  message_id text NOT NULL,
+  membership_id text NOT NULL,
+  channel text NOT NULL CHECK (channel IN ('inapp','sms','whatsapp')),
+  status text NOT NULL,
+  cost bigint NOT NULL DEFAULT 0,
+  wallet_id text,
+  PRIMARY KEY (message_id, membership_id, channel)
+);
+
+CREATE TABLE IF NOT EXISTS email_outbox (
+  id text PRIMARY KEY,
+  org_id text,
+  to_email text NOT NULL,
+  subject text NOT NULL,
+  body text NOT NULL,
+  status text NOT NULL,
+  error text,
   created_at timestamptz NOT NULL
 );
 
@@ -214,6 +320,7 @@ CREATE TABLE IF NOT EXISTS notifications (
   kind text NOT NULL,
   title text NOT NULL,
   body text NOT NULL,
+  message_id text,
   read boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL
 );
@@ -327,7 +434,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','sms_topups','sms_messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

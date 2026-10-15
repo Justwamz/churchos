@@ -262,27 +262,73 @@ describe('REVIEW FOCUS 1: verification gates payouts (L81)', () => {
   });
 });
 
-describe('SMS wallet (L57 to L60)', () => {
-  it('REVIEW FOCUS 4: a top-up credits once even if delivered twice, and stays out of collections', async () => {
-    const { ledger, provider } = await setup();
-    const inb = { providerTxId: 'SMS1', method: 'mpesa' as const, amount: 50000, reference: 'SMS#GRACE', phone: '254700000001', occurredAt: new Date().toISOString() };
-    await provider.simulatePaybill({ phone: inb.phone, amount: inb.amount, reference: inb.reference, providerTxId: 'SMS1' }); // credits the PSP wallet; the ledger sees it as a normal paybill
-    // The API routes SMS# references to the wallet before they reach receivePayment; here we call the wallet path directly.
-    expect(await ledger.receiveSmsTopup('org1', inb)).toBe('credited');
-    expect(await ledger.receiveSmsTopup('org1', inb)).toBe('duplicate');
-    expect(await ledger.smsBalance('org1')).toBe(50000);
+describe('messaging wallets (L112, L113, L116)', () => {
+  const topup = (id: string, amount: number) => ({ providerTxId: id, method: 'mpesa' as const, amount, reference: 'SMS#GRACE', phone: '254700000001', occurredAt: new Date().toISOString() });
+
+  it('REVIEW FOCUS 1: a top-up credits once even if delivered twice, and stays out of collections', async () => {
+    const { ledger } = await setup();
+    await ledger.createWallet('w_sms', 'org1');
+    expect(await ledger.receiveWalletTopup('w_sms', 'org1', topup('T1', 50000))).toBe('credited');
+    expect(await ledger.receiveWalletTopup('w_sms', 'org1', topup('T1', 50000))).toBe('duplicate');
+    expect(await ledger.walletBalance('w_sms')).toBe(50000);
+    expect(await ledger.balance('pending', 'b1')).toBe(0);
   });
 
-  it('REVIEW FOCUS 3: sending with an empty wallet is refused without going negative; charges deduct the cost', async () => {
+  it('REVIEW FOCUS 1: a charge never goes below zero and a repeated batch charges once', async () => {
     const { ledger } = await setup();
-    expect(await ledger.chargeSms('org1', 100, 'm1')).toBe(false);
-    expect(await ledger.smsBalance('org1')).toBe(0);
-    await ledger.receiveSmsTopup('org1', { providerTxId: 'SMS2', method: 'mpesa', amount: 250, reference: 'SMS#GRACE', phone: '254700000001', occurredAt: new Date().toISOString() });
-    expect(await ledger.chargeSms('org1', 100, 'm2')).toBe(true);
-    expect(await ledger.chargeSms('org1', 100, 'm3')).toBe(true);
-    expect(await ledger.chargeSms('org1', 100, 'm4')).toBe(false);
-    expect(await ledger.smsBalance('org1')).toBe(50);
-    expect(await ledger.balance('sms_revenue')).toBe(200);
+    await ledger.createWallet('w_sms', 'org1');
+    expect(await ledger.chargeWallet('w_sms', 100, 'batch1', 'sms')).toBe(false);
+    expect(await ledger.walletBalance('w_sms')).toBe(0);
+    await ledger.receiveWalletTopup('w_sms', 'org1', topup('T2', 1000));
+    expect(await ledger.chargeWallet('w_sms', 400, 'batch1', 'sms')).toBe(true);
+    expect(await ledger.chargeWallet('w_sms', 400, 'batch1', 'sms')).toBe(true); // same batch again: no second charge
+    expect(await ledger.walletBalance('w_sms')).toBe(600);
+    expect(await ledger.chargeWallet('w_sms', 700, 'batch2', 'sms')).toBe(false);
+    expect(await ledger.balance('sms_revenue')).toBe(400);
+  });
+
+  it('keeps SMS and WhatsApp revenue apart and each wallet separate', async () => {
+    const { ledger } = await setup();
+    await ledger.createWallet('w_sms', 'org1');
+    await ledger.createWallet('w_wa', 'org1');
+    await ledger.receiveWalletTopup('w_sms', 'org1', topup('T3', 1000));
+    await ledger.receiveWalletTopup('w_wa', 'org1', topup('T4', 2000));
+    await ledger.chargeWallet('w_wa', 300, 'wa1', 'whatsapp');
+    expect(await ledger.walletBalance('w_sms')).toBe(1000);
+    expect(await ledger.walletBalance('w_wa')).toBe(1700);
+    expect(await ledger.balance('whatsapp_revenue')).toBe(300);
+    expect(await ledger.balance('sms_revenue')).toBe(0);
+  });
+
+  it('transfers credit between wallets without creating or losing money', async () => {
+    const { ledger } = await setup();
+    await ledger.createWallet('hq', 'org1');
+    await ledger.createWallet('br', 'org1');
+    await ledger.receiveWalletTopup('hq', 'org1', topup('T5', 5000));
+    expect(await ledger.transferWallet('hq', 'br', 2000, 'x1')).toBe(true);
+    expect(await ledger.transferWallet('hq', 'br', 2000, 'x1')).toBe(true); // repeated: no second move
+    expect(await ledger.walletBalance('hq')).toBe(3000);
+    expect(await ledger.walletBalance('br')).toBe(2000);
+    expect(await ledger.transferWallet('br', 'hq', 9999, 'x2')).toBe(false);
+    expect(await ledger.transferWallet('hq', 'br', 0, 'x3')).toBe(false);
+  });
+
+  it('refunds undelivered messages once, and the books still balance', async () => {
+    const { ledger } = await setup();
+    await ledger.createWallet('w_sms', 'org1');
+    await ledger.receiveWalletTopup('w_sms', 'org1', topup('T6', 1000));
+    await ledger.chargeWallet('w_sms', 500, 'b9', 'sms');
+    await ledger.refundWallet('w_sms', 200, 'b9', 'sms');
+    await ledger.refundWallet('w_sms', 200, 'b9', 'sms'); // repeated: nothing
+    expect(await ledger.walletBalance('w_sms')).toBe(700);
+    expect(await ledger.balance('sms_revenue')).toBe(300);
+  });
+
+  it('keeps the books balanced against the PSP wallet', async () => {
+    const { ledger, provider } = await setup();
+    await ledger.createWallet('w_sms', 'org1');
+    await provider.simulatePaybill({ phone: '0700000001', amount: 5000, reference: 'NOWHERE' }); // lands in suspense, wallet credited at the PSP
+    expect((await ledger.reconcile()).ok).toBe(true);
   });
 });
 

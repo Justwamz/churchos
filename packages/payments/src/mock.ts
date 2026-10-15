@@ -126,6 +126,40 @@ export class MockProvider implements PaymentProvider {
     return { status: 'confirmed' as const };
   }
 
+  // ---------- hosted card checkout (L116) ----------
+  // A real PSP hosts the card page, so card numbers never reach ChurchOS. This simulates that page: ChurchOS gets a checkout id and a
+  // URL to send the person to, and the hosted page reports back with the result.
+  private checkouts = new Map<string, { amount: Cents; reference: string; phone: string; done: boolean }>();
+
+  /** Starts a card payment. Returns an id for the hosted checkout page. */
+  async initiateCardCheckout(req: { amount: Cents; reference: string; phone?: string }) {
+    const providerTxId = `CARD${randomUUID().slice(0, 8).toUpperCase()}`;
+    this.checkouts.set(providerTxId, { amount: req.amount, reference: req.reference, phone: req.phone ?? '', done: false });
+    return { providerTxId };
+  }
+
+  /** What the hosted page shows before the person pays: the amount, never the church's internal details. */
+  checkoutInfo(providerTxId: string) {
+    const c = this.checkouts.get(providerTxId);
+    return c && !c.done ? { amount: c.amount } : null;
+  }
+
+  /**
+   * The hosted checkout page submits the card here. Test cards: 4242 4242 4242 4242 succeeds, 4000 0000 0000 0002 is declined,
+   * anything else is invalid. A success is reported to ChurchOS as a signed webhook, like every other payment.
+   */
+  async completeCardCheckout(providerTxId: string, card: { number: string; expiry: string; cvc: string }) {
+    const c = this.checkouts.get(providerTxId);
+    if (!c || c.done) return { status: 'unknown' as const };
+    const n = String(card.number ?? '').replace(/\s+/g, '');
+    if (!/^\d{12,19}$/.test(n) || !/^\d{2}\/\d{2}$/.test(String(card.expiry ?? '')) || !/^\d{3,4}$/.test(String(card.cvc ?? ''))) return { status: 'invalid' as const };
+    if (n === '4000000000000002') return { status: 'declined' as const };
+    if (n !== '4242424242424242') return { status: 'invalid' as const };
+    c.done = true;
+    await this.emitPayment({ providerTxId, method: 'card', amount: c.amount, reference: c.reference, phone: c.phone });
+    return { status: 'paid' as const };
+  }
+
   async walletBalance() {
     return this.wallet;
   }

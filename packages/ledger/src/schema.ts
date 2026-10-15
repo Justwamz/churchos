@@ -101,8 +101,9 @@ CREATE TABLE IF NOT EXISTS cash_entries (
   approved_at timestamptz
 );
 
-CREATE TABLE IF NOT EXISTS sms_topups_ledger (
+CREATE TABLE IF NOT EXISTS wallet_topups_ledger (
   provider_tx_id text PRIMARY KEY,
+  wallet_id text NOT NULL,
   org_id text NOT NULL,
   amount bigint NOT NULL,
   created_at timestamptz NOT NULL

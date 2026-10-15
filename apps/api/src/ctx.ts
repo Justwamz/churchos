@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Clock, Db, Ledger } from '@churchos/ledger';
 import type { MockProvider } from '@churchos/payments';
+import type { MockEmailProvider, MockMessagingProvider } from '@churchos/messaging';
 import { branchesFor, verifyToken, type Permission, type Session } from './auth';
 import { setActor } from './audit';
 
@@ -9,6 +10,10 @@ export interface Ctx {
   db: Db;
   ledger: Ledger;
   provider: MockProvider;
+  messaging: MockMessagingProvider;
+  email: MockEmailProvider;
+  /** Where the public giving and card checkout pages live, for links in responses. */
+  givingUrl: string;
   clock: Clock;
   events: EventEmitter;
   newId: (prefix: string) => string;

@@ -295,7 +295,7 @@ describe('REVIEW FOCUS 2: personal data is masked, and revealing it is logged (L
     const responses: [string, string, string][] = [
       [ADMIN, 'GET', '/members'], [ADMIN, 'GET', '/members/grouped'], [ADMIN, 'GET', '/members/insights'],
       [TREAS, 'GET', '/collections'], [TREAS, 'GET', '/collections?format=csv'], [TREAS, 'GET', '/dashboard'],
-      [OWNER, 'GET', '/sms/wallet'], [OWNER, 'GET', '/audit/events?limit=200'],
+      [OWNER, 'GET', '/wallets'], [OWNER, 'GET', '/messages'], [OWNER, 'GET', '/audit/events?limit=200'],
       [PA1, 'GET', '/admin/payments'], [PA1, 'GET', '/admin/suspense'], [PA1, 'GET', '/admin/reversal-requests'],
       [PA1, 'GET', '/admin/audit/events?limit=200'],
     ];

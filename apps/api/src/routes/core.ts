@@ -3,6 +3,7 @@ import { maskPhone } from '@churchos/shared';
 import { normalizePhone, signToken } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
 import { notify } from '../sms';
+import { checkLowBalance } from '../wallets';
 
 const DEV_OTP = '123456';
 const MAX_ATTEMPTS = 5;
@@ -14,15 +15,21 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
   if (!ctx.provider.verifyWebhook(headers, rawBody)) throw new HttpError(401, 'invalid signature', 'bad_signature');
   const parsed = ctx.provider.parseWebhook(rawBody);
   const inb = { ...parsed, phone: normalizePhone(parsed.phone) ?? parsed.phone };
-  // A reference starting with SMS# is an SMS wallet top-up, never a church collection (L58).
+  // A reference starting with SMS# or WA# is a messaging wallet top-up, never a church collection (L58, L116).
   const ref = inb.reference.trim().toUpperCase();
-  if (ref.startsWith('SMS#')) {
-    const org = (await ctx.db.query<any>(`SELECT id FROM organisations WHERE sms_code = $1`, [ref.slice(4).trim()]))[0];
-    if (org) {
-      const r = await ctx.ledger.receiveSmsTopup(org.id, inb);
-      if (r === 'credited') await ctx.db.query(`UPDATE sms_topups SET status='completed' WHERE provider_tx_id=$1`, [inb.providerTxId]);
-      ctx.events.emit('sms_topup', { orgId: org.id });
-      return { status: r === 'credited' ? ('sms_topup' as const) : ('duplicate' as const), paymentId: inb.providerTxId };
+  const walletRef = /^(SMS|WA)#(.+)$/.exec(ref);
+  if (walletRef) {
+    const channel = walletRef[1] === 'SMS' ? 'sms' : 'whatsapp';
+    const wallet = (await ctx.db.query<any>(`SELECT id, org_id FROM wallets WHERE channel=$1 AND code=$2`, [channel, walletRef[2].trim()]))[0];
+    if (wallet) {
+      const r = await ctx.ledger.receiveWalletTopup(wallet.id, wallet.org_id, inb);
+      if (r === 'credited') {
+        await ctx.db.query(`UPDATE wallet_topups SET status='completed' WHERE provider_tx_id=$1`, [inb.providerTxId]);
+        await checkLowBalance(ctx, wallet.id); // a top-up above the warning level re-arms the alert
+        await ctx.ledger.audit({ orgId: wallet.org_id, actorType: 'psp', action: 'wallet.topup', category: 'money', entity: 'wallet', entityId: wallet.id, summary: `Wallet top-up of KES ${(inb.amount / 100).toLocaleString('en-KE')} received by ${inb.method === 'card' ? 'card' : 'M-Pesa'}`, links: { walletId: wallet.id, ledgerEntry: `wallettopup:${inb.providerTxId}` }, meta: { amount: inb.amount, method: inb.method } });
+      }
+      ctx.events.emit('wallet_topup', { walletId: wallet.id });
+      return { status: r === 'credited' ? ('wallet_topup' as const) : ('duplicate' as const), paymentId: inb.providerTxId };
     }
     // Unknown wallet code: falls through and is held in suspense like any unmatched payment.
   }
@@ -55,7 +62,7 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
     const info = (await ctx.db.query<any>(`SELECT b.name AS church, p.amount_paid, p.provider_tx_id FROM payments p JOIN branches b ON b.id=p.branch_id WHERE p.id=$1`, [result.paymentId]))[0];
     try {
       await notify(ctx, {
-        orgId: p.org_id, phone: inb.phone, kind: 'receipt', idemKey: `receipt:${inb.providerTxId}`,
+        orgId: p.org_id, branchId: result.branchId, phone: inb.phone, kind: 'receipt', idemKey: `receipt:${inb.providerTxId}`,
         title: 'Gift received',
         body: `Received KES ${(Number(info.amount_paid) / 100).toLocaleString('en-KE')} for ${String(p.purpose ?? 'OFFERING').toLowerCase().replace('proj-', 'project ')} at ${info.church}. Ref ${info.provider_tx_id}. God bless you.`,
       });
