@@ -105,10 +105,10 @@ function Replies({ event, onClose }: { event: any; onClose: () => void }) {
         <Load loading={d.loading} error={d.error} hasData={!!d.data}>
           {d.data && (
             <>
-              <div><b>{d.data.totals.people}</b> {d.data.totals.people === 1 ? 'person' : 'people'} coming from {d.data.totals.going} {d.data.totals.going === 1 ? 'reply' : 'replies'}. {d.data.totals.declined} said they cannot come.</div>
+              <div><b>{d.data.totals.people}</b> {d.data.totals.people === 1 ? 'person' : 'people'} coming: {d.data.totals.going} {d.data.totals.going === 1 ? 'member' : 'members'} and {d.data.totals.people - d.data.totals.going} {d.data.totals.people - d.data.totals.going === 1 ? 'guest' : 'guests'}. {d.data.totals.declined} said they cannot come.</div>
               {d.data.going.length === 0 ? <Empty>No one has said they are going yet.</Empty> : (
-                <Table head={['Name', 'Guests']}>
-                  {d.data.going.map((g: any, i: number) => <tr key={i}><td>{g.name}</td><td>{g.guests > 0 ? `+${g.guests}` : 'None'}</td></tr>)}
+                <Table head={['Name', 'Guests they bring', 'People']}>
+                  {d.data.going.map((g: any, i: number) => <tr key={i}><td>{g.name}</td><td>{g.guests > 0 ? g.guests : 'None'}</td><td><b>{1 + g.guests}</b></td></tr>)}
                 </Table>
               )}
               {d.data.notGoing.length > 0 && (
