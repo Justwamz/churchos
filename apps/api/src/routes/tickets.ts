@@ -467,7 +467,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/checkin/events', auth, async (req) => {
     const g = await grantsFor(ctx, req, 'events.checkin');
     const now = ctx.clock.now().getTime();
-    const rows = await ctx.db.query<any>(`SELECT id, title, starts_at, ends_at, branch_id, location, status FROM events WHERE org_id=$1 AND ticketed AND status='scheduled' AND COALESCE(ends_at, starts_at) >= $2 AND starts_at <= $3 ORDER BY starts_at`, [g.orgId, new Date(now - 12 * 3600_000).toISOString(), new Date(now + 3 * 86400_000).toISOString()]);
+    const rows = await ctx.db.query<any>(`SELECT id, title, starts_at, ends_at, branch_id, location, status FROM events WHERE org_id=$1 AND ticketed AND status='scheduled' AND COALESCE(ends_at, starts_at) >= $2 AND starts_at <= $3 ORDER BY starts_at`, [g.orgId, new Date(now - 12 * 3600_000).toISOString(), new Date(now + 14 * 86400_000).toISOString()]);
     return rows.filter((e) => (e.branch_id ? g.branchIds.includes(e.branch_id) : g.wholeOrg)).map((e) => ({ id: e.id, title: e.title, startsAt: e.starts_at, location: e.location }));
   });
 }

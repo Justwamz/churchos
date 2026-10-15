@@ -307,7 +307,7 @@ export async function seed(ctx: Ctx) {
     `INSERT INTO events (id, org_id, branch_id, title, description, location, starts_at, ends_at, audience, rsvp, capacity, created_by, created_at, updated_at, code, ticketed, poster_mime, poster_data, poster_w, poster_h) VALUES
       ('evt_gala','org_grace',NULL,'Christmas Gala Dinner','A three course dinner, live music and a raffle in aid of the roof project.','Grace Hall, Nairobi',$2,$3,'{"type":"org"}',false,NULL,'u_owner',$1,$1,'GALA01',true,'image/png',$4,1280,720),
       ('evt_concert','org_grace',NULL,'Youth Praise Concert','An evening of music by the youth. Entry is free but you need a ticket.','Main sanctuary, Nairobi',$5,$6,'{"type":"org"}',false,NULL,'u_owner',$1,$1,'PRAISE',true,'image/png',$7,1280,720) ON CONFLICT DO NOTHING`,
-    [now, gAt(14, 18), gAt(14, 22), gradientPng(1280, 720, [120, 30, 70], [50, 10, 40]), gAt(6, 17), gAt(6, 20), gradientPng(1280, 720, [30, 70, 140], [10, 25, 70])],
+    [now, gAt(14, 18), gAt(14, 22), gradientPng(1280, 720, [120, 30, 70], [50, 10, 40]), gAt(1, 17), gAt(1, 20), gradientPng(1280, 720, [30, 70, 140], [10, 25, 70])],
   );
   await db.query(
     `INSERT INTO ticket_types (id, org_id, event_id, name, description, price, quantity, per_order_max, active, sort, created_at) VALUES

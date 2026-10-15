@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Checkout } from './Checkout';
+import { EventPage, OrderPage, TicketPage } from './Tickets';
 import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 import { networkMismatch, phoneHint } from '@churchos/shared';
 
@@ -63,6 +64,8 @@ export function App() {
         <Route path="/" element={<Home />} />
         <Route path="/verify/:serial" element={<Verify />} />
         <Route path="/checkout/:id" element={<Checkout />} />
+        <Route path="/t/:token" element={<TicketPage />} />
+        <Route path="/tickets/:secret" element={<OrderPage />} />
         <Route path="/:code" element={<GivePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -182,6 +185,7 @@ function BookingPage() {
 function Home() {
   const nav = useNavigate();
   const [homeSearch] = useSearchParams();
+  if (homeSearch.get('event')) return <EventPage code={homeSearch.get('event')!} />;
   if (homeSearch.get('ad')) return <AdPage />;
   if (homeSearch.get('booking')) return <BookingPage />;
   const saved = store.get(CHURCH_KEY);

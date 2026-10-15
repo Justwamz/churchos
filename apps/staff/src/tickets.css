@@ -1,0 +1,29 @@
+.tk-row { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 10px; background: var(--paper); }
+.tk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.tk-poster { width: 100%; max-width: 360px; aspect-ratio: 16 / 9; border-radius: 12px; background: var(--brand-tint) center / cover no-repeat; border: 1px solid var(--line); display: grid; place-items: center; font-size: 13px; color: var(--ink-3); text-align: center; padding: 8px; }
+.tk-thumb { width: 160px; aspect-ratio: 16 / 9; border-radius: 8px; background: var(--brand-tint) center / cover no-repeat; border: 1px solid var(--line); flex: none; }
+.tk-link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tk-link code { overflow-wrap: anywhere; background: var(--brand-tint); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.tk-type { display: grid; gap: 4px; }
+.tk-scroll { overflow-x: auto; }
+.tk-big { font-size: 34px; font-weight: 800; line-height: 1.1; }
+
+.ck { max-width: 560px; margin: 0 auto; display: grid; gap: 14px; }
+.ck-video-wrap { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; display: grid; place-items: center; color: #fff; text-align: center; padding: 12px; }
+.ck-video-wrap video { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+.ck-video-wrap .ck-frame { position: absolute; inset: 18% 18%; border: 3px solid rgba(255, 255, 255, 0.85); border-radius: 16px; pointer-events: none; }
+.ck-result { border-radius: 16px; padding: 20px 16px; text-align: center; display: grid; gap: 6px; border: 2px solid; }
+.ck-result.good { background: var(--good-tint); color: var(--good); border-color: var(--good); }
+.ck-result.warn { background: var(--warn-tint); color: var(--warn); border-color: var(--warn); }
+.ck-result.bad { background: var(--bad-tint); color: var(--bad); border-color: var(--bad); }
+.ck-mark { font-size: 56px; line-height: 1; font-weight: 800; }
+.ck-title { font-size: 28px; font-weight: 800; }
+.ck-who { font-size: 20px; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
+.ck-recent { display: grid; gap: 0; }
+.ck-recent > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.ck-recent > div:last-child { border-bottom: 0; }
+.ck button, .ck input { min-height: 48px; }
+@media (max-width: 600px) { .tk-thumb { width: 120px; } }
+
+/* The scan answer must be seen at once, wherever the page is scrolled: a banner over the top of the screen. */
+.ck-result { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 20px)); z-index: 90; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); cursor: pointer; }

@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { Button, ErrorNote, Note, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
 import { Icon, Sheet, Skeleton } from './ui';
+import { Poster, TicketBuy, priceLine } from './Tickets';
 
 const TZ = 'Africa/Nairobi';
 const dayNum = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', timeZone: TZ });
 const monShort = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { month: 'short', timeZone: TZ });
 const monthLong = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { month: 'long', year: 'numeric', timeZone: TZ });
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit', timeZone: TZ });
+const dateShort = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
 const dateLong = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
 const dayKey = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ });
 const timeRange = (e: any) => {
@@ -117,19 +119,21 @@ function DateBlock({ iso, cancelled }: { iso: string; cancelled?: boolean }) {
 function EventCard({ e, onOpen, church }: { e: any; onOpen: () => void; church?: boolean }) {
   return (
     <button type="button" className="event" onClick={onOpen} aria-label={`${e.title}, ${dateLong(e.startsAt)}`}>
-      <DateBlock iso={e.startsAt} cancelled={e.status === 'cancelled'} />
+      {e.ticketed ? <Poster url={e.posterUrl} title={e.title} className="thumb" /> : <DateBlock iso={e.startsAt} cancelled={e.status === 'cancelled'} />}
       <span className="event-main">
         <strong className={e.status === 'cancelled' ? 'struck' : ''}>{e.title}</strong>
-        <span className="tiny ell">{timeRange(e)}{e.location ? ` · ${e.location}` : ''}</span>
+        <span className="tiny ell">{e.ticketed ? `${dateShort(e.startsAt)} · ${timeOf(e.startsAt)}${e.location ? ` · ${e.location}` : ''}` : `${timeRange(e)}${e.location ? ` · ${e.location}` : ''}`}</span>
+        {e.ticketed && e.status !== 'cancelled' && <span className={`tk-from ${e.soldOut ? 'out' : ''}`}>{priceLine(e)}</span>}
         {church && <span className="tiny ell">{e.church}</span>}
       </span>
-      <Pill e={e} />
+      {e.ticketed && e.status !== 'cancelled' ? <span className={`tk-get ${e.soldOut ? 'out' : ''}`}>{e.soldOut ? 'Sold out' : 'Get tickets'}</span> : <Pill e={e} />}
     </button>
   );
 }
 
 function EventSheet({ id, events, onClose, onSaved }: { id: string | null; events: any[]; onClose: () => void; onSaved: () => void }) {
   const e = id ? events.find((x) => x.id === id) : null;
+  if (e?.ticketed && e.code && e.status !== 'cancelled') return <TicketBuy code={e.code} eventId={e.id} onClose={() => { onClose(); onSaved(); }} />;
   return (
     <Sheet open={!!e} onClose={onClose} title={e?.title}>
       {e && <EventBody key={e.id} e={e} onSaved={onSaved} />}

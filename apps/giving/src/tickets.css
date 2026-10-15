@@ -1,0 +1,52 @@
+.tk { max-width: 560px; margin: 0 auto; padding: 0 16px 80px; }
+.tk .tk-brand { padding: 18px 0 10px; font-size: .95rem; color: var(--ink-3); }
+.tk .stack { display: grid; gap: 14px; }
+.tk .btn { width: 100%; min-height: 50px; font-size: 1.05rem; }
+.tk .tk-poster { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 16px; display: block; background: var(--line); }
+.tk .tk-poster.ph { background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 55%, #000)); display: grid; place-items: center; color: #fff; font-family: var(--serif); font-size: 2rem; }
+.tk h1 { font-size: 1.8rem; line-height: 1.15; margin: 4px 0 0; }
+.tk .tk-meta { display: grid; gap: 4px; color: var(--ink-2); }
+.tk .tk-meta b { color: var(--ink); }
+.tk .tk-desc { white-space: pre-line; color: var(--ink-2); margin: 0; }
+.tk .tk-type { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.tk .tk-type.off { opacity: .6; }
+.tk .tk-type h3 { margin: 0; font-size: 1.05rem; }
+.tk .tk-price { font-weight: 700; color: var(--brand); }
+.tk .tk-left { color: #b25b00; font-weight: 600; font-size: 13px; }
+.tk .tk-step { display: flex; align-items: center; gap: 4px; flex: none; }
+.tk .tk-step button { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 22px; cursor: pointer; }
+.tk .tk-step button:disabled { opacity: .35; cursor: default; }
+.tk .tk-step output { min-width: 32px; text-align: center; font-weight: 700; font-size: 1.1rem; }
+.tk .tk-sum { padding: 14px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+.tk .tk-sum .tk-total { font-size: 1.3rem; font-weight: 700; }
+.tk .tk-row { display: flex; justify-content: space-between; gap: 12px; }
+.tk .center { text-align: center; }
+.tk .tk-spin { display: grid; place-items: center; padding: 10px; }
+.tk .tk-ticketrow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.tk .tk-ticketrow:first-of-type { border-top: 0; }
+.tk .tk-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: var(--ink-3); }
+.tk a.btn { display: grid; place-items: center; text-decoration: none; }
+.tk a.tk-link { color: var(--brand); font-weight: 600; white-space: nowrap; }
+
+.tk-ticket { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow); }
+.tk-ticket .tk-body { padding: 18px 20px 22px; display: grid; gap: 14px; }
+.tk-ticket h1 { font-size: 1.6rem; }
+.tk-qrwrap { background: #fff; border-radius: 18px; padding: 20px; width: min(260px, 100%); margin: 0 auto; border: 1px solid var(--line); position: relative; box-sizing: content-box; }
+.tk-qrwrap svg { display: block; width: 100%; height: auto; }
+.tk-qrwrap.dim svg { filter: grayscale(1); opacity: .25; }
+.tk-stamp { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.tk-stamp span { transform: rotate(-24deg); border: 5px solid #b3261e; color: #b3261e; font-weight: 800; font-size: 2.2rem; letter-spacing: .15em; padding: 4px 16px; border-radius: 10px; background: rgba(255,255,255,.7); }
+.tk-holder { text-align: center; }
+.tk-holder .name { font-size: 1.3rem; font-weight: 700; }
+.tk-cut { border-top: 2px dashed var(--line); margin: 0 -20px; }
+.tk-actions { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; margin-top: 14px; }
+.tk-actions .btn { min-height: 46px; font-size: 1rem; }
+@media (max-width: 380px) { .tk-actions { grid-template-columns: 1fr; } }
+
+@media print {
+  body * { visibility: hidden; }
+  .tk-ticket, .tk-ticket * { visibility: visible; }
+  .tk-ticket { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border: 1px solid #999; }
+  .tk-actions, .no-print { display: none !important; }
+}
+.tk .tk-tick { width: 56px; height: 56px; margin: 0 auto; border-radius: 50%; background: var(--good-tint); color: var(--good); font-size: 28px; display: grid; place-items: center; }

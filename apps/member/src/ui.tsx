@@ -29,6 +29,7 @@ const P: Record<string, ReactNode> = {
   refresh: <path d="M19.5 8A8 8 0 0 0 5 9.5M4.5 4.5v5h5M4.5 16a8 8 0 0 0 14.5-1.5M19.5 19.5v-5h-5" />,
   send: <path d="M4 12 20 4l-5 16-3.5-6.5z" />,
   bag: (<><path d="M5.5 8h13l-1 12h-11z" /><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5" /></>),
+  ticket: <path d="M3.5 8.5A1.5 1.5 0 0 1 5 7h14a1.5 1.5 0 0 1 1.5 1.5v2a2 2 0 0 0 0 4v2A1.5 1.5 0 0 1 19 17H5a1.5 1.5 0 0 1-1.5-1.5v-2a2 2 0 0 0 0-4zM14.5 7v10" />,
   pledge: (<><path d="M5 4.5h14v15H5z" /><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" /></>),
 };
 const CLOSED = new Set(['home', 'give', 'chat', 'groups', 'me', 'bell']);

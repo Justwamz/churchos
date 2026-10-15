@@ -17,6 +17,8 @@ const ERR: Record<string, string> = {
   not_found: 'That shop item was not found. Choose another one.',
   inactive: 'That item is switched off in the shop. Choose another item, or switch it on first.',
   bad_number: 'Choose a quantity from 1 to 10.',
+  no_tickets: 'That event does not sell tickets yet. Set up its tickets first.',
+  event_over: 'That event is over or cancelled, so it cannot sell tickets. Choose another event.',
   bad_action: 'Choose where the advert should lead when someone taps it.',
   same_person: 'Someone else must approve this advert, because you created or sent it. Ask a colleague to approve it.',
 };
@@ -82,7 +84,9 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
   const [advName, setAdvName] = useState<string>(advert?.advertiser?.name ?? '');
   const [advContact, setAdvContact] = useState<string>(advert?.advertiser?.contact ?? '');
   const [advPrice, setAdvPrice] = useState<string>(advert?.advertiser?.price != null ? String(advert.advertiser.price / 100) : '');
-  const [act, setAct] = useState<'details' | 'shop' | 'item' | 'checkout'>(advert?.action?.kind ?? 'details');
+  const [act, setAct] = useState<'details' | 'shop' | 'item' | 'checkout' | 'event'>(advert?.action?.kind ?? 'details');
+  const [eventId, setEventId] = useState<string>(advert?.action?.eventId ?? '');
+  const events = useAsync<any[]>(() => api.get('/events' + s.qs({ branch: undefined })), [s.grant.org.id]);
   const [itemId, setItemId] = useState<string>(advert?.action?.itemId ?? '');
   const [qty, setQty] = useState<number>(advert?.action?.qty ?? 1);
   const shopItems = useAsync<any[]>(() => api.get('/shop/items' + s.qs({ branch: kind === 'branch' ? branch : undefined })), [kind === 'branch' ? branch : '', s.grant.org.id]);
@@ -108,12 +112,13 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
     if (kind === 'group' && !group) return setErr('Choose a group.');
     if (period === 'dates' && (!start || !end)) return setErr('Choose when it starts and when it ends.');
     if (period === 'dates' && Date.parse(`${end}:00+03:00`) <= Date.parse(`${start}:00+03:00`)) return setErr('The end must be after the start.');
+    if (act === 'event' && !eventId) return setErr('Choose the event.');
     if ((act === 'item' || act === 'checkout') && !itemId) return setErr('Choose the shop item.');
     if (paid && (!advName.trim() || !(Number(advPrice) > 0))) return setErr('Add the advertiser name and the price they will pay.');
     const audience = kind === 'org' ? { type: 'org' } : kind === 'branch' ? { type: 'branch', id: branch } : { type: 'group', id: group };
     const payload: any = {
       title: title.trim(), body: body.trim(), link: act === 'details' ? link.trim() : '', audience,
-      action: act === 'details' ? null : act === 'shop' ? { kind: 'shop' } : act === 'item' ? { kind: 'item', itemId } : { kind: 'checkout', itemId, qty },
+      action: act === 'details' ? null : act === 'shop' ? { kind: 'shop' } : act === 'item' ? { kind: 'item', itemId } : act === 'event' ? { kind: 'event', eventId } : { kind: 'checkout', itemId, qty },
       ...(art ? { image: { mime: art.mime, data: art.data } } : {}),
       ...(period === 'dates' ? { startsAt: toIso(start), endsAt: toIso(end) } : advert ? { endsAt: null } : {}),
     };
@@ -156,10 +161,25 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
 
       <Card title="2. When someone taps it">
         <div className="stack" style={{ gap: 10 }}>
-          {([['details', 'Show the details (and an optional link)'], ['shop', 'Open the shop'], ['item', 'Show one shop item'], ['checkout', 'Go straight to checkout with an item']] as const).map(([k, t]) => (
+          {([['details', 'Show the details (and an optional link)'], ['shop', 'Open the shop'], ['item', 'Show one shop item'], ['checkout', 'Go straight to checkout with an item'], ['event', 'Sell tickets for an event']] as const).map(([k, t]) => (
             <label key={k} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="adact" checked={act === k} onChange={() => setAct(k)} /> <b>{t}</b></label>
           ))}
           {act === 'details' && <Field label="Link" hint="Optional. Where people go from the details. Must start with http:// or https://"><input inputMode="url" placeholder="https://" value={link} onChange={(e) => setLink(e.target.value)} /></Field>}
+          {act === 'event' && (
+            <Load loading={events.loading} error={events.error} hasData={!!events.data}>
+              {events.data && (() => {
+                const list = events.data.filter((e) => e.ticketed || e.id === eventId);
+                return list.length === 0 ? <Empty>No event sells tickets yet. Set up tickets on an event under Events.</Empty> : (
+                  <Field label="Event" hint="Only upcoming events that sell tickets are listed.">
+                    <select value={eventId} onChange={(e) => setEventId(e.target.value)}>
+                      <option value="">Choose an event</option>
+                      {list.map((e) => <option key={e.id} value={e.id}>{e.title} ({shortDate(e.startsAt)})</option>)}
+                    </select>
+                  </Field>
+                );
+              })()}
+            </Load>
+          )}
           {(act === 'item' || act === 'checkout') && (
             <>
               {act === 'checkout' && <Note>The member lands on a checkout with this item already in the basket. Orders are traced back to the advert.</Note>}

@@ -12,9 +12,10 @@ import { AdvertSlider } from './Adverts';
 import { HomeShop, ShopPage } from './Shop';
 import type { ShopIntent } from './Shop';
 import { Icon, Sheet, Skeleton } from './ui';
+import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'inbox' | 'groups' | 'me';
-type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop';
+type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets';
 type GiveSub = 'give' | 'pledges' | 'history';
 type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
 type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
@@ -60,7 +61,7 @@ const initials = (n: string) => (n.split(/\s+/).filter(Boolean).slice(0, 2).map(
 export function App() {
   return (
     <LoginGate api={api} title="ChurchOS Member" subtitle="Give, follow your giving and stay connected to your church. Sign in with your phone number.">
-      {({ user, signOut }) => <Shell user={user} signOut={signOut} />}
+      {({ user, signOut }) => <UserCtx.Provider value={user}><Shell user={user} signOut={signOut} /></UserCtx.Provider>}
     </LoginGate>
   );
 }
@@ -76,10 +77,12 @@ function parseHash(): Nav {
 function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const [nav, setNav] = useState<Nav>(parseHash);
   const tab = nav.tab;
-  const [homeSub, setHomeSub] = useState<HomeSub | null>(() => { try { return localStorage.getItem('churchos:shop-pending') ? 'shop' : null; } catch { return null; } });
+  const [homeSub, setHomeSub] = useState<HomeSub | null>(() => { try { return localStorage.getItem(TICKET_PENDING_KEY) ? 'tickets' : localStorage.getItem('churchos:shop-pending') ? 'shop' : null; } catch { return null; } });
   const [shopIntent, setShopIntent] = useState<ShopIntent | undefined>();
   const [shopK, setShopK] = useState(0);
   const openShop = (i?: ShopIntent) => { setShopIntent(i); setShopK((k) => k + 1); setHomeSub('shop'); if (mainRef.current) mainRef.current.scrollTop = 0; };
+  const showTickets = () => { setNav((p) => ({ tab: 'home', sub: 'give', k: p.k + 1 })); setHomeSub('tickets'); try { history.replaceState(null, '', '#home'); } catch { /* ignore */ } if (mainRef.current) mainRef.current.scrollTop = 0; };
+  useEffect(() => { window.addEventListener('churchos:open-tickets', showTickets); return () => window.removeEventListener('churchos:open-tickets', showTickets); }, []); // eslint-disable-line
   const me = useAsync<any>(() => api.get('/me'));
   const online = useOnline();
   const notif = useAsync<any>(() => api.get('/me/notifications'));
@@ -131,7 +134,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
       <header className="appbar">
         {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
         <div className="appbar-title">
-          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{TITLES[tab]}</strong>}
+          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
@@ -145,7 +148,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
-              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <EventsPage /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
+              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <EventsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
               {tab === 'groups' && <Groups />}
@@ -196,6 +199,7 @@ function Home({ me, user, go, notif, openSub, openShop }: { me: any; user: any; 
     { ico: 'pledge', label: 'My pledges', on: () => go('give', { sub: 'pledges' }) },
     { ico: 'calendar', label: 'Book', on: () => openSub('book') },
     { ico: 'bag', label: 'Shop', on: () => openShop() },
+    { ico: 'ticket', label: 'My tickets', on: () => openSub('tickets') },
   ];
   return (
     <div className="stack home">
@@ -205,6 +209,7 @@ function Home({ me, user, go, notif, openSub, openShop }: { me: any; user: any; 
       </div>
 
       <AdvertSlider onShop={openShop} />
+      <HomeTickets onOpen={() => openSub('tickets')} />
 
       <HomeNotices onAll={() => openSub('notices')} />
       <HomeEvents onAll={() => openSub('events')} />
@@ -651,6 +656,7 @@ function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => v
       )}
 
       <div className="menu">
+        <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-tickets'))}><Icon name="ticket" /><span>My tickets</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => setHelpOpen(true)}><Icon name="help" /><span>Help and payment issues</span><Icon name="chev" size={18} /></button>
         <button type="button" className="danger" onClick={signOut}><Icon name="logout" /><span>Sign out</span></button>

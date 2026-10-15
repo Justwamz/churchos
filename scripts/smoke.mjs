@@ -295,5 +295,31 @@ step('The advert shows the order it brought', s11AdStats.stats.orders === 1 && s
 const s11Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 11 activity', s11Rec.json.ok === true);
 
+// 19. Slice 12: event tickets, QR codes and door check-in.
+const s12Ev = await call('GET', '/public/event/GALA01');
+const s12Reg = s12Ev.json.types?.find((t) => t.name === 'Regular');
+step('The public ticket page shows the event and its ticket types', s12Ev.status === 200 && s12Ev.json.types.length === 3 && s12Reg.price === 150000);
+const s12Q = await call('POST', '/public/tickets/quote', { code: 'GALA01', method: 'mpesa', lines: [{ typeId: s12Reg.id, qty: 2 }] });
+step('The buyer sees the fee on top before paying', s12Q.json.subtotal === 300000 && s12Q.json.serviceFee > 0 && s12Q.json.total === 300000 + s12Q.json.serviceFee);
+const s12Buy = await call('POST', '/public/tickets/orders', { code: 'GALA01', name: 'Smoke Buyer', email: 'smoke@example.com', phone: '0711555777', method: 'mpesa', lines: [{ typeId: s12Reg.id, qty: 2 }] });
+let s12Order = s12Buy.json;
+for (let i = 0; i < 30 && s12Order.status !== 'paid'; i++) { await sleep(300); s12Order = (await call('GET', `/public/tickets/orders/${s12Buy.json.secret}`)).json; }
+step('A non-member pays by mobile money and gets two QR tickets', s12Order.status === 'paid' && s12Order.tickets.length === 2, s12Order.tickets?.map((t) => t.serial).join(', '));
+const s12Page = await call('GET', `/public/tickets/${s12Order.tickets[0].token}`);
+step('The ticket page has a QR code', s12Page.status === 200 && s12Page.json.qrSvg.includes('<svg') && s12Page.json.status === 'valid');
+const s12Events = (await call('GET', '/events', undefined, daniel)).json;
+const s12Gala = s12Events.find((e) => e.code === 'GALA01');
+const s12Scan1 = await call('POST', `/events/${s12Gala.id}/checkin`, { code: s12Order.tickets[0].url }, daniel);
+const s12Scan2 = await call('POST', `/events/${s12Gala.id}/checkin`, { code: s12Order.tickets[0].token }, daniel);
+step('Scanning a ticket once lets them in, a second scan is refused', s12Scan1.json.result === 'valid' && s12Scan2.json.result === 'already_used');
+const s12NoScan = await call('POST', `/events/${s12Gala.id}/checkin`, { code: s12Order.tickets[1].token }, treasurer);
+step('Someone without the check-in permission cannot scan', s12NoScan.status === 404);
+const s12Mine = await call('GET', '/me/tickets', undefined, janeTok);
+step('A member sees their tickets with QR codes in the app', s12Mine.status === 200 && s12Mine.json.tickets.length >= 2 && s12Mine.json.tickets[0].qrSvg.includes('<svg'));
+const s12Sales = await call('GET', `/events/${s12Gala.id}/tickets`, undefined, daniel);
+step('Staff see sales, takings and who has checked in', s12Sales.json.totals.sold >= 4 && s12Sales.json.totals.checkedIn >= 1 && s12Sales.json.totals.serviceFees > 0);
+const s12Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 12 activity', s12Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

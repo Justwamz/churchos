@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { Icon, Sheet } from './ui';
+import { TicketBuy } from './Tickets';
 import type { ShopIntent, ShopItem } from './Shop';
 
-type Advert = { id: string; title: string; body?: string; link?: string | null; sponsor?: string | null; church?: string | null; imageUrl?: string | null; width?: number; height?: number; action?: null | { kind: 'shop' } | { kind: 'item'; itemId: string; qty?: number; item: ShopItem } | { kind: 'checkout'; itemId: string; qty?: number; item: ShopItem } };
+type Advert = { id: string; title: string; body?: string; link?: string | null; sponsor?: string | null; church?: string | null; imageUrl?: string | null; width?: number; height?: number; action?: null | { kind: 'shop' } | { kind: 'item'; itemId: string; qty?: number; item: ShopItem } | { kind: 'checkout'; itemId: string; qty?: number; item: ShopItem } | { kind: 'event'; eventId: string; event: null | { id: string; code: string; title: string; startsAt: string; from: number; available: boolean; posterUrl?: string | null } } };
 
 const viewed = new Set<string>(); // one view per advert per session
 const img = (a: Advert) => (a.imageUrl ? api.url(a.imageUrl) : '');
@@ -13,6 +14,8 @@ export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
   const [ads, setAds] = useState<Advert[]>([]);
   const [idx, setIdx] = useState(0);
   const [open, setOpen] = useState<Advert | null>(null);
+  const [buy, setBuy] = useState<{ code: string; eventId: string; advertId: string } | null>(null);
+  const [noTickets, setNoTickets] = useState(false);
   const track = useRef<HTMLDivElement>(null);
   const paused = useRef(false);
 
@@ -58,6 +61,7 @@ export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
   const tap = (a: Advert) => {
     api.post(`/me/adverts/${encodeURIComponent(a.id)}/tap`).catch(() => {});
     const act = a.action;
+    if (act?.kind === 'event') { if (!act.event || !act.event.available) setNoTickets(true); else setBuy({ code: act.event.code, eventId: act.event.id, advertId: a.id }); return; }
     if (act && onShop) {
       if (act.kind === 'shop') return onShop({ kind: 'shop' });
       const item = act.item;
@@ -78,6 +82,7 @@ export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
           <button type="button" key={a.id} data-i={i} data-id={a.id} className="ad-slide" aria-label={`${a.title}. Tap for details`} onClick={() => tap(a)}>
             {a.imageUrl ? <img src={img(a)} alt="" loading="lazy" draggable={false} /> : <span className="ad-fallback" aria-hidden="true" />}
             {(a.action?.kind === 'item' || a.action?.kind === 'checkout') && <span className="ad-buy">Buy</span>}
+            {a.action?.kind === 'event' && <span className="ad-buy">Tickets</span>}
             <span className="ad-pill">{a.sponsor ? `Sponsored by ${a.sponsor}` : 'From your church'}</span>
             <span className="ad-scrim">
               <strong>{a.title}</strong>
@@ -91,6 +96,10 @@ export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
           {ads.map((a, i) => <button type="button" key={a.id} className={i === idx ? 'on' : ''} aria-label={`Slide ${i + 1} of ${ads.length}`} aria-current={i === idx} onClick={() => goTo(i)} />)}
         </div>
       )}
+      {buy && <TicketBuy code={buy.code} eventId={buy.eventId} advertId={buy.advertId} onClose={() => setBuy(null)} />}
+      <Sheet open={noTickets} onClose={() => setNoTickets(false)} title="Tickets">
+        <div className="stack"><p className="ad-text">Tickets are sold out or no longer on sale.</p><button type="button" className="btn primary" onClick={() => setNoTickets(false)}>Close</button></div>
+      </Sheet>
       <Sheet open={!!open} onClose={() => setOpen(null)} title={open?.title}>
         {open && (
           <div className="stack">

@@ -138,3 +138,12 @@ needs a float policy for this.
 - **Branch side:** in the staff app (Daniel `0700000001` or Esther `0700000002`) open **Shop > Orders**. Paid orders appear to prepare. Mark one ready (Jane is told in the app), then hand it over against her code.
 - **Adverts that lead to the shop:** Jane's Home slider has "Get your own Bible" (opens that item) and "Rosary week" (goes straight to a checkout with a rosary in the basket). Staff choose this in the advert form under **When someone taps it**, and each advert shows how many orders it brought.
 - **Item pictures:** upload them under **Shop > Items and stock**. The demo items have generated pictures.
+
+## Event tickets with QR codes and door check-in (Slice 12)
+
+- **Set up (staff app > Events):** choose **Tickets** instead of replies, add ticket types (name, price, number, limit per order), and upload a 16:9 poster. "Christmas Gala Dinner" (Regular KES 1,500, Couple KES 2,500, Child KES 500) and "Youth Praise Concert" (free entry tickets) are already set up. Open **Tickets and sales** for the share link, sales and the attendee list.
+- **Buy as anyone:** open http://localhost:3001/?event=GALA01 (no sign-in), choose tickets, and pay by M-Pesa (the demo pays at once) or card (`4242 4242 4242 4242`). The buyer pays a service fee on top, shown before paying. A ticket page with the QR code opens from the email link or at http://localhost:3001/t/<token>.
+- **Buy as a member:** in the member app, Events, **Get tickets**. Jane (`0711000001`) already has two tickets in **My tickets**.
+- **The email:** admin console > **Email outbox** shows the confirmation with each ticket and its QR code.
+- **At the door:** staff app > **Check-in** (Daniel `0700000001`, or give anyone the Check-in permission under Team). Scan with the camera, or type a ticket code such as `GALA01-0001`. The first scan is valid, the second says already used.
+- **Refunds:** no self-service. Cancel a ticket or the event, and the church arranges the money through Payment help.

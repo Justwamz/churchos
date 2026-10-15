@@ -991,30 +991,51 @@ function Messaging() {
 function Outbox() {
   const s = useAsync(() => api.get<any[]>('/admin/outbox'));
   const [open, setOpen] = useState<string>();
+  const [q, setQ] = useState('');
+  const [tab, setTab] = useState<'email' | 'text'>('email');
+  const needle = q.trim().toLowerCase();
   return (
     <>
       <Head title="Email outbox" sub={<Badge tone="warn">Development only: simulated email</Badge>} action={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
-      <Note>Low-balance alerts and other emails are written here instead of being sent, while ChurchOS runs against a simulated email provider.</Note>
+      <Note>Low-balance alerts, ticket confirmations and other emails are written here instead of being sent, while ChurchOS runs against a simulated email provider.</Note>
       <div style={{ height: 16 }} />
       <Card>
+        <div className="outbox-filter"><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by subject or recipient" aria-label="Search emails" /></div>
         <Load s={s}>
-          {(rows) => rows.length === 0 ? <Empty>No emails yet.</Empty> : (
-            <Table head={['Time', 'To', 'Subject', 'Status', '']}>
-              {rows.flatMap((r) => {
-                const isOpen = open === r.id;
-                return [
-                  <tr key={r.id}>
-                    <td>{shortDate(r.created_at)}</td>
-                    <td>{r.to_email}</td>
-                    <td>{r.subject}</td>
-                    <td><Badge tone={r.status === 'sent' ? 'good' : 'bad'}>{r.status === 'sent' ? 'Sent' : 'Failed'}</Badge>{r.error && <div className="tiny">{r.error}</div>}</td>
-                    <td><Button kind="ghost" small onClick={() => setOpen(isOpen ? undefined : r.id)}>{isOpen ? 'Hide' : 'Read'}</Button></td>
-                  </tr>,
-                  isOpen && <tr key={r.id + '-body'}><td colSpan={5}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', background: 'var(--paper)', padding: 10, borderRadius: 8, margin: 0 }}>{r.body}</pre></td></tr>,
-                ];
-              })}
-            </Table>
-          )}
+          {(all) => {
+            const rows = needle ? all.filter((r) => `${r.subject} ${r.to_email}`.toLowerCase().includes(needle)) : all;
+            if (all.length === 0) return <Empty>No emails yet.</Empty>;
+            if (rows.length === 0) return <Empty>No emails match that search.</Empty>;
+            return (
+              <Table head={['Time', 'To', 'Subject', 'Status', '']}>
+                {rows.flatMap((r) => {
+                  const isOpen = open === r.id;
+                  const view = r.html && tab === 'email' ? 'email' : 'text';
+                  return [
+                    <tr key={r.id}>
+                      <td>{shortDate(r.created_at)}</td>
+                      <td>{r.to_email}</td>
+                      <td>{r.subject}</td>
+                      <td><Badge tone={r.status === 'sent' ? 'good' : 'bad'}>{r.status === 'sent' ? 'Sent' : 'Failed'}</Badge>{r.error && <div className="tiny">{r.error}</div>}</td>
+                      <td><Button kind="ghost" small onClick={() => setOpen(isOpen ? undefined : r.id)}>{isOpen ? 'Hide' : 'Read'}</Button></td>
+                    </tr>,
+                    isOpen && <tr key={r.id + '-body'}><td colSpan={5}>
+                      {r.html && (
+                        <div className="outbox-tabs" role="tablist">
+                          <button type="button" role="tab" aria-selected={view === 'email'} className={view === 'email' ? 'on' : ''} onClick={() => setTab('email')}>Email</button>
+                          <button type="button" role="tab" aria-selected={view === 'text'} className={view === 'text' ? 'on' : ''} onClick={() => setTab('text')}>Plain text</button>
+                          <span className="tiny">{view === 'email' ? 'This is how the person sees it.' : 'This is the version for apps that show text only.'}</span>
+                        </div>
+                      )}
+                      {view === 'email'
+                        ? <div className="outbox-frame"><iframe title={`Email to ${r.to_email}`} sandbox="" srcDoc={r.html} /></div>
+                        : <pre className="outbox-text">{r.body}</pre>}
+                    </td></tr>,
+                  ];
+                })}
+              </Table>
+            );
+          }}
         </Load>
       </Card>
     </>

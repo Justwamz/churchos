@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Table, useAsync, useToast } from '@churchos/ui';
 import { api, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
 import { AudiencePicker, audienceValue, explainCommunity as explain, initialAudience, toIso, toLocal, type AudState } from './communityBits';
+import { TicketsEditor, blankType, explainTickets, rowFromType, typesPayload, type Poster, type TypeRow } from './TicketsEditor';
+import { TicketPanel } from './TicketPanel';
 import './community.css';
+import './tickets.css';
 
 const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', ...o });
 const whenText = (e: any) => `${fmt(e.startsAt, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}${e.endsAt ? ` to ${fmt(e.endsAt, { hour: 'numeric', minute: '2-digit' })}` : ''}`;
@@ -19,6 +22,11 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
   const [aud, setAud] = useState<AudState>(initialAudience(event?.audience, s.branches[0]?.id ?? ''));
   const [rsvp, setRsvp] = useState<boolean>(!!event?.rsvp);
   const [cap, setCap] = useState<string>(event?.capacity != null ? String(event.capacity) : '');
+  const [ticketed, setTicketed] = useState<boolean>(!!event?.ticketed);
+  const [rows, setRows] = useState<TypeRow[]>([blankType()]);
+  const [poster, setPoster] = useState<Poster | null>(null);
+  const existing = useAsync<any>(() => (event?.ticketed ? api.get(`/events/${event.id}/tickets` + s.qs({ branch: undefined })) : Promise.resolve(null)), [event?.id]);
+  useEffect(() => { if (existing.data?.types?.length) setRows(existing.data.types.map(rowFromType)); }, [existing.data]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -28,15 +36,31 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
     if (!start) return setErr('Choose when the event starts.');
     if (end && Date.parse(`${end}:00+03:00`) < Date.parse(`${start}:00+03:00`)) return setErr('The event cannot end before it starts.');
     if (aud.kind === 'group' && !aud.group) return setErr('Choose a group.');
-    if (rsvp && cap.trim() && !(Number(cap) >= 1)) return setErr('Capacity must be a number, or leave it empty.');
+    if (!ticketed && rsvp && cap.trim() && !(Number(cap) >= 1)) return setErr('Capacity must be a number, or leave it empty.');
+    let types: any[] | undefined;
+    if (ticketed) {
+      const r = typesPayload(rows);
+      if (r.error) return setErr(r.error);
+      types = r.types;
+    }
+    const wasTicketed = !!event?.ticketed;
     const payload = {
       title: title.trim(), description: desc.trim(), location: place.trim(), startsAt: toIso(start), endsAt: end ? toIso(end) : null,
-      audience: audienceValue(aud), rsvp, capacity: rsvp && cap.trim() ? Math.floor(Number(cap)) : null,
+      audience: audienceValue(aud), rsvp: ticketed ? false : rsvp, capacity: !ticketed && rsvp && cap.trim() ? Math.floor(Number(cap)) : null,
     };
     setBusy(true);
     try {
+      let id: string = event?.id;
       if (event) await api.put(`/events/${event.id}` + s.qs({ branch: undefined }), payload);
-      else await api.post('/events' + s.qs({ branch: undefined }), payload);
+      else id = (await api.post('/events' + s.qs({ branch: undefined }), payload)).id;
+      try {
+        if (ticketed || wasTicketed) await api.put(`/events/${id}/ticketing` + s.qs({ branch: undefined }), { ticketed, types: ticketed ? types : [] });
+        if (ticketed && poster) await api.post(`/events/${id}/poster` + s.qs({ branch: undefined }), { image: { mime: poster.mime, data: poster.data } });
+      } catch (e: any) {
+        setErr(`The event was saved, but its tickets were not. ${explainTickets(e) ?? explain(e)}${event ? '' : ' Close this form and edit the event to set up its tickets.'}`);
+        setBusy(false);
+        return;
+      }
       onSaved(event ? 'Changes saved' : 'Event created');
     } catch (e: any) { setErr(explain(e)); setBusy(false); }
   };
@@ -56,13 +80,24 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
         </div>
       </Card>
       <Card title="2. Who is it for?"><AudiencePicker name="evaud" value={aud} onChange={setAud} /></Card>
-      <Card title="3. Replies">
+      <Card title="3. Tickets or replies">
         <div className="stack">
-          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={rsvp} onChange={(e) => setRsvp(e.target.checked)} /> <b>Ask people to reply</b></label>
-          {rsvp && (
+          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="evtk" checked={!ticketed} onChange={() => setTicketed(false)} /> <b>Free event, people reply</b></label>
+          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="evtk" checked={ticketed} onChange={() => setTicketed(true)} /> <b>Tickets</b></label>
+          {ticketed ? (
             <>
-              <Field label="Capacity" hint="Optional. Leave empty for no limit. Guests count towards capacity, up to 10 per reply."><input inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value.replace(/\D/g, ''))} /></Field>
-              <div className="tiny">People who are going get a reminder 24 hours before.</div>
+              {existing.loading && !existing.data && event?.ticketed ? <div className="tiny">Loading your tickets...</div> : null}
+              <TicketsEditor rows={rows} setRows={setRows} poster={poster} setPoster={setPoster} existingPoster={existing.data?.hasPoster ? api.url(existing.data.posterUrl) : undefined} />
+            </>
+          ) : (
+            <>
+              <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={rsvp} onChange={(e) => setRsvp(e.target.checked)} /> <b>Ask people to reply</b></label>
+              {rsvp && (
+                <>
+                  <Field label="Capacity" hint="Optional. Leave empty for no limit. Guests count towards capacity, up to 10 per reply."><input inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value.replace(/\D/g, ''))} /></Field>
+                  <div className="tiny">People who are going get a reminder 24 hours before.</div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -80,7 +115,11 @@ function CancelDialog({ event, onClose, onDone }: { event: any; onClose: () => v
   const [err, setErr] = useState('');
   const go = async () => {
     setBusy(true); setErr('');
-    try { await api.post(`/events/${event.id}/cancel` + s.qs({ branch: undefined }), { reason: reason.trim() }); onDone('Event cancelled'); }
+    try {
+      const r: any = await api.post(`/events/${event.id}/cancel` + s.qs({ branch: undefined }), { reason: reason.trim() });
+      const o = r?.ordersToRefund ?? 0, t = r?.ticketsToRefund ?? 0;
+      onDone(o > 0 ? `Event cancelled. ${o} paid ${o === 1 ? 'order' : 'orders'} (${t} ${t === 1 ? 'ticket' : 'tickets'}) need a refund. Arrange these through Payment help.` : 'Event cancelled');
+    }
     catch (e: any) { setErr(explain(e)); setBusy(false); }
   };
   return (
@@ -122,7 +161,7 @@ function Replies({ event, onClose }: { event: any; onClose: () => void }) {
   );
 }
 
-function EventCard({ e, canManage, onEdit, onCancel, onReplies }: { e: any; canManage: boolean; onEdit: () => void; onCancel: () => void; onReplies: () => void }) {
+function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets }: { e: any; canManage: boolean; onEdit: () => void; onCancel: () => void; onReplies: () => void; onTickets: () => void }) {
   const cancelled = e.status === 'cancelled';
   const pct = e.capacity ? Math.min(100, Math.round((e.peopleComing / e.capacity) * 100)) : 0;
   return (
@@ -141,8 +180,12 @@ function EventCard({ e, canManage, onEdit, onCancel, onReplies }: { e: any; canM
             {e.capacity ? <div className="progress" aria-label={`${pct}% full`}><i style={{ width: `${Math.max(pct, 2)}%` }} /></div> : null}
           </div>
         )}
+        {e.ticketed && (
+          <div className="row"><Badge tone="info">Tickets</Badge><span className="tiny"><b>{e.ticketsSold}</b> sold. Code <b>{e.code}</b></span></div>
+        )}
         {canManage && (
           <div className="row">
+            {e.ticketed && <Button small onClick={onTickets}>Tickets and sales</Button>}
             {e.rsvp && <Button small kind="ghost" onClick={onReplies}>Who is coming</Button>}
             {!cancelled && <Button small kind="ghost" onClick={onEdit}>Edit</Button>}
             {!cancelled && <Button small kind="ghost" onClick={onCancel}>Cancel event</Button>}
@@ -162,6 +205,7 @@ export function Events() {
   const [editing, setEditing] = useState<any>(null);
   const [cancelling, setCancelling] = useState<any>(null);
   const [replies, setReplies] = useState<any>(null);
+  const [tickets, setTickets] = useState<any>(null);
   const canManage = s.can('events.manage');
 
   if (mode === 'form') {
@@ -184,10 +228,11 @@ export function Events() {
         <Load loading={list.loading} error={list.error} hasData={!!list.data}>
           {list.data && (list.data.length === 0
             ? <Empty>{tab === 'past' ? 'No past events.' : `No upcoming events.${canManage ? ' Create your first one.' : ''}`}</Empty>
-            : <div>{list.data.map((e) => <EventCard key={e.id} e={e} canManage={canManage} onEdit={() => { setEditing(e); setMode('form'); }} onCancel={() => setCancelling(e)} onReplies={() => setReplies(e)} />)}</div>)}
+            : <div>{list.data.map((e) => <EventCard key={e.id} e={e} canManage={canManage} onEdit={() => { setEditing(e); setMode('form'); }} onCancel={() => setCancelling(e)} onReplies={() => setReplies(e)} onTickets={() => setTickets(e)} />)}</div>)}
         </Load>
       </div>
       {cancelling && <CancelDialog event={cancelling} onClose={() => setCancelling(null)} onDone={(m) => { setCancelling(null); toast.show(m); list.reload(); }} />}
+      {tickets && <TicketPanel event={tickets} onClose={() => setTickets(null)} />}
       {replies && <Replies event={replies} onClose={() => setReplies(null)} />}
       {toast.node}
     </div>
