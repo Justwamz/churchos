@@ -5,6 +5,7 @@ import { Hist, Load, PageHead } from './bits';
 import { MemberPhone } from './Reveal';
 import { HouseholdModal, MemberFormModal, useDebounced } from './MemberForm';
 import { MemberRecords } from './Records';
+import { ConsentDialog } from './ConsentDialog';
 import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -54,8 +55,8 @@ function Insights({ onEdit }: { onEdit: (id: string) => void }) {
   );
 }
 
-function MemberRows({ members, household, canEdit, canRecords, onRecords, onEdit, onHousehold, onPrimary }: {
-  members: any[]; household?: any; canEdit: boolean; canRecords: boolean; onRecords: (m: any) => void; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
+function MemberRows({ members, household, canEdit, canRecords, onConsent, onRecords, onEdit, onHousehold, onPrimary }: {
+  members: any[]; household?: any; canEdit: boolean; canRecords: boolean; onConsent: (m: any) => void; onRecords: (m: any) => void; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
 }) {
   return (
     <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', '']}>
@@ -76,6 +77,7 @@ function MemberRows({ members, household, canEdit, canRecords, onRecords, onEdit
               {canEdit && <Button small kind="ghost" onClick={() => onEdit(m)}>Edit</Button>}
               <Hist entity="membership" entityId={m.id} title={m.full_name} />
               {canEdit && <Button small kind="ghost" onClick={() => onHousehold(m)}>Household</Button>}
+              {canEdit && <Button small kind="ghost" onClick={() => onConsent(m)}>Message choices</Button>}
               {canRecords && <Button small kind="ghost" onClick={() => onRecords(m)}>Records</Button>}
               {canEdit && household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}
             </div></td>
@@ -97,6 +99,7 @@ export function Members() {
   const [form, setForm] = useState<{ member?: any } | null>(null);
   const [hhFor, setHhFor] = useState<any>(null);
   const [recFor, setRecFor] = useState<any>(null);
+  const [consentFor, setConsentFor] = useState<any>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [insightsKey, setInsightsKey] = useState(0);
 
@@ -116,7 +119,7 @@ export function Members() {
   };
   const setAll = (v: boolean) => setOpen(Object.fromEntries((d.data?.households ?? []).map((h: any) => [h.id, v])));
 
-  const rowProps = { canEdit, canRecords: s.can('records.view'), onRecords: setRecFor, onEdit: (m: any) => setForm({ member: m }), onHousehold: setHhFor, onPrimary: setPrimary };
+  const rowProps = { canEdit, canRecords: s.can('records.view'), onConsent: setConsentFor, onRecords: setRecFor, onEdit: (m: any) => setForm({ member: m }), onHousehold: setHhFor, onPrimary: setPrimary };
   const t = d.data?.totals;
 
   return (
@@ -161,6 +164,7 @@ export function Members() {
       {form && <MemberFormModal member={form.member} nextPreview={settings.data?.preview} onClose={() => setForm(null)} onDone={refresh} />}
       {hhFor && <HouseholdModal member={hhFor} onClose={() => setHhFor(null)} onDone={(msg) => { toast.show(msg); refresh(); }} />}
       {recFor && <MemberRecords member={recFor} onClose={() => setRecFor(null)} />}
+      {consentFor && <ConsentDialog member={consentFor} onClose={() => setConsentFor(null)} onDone={(msg) => { setConsentFor(null); toast.show(msg); }} />}
       {toast.node}
     </>
   );

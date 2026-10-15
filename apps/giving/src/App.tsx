@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Checkout } from './Checkout';
 import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:token');
@@ -46,7 +47,8 @@ export function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/verify/:serial" element={<Verify />} />
-        <Route path="/:code"element={<GivePage />} />
+        <Route path="/checkout/:id" element={<Checkout />} />
+        <Route path="/:code" element={<GivePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

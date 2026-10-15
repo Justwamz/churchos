@@ -9,7 +9,7 @@ const api = createApi('churchos:admin-token');
 const num = (v: unknown) => Number(v ?? 0);
 const errText = (e: any) => (e && typeof e.message === 'string' && !e.message.trim().startsWith('{') ? e.message : 'Something went wrong. Please try again.');
 
-type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'sms';
+type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'messaging' | 'outbox';
 const PAGES: { id: Page; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'tenants', label: 'Tenants and fees' },
@@ -19,7 +19,8 @@ const PAGES: { id: Page; label: string }[] = [
   { id: 'settlements', label: 'Settlements' },
   { id: 'kyc', label: 'Church verification' },
   { id: 'payout-requests', label: 'Payout account changes' },
-  { id: 'sms', label: 'SMS' },
+  { id: 'messaging', label: 'Messaging' },
+  { id: 'outbox', label: 'Email outbox' },
   { id: 'tools', label: 'Test tools' },
   { id: 'audit', label: 'Audit log' },
 ];
@@ -58,9 +59,10 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {page === 'audit' && <Audit />}
         {page === 'kyc' && <Kyc {...p} />}
         {page === 'payout-requests' && <PayoutRequests {...p} />}
-        {page === 'sms' && <SmsOverview />}
+        {page === 'messaging' && <Messaging />}
+        {page === 'outbox' && <Outbox />}
       </main>
-      <HelpButton api={api} audience="admin" screen={`admin.${page}`} />
+      <HelpButton api={api} audience="admin" screen={`admin.${page === 'messaging' ? 'sms' : page}`} />
       {toast.node}
     </div>
   );
@@ -168,9 +170,12 @@ function Overview() {
   const rr = useAsync(() => api.get('/admin/reversal-requests?status=pending,awaiting_second'));
   const kycQ = useAsync(() => api.get<any[]>('/admin/kyc').catch(() => null as any));
   const prQ = useAsync(() => api.get<any[]>('/admin/payout-requests').catch(() => null as any));
+  const msgQ = useAsync(() => api.get<any>('/admin/messaging').catch(() => null as any));
+  const walletsLow = msgQ.data && Array.isArray(msgQ.data.organisations)
+    ? msgQ.data.organisations.reduce((n: number, o: any) => n + (o.wallets ?? []).filter((w: any) => w.state !== 'ok').length, 0) : null;
   const docsWaiting = Array.isArray(kycQ.data) ? kycQ.data.reduce((n: number, o: any) => n + num(o.pendingDocuments), 0) : null;
   const payoutsWaiting = Array.isArray(prQ.data) ? prQ.data.filter((r: any) => r.status === 'requested').length : null;
-  const reload = () => { rec.reload(); rev.reload(); sus.reload(); rr.reload(); kycQ.reload(); prQ.reload(); };
+  const reload = () => { rec.reload(); rev.reload(); sus.reload(); rr.reload(); kycQ.reload(); prQ.reload(); msgQ.reload(); };
   const ACC: Record<string, string> = {
     suspense: 'Unmatched payments (suspense)', fee_revenue: 'Platform fees earned', psp_cost_payable: 'Owed to payment providers',
     in_transit: 'Payouts in transit', branch_pending: 'Churches: in 48h hold', branch_available: 'Churches: ready to pay out',
@@ -212,6 +217,7 @@ function Overview() {
         <Load s={rr}>{(v: any[]) => <Stat label="Pending reversals" value={v.length} tone={v.length ? 'warn' : 'good'} hint="Need a decision" />}</Load>
         {docsWaiting !== null && <Stat label="Documents awaiting review" value={docsWaiting} tone={docsWaiting ? 'warn' : 'good'} hint="Church verification" />}
         {payoutsWaiting !== null && <Stat label="Payout changes awaiting approval" value={payoutsWaiting} tone={payoutsWaiting ? 'warn' : 'good'} hint="Payout account changes" />}
+        {walletsLow !== null && <Stat label="Wallets running low or empty" value={walletsLow} tone={walletsLow ? 'warn' : 'good'} hint="Messaging" />}
       </div>
       <div style={{ height: 16 }} />
       <Card title="Account balances">
@@ -646,7 +652,9 @@ function Settlements({ toast }: PageProps) {
 const PRESETS = [
   { label: 'GRC001#TITHE', ref: 'GRC001#TITHE' }, { label: 'GRC002#OFFERING', ref: 'GRC002#OFFERING' }, { label: 'HPC001#TITHE', ref: 'HPC001#TITHE' },
   { label: 'GRC999#TITHE (wrong code)', ref: 'GRC999#TITHE' }, { label: 'Empty reference', ref: '' },
-  { label: 'SMS#GRACE (top up Grace SMS wallet)', ref: 'SMS#GRACE' }, { label: 'SMS#HOPE', ref: 'SMS#HOPE' },
+  { label: 'SMS#GRACE (top up Grace HQ SMS wallet)', ref: 'SMS#GRACE' }, { label: 'WA#GRACE', ref: 'WA#GRACE' },
+  { label: 'SMS#GRC001 (Nairobi branch SMS wallet)', ref: 'SMS#GRC001' }, { label: 'SMS#GRC002 (Mombasa branch SMS wallet)', ref: 'SMS#GRC002' },
+  { label: 'WA#GRC001', ref: 'WA#GRC001' }, { label: 'SMS#HOPE', ref: 'SMS#HOPE' },
   { label: 'NHF001#TITHE (unverified church: collects but is not paid out)', ref: 'NHF001#TITHE' },
 ];
 
@@ -671,7 +679,7 @@ function Tools({ toast }: PageProps) {
     try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { toast('Could not copy. Select the code and copy it by hand.', 'bad'); }
   };
   const advance = async (hours: number) => {
-    try { const r = await api.post('/admin/clock/advance', { hours }); setClock(r); toast(`Clock moved forward ${hours} hours`); } catch (e: any) { toast(errText(e), 'bad'); }
+    try { const r = await api.post('/admin/clock/advance', { hours }); setClock(r); toast(`Clock moved forward ${hours} hours. ${num(r.messagesSent)} scheduled messages were sent`); } catch (e: any) { toast(errText(e), 'bad'); }
   };
   return (
     <>
@@ -697,7 +705,7 @@ function Tools({ toast }: PageProps) {
           </div>
         </Card>
         <Card title="Platform clock">
-          <p className="muted" style={{ marginTop: 0 }}>Skip the 48 hour hold and the 72 hour reversal window. Money past the hold becomes ready to pay out.</p>
+          <p className="muted" style={{ marginTop: 0 }}>Skip the 48 hour hold and the 72 hour reversal window. Money past the hold becomes ready to pay out. Also sends scheduled messages that are due.</p>
           <div className="row">{[1, 24, 49, 72].map((h) => <Button key={h} kind="ghost" onClick={() => advance(h)}>Advance {h}h</Button>)}</div>
           {clock && <p style={{ marginBottom: 0 }}>Clock now reads <b>{shortDate(clock.now)}</b> (skipped {num(clock.offsetHours)} hours in total).</p>}
         </Card>
@@ -906,38 +914,100 @@ function PayoutRequests({ toast }: PageProps) {
   );
 }
 
-// ---------------- SMS ----------------
+// ---------------- Messaging ----------------
 
-function SmsOverview() {
-  const s = useAsync(() => api.get<any>('/admin/sms'));
+const WSTATE: Record<string, { label: string; tone: any }> = { ok: { label: 'Healthy', tone: 'good' }, low: { label: 'Low', tone: 'warn' }, empty: { label: 'Empty', tone: 'bad' } };
+const CHANNEL_LABEL: Record<string, string> = { sms: 'SMS', whatsapp: 'WhatsApp' };
+
+function Messaging() {
+  const s = useAsync(() => api.get<any>('/admin/messaging'));
   return (
     <>
-      <Head title="SMS" sub="Church SMS wallets and what they earn the platform." action={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <Head title="Messaging" sub="Church SMS and WhatsApp wallets, and what messaging earns the platform." action={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
       <Load s={s}>
-        {(v: any) => (<>
-          <div className="grid cols-3">
-            <Stat label="Total SMS revenue" value={kes(v.revenue)} tone="good" />
-            <Stat label="Rate per message" value={kes(v.rate)} />
-            <Stat label="Churches with a wallet" value={v.wallets.length} />
-          </div>
-          <div style={{ height: 16 }} />
-          <Card>
-            {v.wallets.length === 0 ? <Empty>No SMS wallets yet.</Empty> : (
-              <Table head={['Church', 'Wallet balance', 'Messages left', 'Sent', 'Skipped (wallet empty)']}>
-                {v.wallets.map((w: any) => (
-                  <tr key={w.org.id}>
-                    <td><b>{w.org.name}</b></td>
-                    <td className="num">{kes(w.balance)}</td>
-                    <td>{num(w.messagesLeft)} {w.empty ? <Badge tone="bad">Empty</Badge> : w.low ? <Badge tone="warn">Low</Badge> : null}</td>
-                    <td className="num">{num(w.sent)}</td>
-                    <td className="num">{num(w.skipped)}</td>
-                  </tr>
+        {(v: any) => {
+          const orgs: any[] = v.organisations ?? [];
+          const all = orgs.flatMap((o) => o.wallets ?? []);
+          const empty = all.filter((w) => w.state === 'empty').length;
+          const low = all.filter((w) => w.state === 'low').length;
+          const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+          const summary = empty + low === 0 ? 'All wallets are healthy.'
+            : [empty ? `${empty} ${plural(empty, 'wallet is', 'wallets are')} empty` : '', low ? `${low} ${plural(low, 'is', 'are')} running low` : ''].filter(Boolean).join(', ') + '.';
+          const rev = v.revenue ?? {};
+          return (<>
+            <Note tone={empty ? 'warn' : 'info'}>{summary} Church wallets are read-only here. Churches top up their own wallets.</Note>
+            <div style={{ height: 16 }} />
+            <div className="grid cols-4">
+              <Stat label="SMS price per message" value={kes(v.rates?.sms)} />
+              <Stat label="WhatsApp price per message" value={kes(v.rates?.whatsapp)} />
+              <Stat label="SMS revenue to date" value={kes(rev.sms)} tone="good" />
+              <Stat label="WhatsApp revenue to date" value={kes(rev.whatsapp)} tone="good" hint={`Total ${kes(num(rev.sms) + num(rev.whatsapp))}`} />
+            </div>
+            <div style={{ height: 16 }} />
+            {orgs.length === 0 ? <Empty>No churches yet.</Empty> : (
+              <div className="grid" style={{ gap: 20 }}>
+                {orgs.map((o) => (
+                  <Card key={o.id} title={o.name} action={<div className="row"><Badge tone="info">{o.mode === 'per_branch' ? 'Per-branch wallets' : 'Shared wallets'}</Badge><span className="tiny">{num(o.messagesSent).toLocaleString()} messages sent</span></div>}>
+                    {(o.wallets ?? []).length === 0 ? <Empty>This church has no wallets yet.</Empty> : (
+                      <Table head={['Wallet', 'Channel', 'Balance', 'Messages left', 'State', 'Warns below', 'Paybill reference']}>
+                        {o.wallets.map((w: any) => {
+                          const st = WSTATE[w.state] ?? { label: String(w.state), tone: 'muted' };
+                          return (
+                            <tr key={w.id} style={w.state === 'empty' ? { background: 'rgba(200,60,60,.08)' } : w.state === 'low' ? { background: 'rgba(220,160,40,.10)' } : undefined}>
+                              <td><b>{w.label}</b></td>
+                              <td>{CHANNEL_LABEL[w.channel] ?? w.channel}</td>
+                              <td className="num">{kes(w.balance)}</td>
+                              <td className="num">{num(w.messagesLeft).toLocaleString()}</td>
+                              <td><Badge tone={st.tone}>{st.label}</Badge></td>
+                              <td className="num">{kes(w.threshold)}</td>
+                              <td><code>{w.paybillReference}</code></td>
+                            </tr>
+                          );
+                        })}
+                      </Table>
+                    )}
+                  </Card>
                 ))}
-              </Table>
+              </div>
             )}
-          </Card>
-        </>)}
+          </>);
+        }}
       </Load>
+    </>
+  );
+}
+
+// ---------------- Email outbox ----------------
+
+function Outbox() {
+  const s = useAsync(() => api.get<any[]>('/admin/outbox'));
+  const [open, setOpen] = useState<string>();
+  return (
+    <>
+      <Head title="Email outbox" sub={<Badge tone="warn">Development only: simulated email</Badge>} action={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <Note>Low-balance alerts and other emails are written here instead of being sent, while ChurchOS runs against a simulated email provider.</Note>
+      <div style={{ height: 16 }} />
+      <Card>
+        <Load s={s}>
+          {(rows) => rows.length === 0 ? <Empty>No emails yet.</Empty> : (
+            <Table head={['Time', 'To', 'Subject', 'Status', '']}>
+              {rows.flatMap((r) => {
+                const isOpen = open === r.id;
+                return [
+                  <tr key={r.id}>
+                    <td>{shortDate(r.created_at)}</td>
+                    <td>{r.to_email}</td>
+                    <td>{r.subject}</td>
+                    <td><Badge tone={r.status === 'sent' ? 'good' : 'bad'}>{r.status === 'sent' ? 'Sent' : 'Failed'}</Badge>{r.error && <div className="tiny">{r.error}</div>}</td>
+                    <td><Button kind="ghost" small onClick={() => setOpen(isOpen ? undefined : r.id)}>{isOpen ? 'Hide' : 'Read'}</Button></td>
+                  </tr>,
+                  isOpen && <tr key={r.id + '-body'}><td colSpan={5}><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', background: 'var(--paper)', padding: 10, borderRadius: 8, margin: 0 }}>{r.body}</pre></td></tr>,
+                ];
+              })}
+            </Table>
+          )}
+        </Load>
+      </Card>
     </>
   );
 }

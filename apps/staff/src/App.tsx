@@ -16,6 +16,8 @@ import { Integrations } from './Integrations';
 import { Groups } from './Groups';
 import { Profile } from './Profile';
 import { Payout } from './Payout';
+import { WalletBanner } from './WalletBanner';
+import { Notifications } from './Notifications';
 import { Records } from './Records';
 import { Template } from './Template';
 import { AuditPage } from './Audit';
@@ -135,8 +137,10 @@ function Shell({ signOut }: { signOut: () => void }) {
             </select>
             <span className="tiny">{grant.org.name}</span>
             {unverified && <Badge tone="warn">Not verified</Badge>}
+            <span style={{ marginLeft: 'auto' }}><Notifications /></span>
           </div>
           {kyc && kyc.tone !== 'done' && current?.id !== 'verification' && <VerificationBanner s={kyc} onGo={() => setPage('verification')} />}
+          <WalletBanner page={current?.id ?? ''} />
           {kyc && <VerificationDialog s={kyc} userKey={me.user.id} onGo={() => setPage('verification')} />}
           {Page ? <Page key={`${current.id}:${grant.org.id}:${scope}`} /> : <ErrorNote>You do not have access to any pages yet.</ErrorNote>}
           <div style={{ height: 80 }} aria-hidden="true" />

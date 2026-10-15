@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, createApi, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
 import type { CertificatePayload } from '@churchos/ui';
+import { api, errText, useOnline } from './api';
+import { Inbox, NotificationsPreview } from './Inbox';
+import { MessageChoices } from './Choices';
+import { MyGroups } from './MyGroups';
 
-const api = createApi('churchos:member-token');
-
-type Tab = 'home' | 'give' | 'history' | 'church' | 'help';
+type Tab = 'home' | 'give' | 'inbox' | 'history' | 'church' | 'help';
 const TABS: { key: Tab; label: string; ico: string }[] = [
   { key: 'home', label: 'Home', ico: '⌂' },
   { key: 'give', label: 'Give', ico: '♡' },
+  { key: 'inbox', label: 'Inbox', ico: '✉' },
   { key: 'history', label: 'History', ico: '☰' },
   { key: 'church', label: 'Church', ico: '⛪' },
   { key: 'help', label: 'Help', ico: '?' },
@@ -28,8 +31,6 @@ function friendlyStatus(s: string) {
   if (s === 'suspense') return <Badge tone="warn">Under review</Badge>;
   return <StatusBadge status={s} />;
 }
-
-const errText = (e: any) => (e && typeof e.message === 'string' && e.message ? e.message : 'Something went wrong. Please try again.');
 
 function Loading() { return <Spinner />; }
 function Failed({ error, retry }: { error: string; retry: () => void }) {
@@ -56,6 +57,19 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   };
   const [tab, setTab] = useState<Tab>(initial);
   const me = useAsync<any>(() => api.get('/me'));
+  const online = useOnline();
+  const notif = useAsync<any>(() => api.get('/me/notifications'));
+  const notifReload = useRef(notif.reload);
+  notifReload.current = notif.reload;
+  const unread = Number(notif.data?.unread ?? 0);
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === 'visible' && navigator.onLine) notifReload.current(); };
+    const timer = setInterval(tick, 20000);
+    document.addEventListener('visibilitychange', tick);
+    window.addEventListener('online', tick);
+    window.addEventListener('churchos:gift-done', tick);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('online', tick); window.removeEventListener('churchos:gift-done', tick); };
+  }, []);
   const go = (t: Tab) => { setTab(t); try { history.replaceState(null, '', `#${t}`); } catch { /* ignore */ } window.scrollTo(0, 0); };
 
   useEffect(() => { if (!api.getToken()) signOut(); }, [me.error]); // eslint-disable-line
@@ -64,11 +78,12 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   return (
     <>
       <main className="mobile">
-        {!navigator.onLine && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
+        {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
         {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
           <>
-            {tab === 'home' && <Home me={me.data} user={user} go={go} />}
-            {tab === 'give' && <Give me={me.data} user={user} />}
+            {tab === 'home' && <Home me={me.data} user={user} go={go} notif={notif} />}
+            {tab === 'give' && <Give me={me.data} user={user} online={online} />}
+            {tab === 'inbox' && <Inbox n={notif} online={online} />}
             {tab === 'history' && <History />}
             {tab === 'church' && <Church me={me.data} reload={me.reload} />}
             {tab === 'help' && <Help />}
@@ -79,12 +94,13 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>Sign out</a>
         </p>
       </main>
-      <style>{`.mobile { padding-bottom: 150px; } .notif-unread { background: rgba(127,127,127,0.1); border-left: 3px solid var(--brand); padding-left: 10px; }`}</style>
+      <style>{`.mobile { padding-bottom: 150px; } .tabbar button { position: relative; } .tab-badge { position: absolute; top: 4px; left: 54%; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #c0392b; color: #fff; font-size: 10px; line-height: 16px; text-align: center; font-weight: 700; } .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } .switch-row, .check-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; } .switch-row input, .check-row input { width: 20px; height: 20px; margin-top: 2px; flex: none; } .pick-list { max-height: 220px; overflow: auto; display: grid; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; } .notif-unread { background: rgba(127,127,127,0.1); border-left: 3px solid var(--brand); padding-left: 10px; }`}</style>
       <HelpButton api={api} audience="member" screen={`member.${tab}`} />
       <nav className="tabbar" aria-label="Main">
         {TABS.map((t) => (
           <button key={t.key} className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
             <span className="ico" aria-hidden="true">{t.ico}</span>{t.label}
+            {t.key === 'inbox' && unread > 0 && <span className="tab-badge" aria-label={`${unread} unread`}>{unread > 9 ? '9+' : unread}</span>}
           </button>
         ))}
       </nav>
@@ -94,7 +110,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
 
 // ---------------- Home ----------------
 
-function Home({ me, user, go }: { me: any; user: any; go: (t: Tab) => void }) {
+function Home({ me, user, go, notif }: { me: any; user: any; go: (t: Tab) => void; notif: any }) {
   const m = me?.memberships?.[0];
   const giving = useAsync<any>(() => api.get('/me/giving'));
   const pledges = useAsync<any[]>(() => api.get('/me/pledges'));
@@ -111,7 +127,9 @@ function Home({ me, user, go }: { me: any; user: any; go: (t: Tab) => void }) {
         <Button onClick={() => go('give')}>Give now</Button>
       </div>
 
-      <Notifications />
+      <InstallCard />
+
+      <NotificationsPreview n={notif} go={() => go('inbox')} />
 
       {giving.loading ? <Loading /> : giving.error ? <Failed error={giving.error} retry={giving.reload} /> : (
         <Stat label="Total given" value={kes(giving.data?.total ?? 0)} hint={giving.data?.rows?.length ? `${giving.data.rows.length} gift${giving.data.rows.length === 1 ? '' : 's'}` : 'Your first gift will show here'} />
@@ -139,58 +157,47 @@ function Home({ me, user, go }: { me: any; user: any; go: (t: Tab) => void }) {
   );
 }
 
-function Notifications() {
-  const n = useAsync<any>(() => api.get('/me/notifications'));
-  const [busy, setBusy] = useState(false);
-  const reloadRef = useRef(n.reload);
-  reloadRef.current = n.reload;
-
+function InstallCard() {
+  const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
+  const [installed, setInstalled] = useState(false);
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
   useEffect(() => {
-    const tick = () => { if (document.visibilityState === 'visible') reloadRef.current(); };
-    const timer = setInterval(tick, 20000);
-    document.addEventListener('visibilitychange', tick);
-    window.addEventListener('churchos:gift-done', tick);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('churchos:gift-done', tick); };
+    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
+    const onInstalled = () => { setInstalled(true); setEvt(null); (window as any).__installPrompt = null; };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('appinstalled', onInstalled); };
   }, []);
-
-  const markAll = async () => {
-    setBusy(true);
-    try { await api.post('/me/notifications/read', {}); } catch { /* the refresh shows the truth */ }
-    setBusy(false);
-    n.reload();
-  };
-
-  const rows: any[] = n.data?.rows ?? [];
-  const unread = Number(n.data?.unread ?? 0);
-  return (
-    <Card title="Notifications">
-      {n.loading && !n.data ? <Loading /> : n.error && !n.data ? <Failed error={n.error} retry={n.reload} /> : !rows.length ? (
-        <Empty>Nothing new yet. Receipts and reminders from your church will appear here.</Empty>
-      ) : (
+  if (standalone || installed) return null;
+  if (evt) {
+    const install = async () => {
+      try {
+        await evt.prompt();
+        const r = await evt.userChoice;
+        if (r?.outcome === 'accepted') setInstalled(true);
+      } catch { /* the browser decided not to show it */ }
+      setEvt(null);
+      (window as any).__installPrompt = null;
+    };
+    return (
+      <Card title="Install the app">
         <div className="stack">
-          <div className="row">
-            {unread > 0 ? <Badge tone="warn">{unread} unread</Badge> : <span className="tiny">All caught up</span>}
-            <Button kind="ghost" small disabled={busy || unread === 0} onClick={markAll}>Mark all as read</Button>
-          </div>
-          <ul className="list">
-            {rows.map((r) => (
-              <li key={r.id} className={r.read ? '' : 'notif-unread'}>
-                <div className="row"><strong>{r.title}</strong><span className="tiny">{shortDate(r.created_at)}</span></div>
-                <div className="muted">{r.body}</div>
-              </li>
-            ))}
-          </ul>
+          <p className="muted" style={{ margin: 0 }}>Add ChurchOS to your home screen to open it like any other app.</p>
+          <Button onClick={install}>Install app</Button>
         </div>
-      )}
-    </Card>
-  );
+      </Card>
+    );
+  }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (ios) return <p className="tiny" style={{ margin: 0 }}>To install: tap Share, then Add to Home Screen</p>;
+  return null;
 }
 
 // ---------------- Give ----------------
 
 type Receipt = { status: string; church: string; purpose: string; amountPaid: number; receipt: string | null };
 
-function Give({ me, user }: { me: any; user: any }) {
+function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
   const m = me?.memberships?.[0];
   const code: string | undefined = m?.branch_code;
   const church = useAsync<any>(() => (code ? api.get(`/public/church/${encodeURIComponent(code)}`) : Promise.resolve(undefined)), [code]);
@@ -289,6 +296,7 @@ function Give({ me, user }: { me: any; user: any }) {
   const projects: any[] = church.data.projects ?? [];
   return (
     <div className="stack">
+      {!online && <Note tone="warn">You are offline. You can look around, but you need a connection to give.</Note>}
       <Card title={`Give to ${church.data.name}`}>
         <div className="stack">
           <div>
@@ -321,7 +329,7 @@ function Give({ me, user }: { me: any; user: any }) {
           <Field label="Phone to pay from"><input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
           {bearerMember && valid && fee > 0 && <Note tone="info">A service fee of {kes(fee)} is added. You will pay {kes(Math.round(n * 100) + fee)} in total.</Note>}
           {error && <ErrorNote>{error}</ErrorNote>}
-          <Button disabled={busy || !valid || phone.trim().length < 9} onClick={give}>{busy ? 'Sending…' : valid ? `Give ${kes(Math.round(n * 100))}` : 'Give'}</Button>
+          <Button disabled={!online || busy || !valid || phone.trim().length < 9} onClick={give}>{busy ? 'Sending…' : valid ? `Give ${kes(Math.round(n * 100))}` : 'Give'}</Button>
         </div>
       </Card>
 
@@ -460,6 +468,10 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
       </Card>
 
       <MyRecords />
+
+      <MyGroups />
+
+      <MessageChoices />
 
       <Card title="My household">
         {!household.length ? <Empty>No household recorded yet.</Empty> : (

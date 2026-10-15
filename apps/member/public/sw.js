@@ -16,7 +16,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL)));
+  // No automatic skipWaiting: an updated worker waits until the member taps Refresh ('skip-waiting' message below).
 });
 
 self.addEventListener('activate', (e) => {

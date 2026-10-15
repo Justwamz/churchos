@@ -97,8 +97,9 @@ await call('POST', '/admin/simulate/paybill', { phone: '0722000333', amount: 100
 await call('POST', '/admin/clock/advance', { hours: 49 }, admin);
 const run2 = await call('POST', '/admin/settlement/run', {}, admin);
 step('Unverified church collects but is not paid out', run2.json.results?.find((r) => r.branchId === 'br_nhf001')?.status === 'skipped');
-const wallet = await call('GET', '/sms/wallet', undefined, owner);
-step('SMS wallet shows a balance and the paybill reference', wallet.status === 200 && wallet.json.paybillReference === 'SMS#GRACE', 'KES ' + (wallet.json.balance / 100));
+const walletList = await call('GET', '/wallets', undefined, owner);
+const orgSms = walletList.json.wallets?.find((w) => w.id === 'wal:org_grace:sms');
+step('The church SMS wallet shows a balance and the paybill reference', walletList.status === 200 && orgSms?.paybillReference === 'SMS#GRACE', 'KES ' + (orgSms?.balance / 100));
 const help = await call('GET', '/help/search?q=wrong%20church%20refund');
 step('Help search finds the wrong-payment article without signing in', help.json.results?.[0]?.articleId === 'member-wrong-payment');
 const helpLeak = await call('GET', '/help/articles/admin-suspense');
@@ -160,7 +161,7 @@ const m5Est = await call('POST', '/messages/estimate', { audience: { scope: { ty
 step('The estimate reaches people and shows cost, with no phone numbers', m5Est.status === 200 && m5Est.json.people > 0 && !fullPhone.test(JSON.stringify(m5Est.json)), `${m5Est.json.people} people`);
 const m5Send = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms', 'whatsapp'], title: 'Smoke', body: 'Hello {name}, smoke test.' }, daniel);
 step('A message goes out in-app, by SMS and by WhatsApp, only to people who agreed', m5Send.status === 200 && m5Send.json.summary?.channels?.inapp?.sent > 0 && m5Send.json.summary.channels.whatsapp.sent > 0, JSON.stringify(m5Send.json.summary?.channels?.whatsapp));
-const m5Later = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms'], title: 'Later', body: 'Hello', scheduleAt: new Date(Date.now() + 5 * 3600_000).toISOString() }, daniel);
+const m5Later = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms'], title: 'Later', body: 'Hello', scheduleAt: new Date(new Date((await call('GET', '/health')).json.time).getTime() + 5 * 3600_000).toISOString() }, daniel); // the server clock can be ahead after the clock tool
 const m5Cancel = await call('POST', `/messages/${m5Later.json.id}/cancel`, {}, daniel);
 step('A scheduled message can be cancelled before it goes', m5Later.json.status === 'scheduled' && m5Cancel.json.status === 'cancelled');
 const m5Treas = await call('POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: [], title: 'x', body: 'y' }, treasurer);
