@@ -1,0 +1,14 @@
+.band-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+.band-table th { text-align: left; font-size: 12px; color: var(--ink-3); font-weight: 600; padding: 0 6px 4px 0; }
+.band-table td { padding: 4px 6px 4px 0; vertical-align: middle; }
+.band-table input { min-height: 38px; }
+.band-from { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.band-end { color: var(--ink-2); font-size: 14px; padding: 0 4px; }
+.tariff-list { display: grid; gap: 16px; }
+.ver-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.ver-list li { border-top: 1px solid var(--line); padding-top: 8px; font-size: 14px; }
+.advert-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.advert-thumb { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 10px; background: var(--brand-tint); display: block; margin-bottom: 10px; }
+.advert-card h3 { margin: 0 0 4px; font-size: 16px; overflow-wrap: anywhere; }
+.advert-card p { margin: 6px 0; overflow-wrap: anywhere; }
+.pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }

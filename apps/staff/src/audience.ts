@@ -20,7 +20,7 @@ export function describeAudience(a: Audience | undefined, branches: Branch[], gr
   const sex = a.sex === 'male' ? 'men and boys' : a.sex === 'female' ? 'women and girls' : '';
   let who = 'everyone';
   if (a.who === 'adults') who = `adults${bands}`;
-  else if (a.who === 'children') who = `parents and guardians of children${bands}`;
+  else if (a.who === 'children') who = `guardians of children${bands}`;
   else if (bands) who = `everyone${bands}`;
   return `${where}, ${who}${sex ? ` (${sex} only)` : ''}`;
 }

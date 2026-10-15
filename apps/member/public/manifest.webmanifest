@@ -20,6 +20,6 @@
   ],
   "shortcuts": [
     { "name": "Give", "short_name": "Give", "url": "/#give", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Messages", "short_name": "Messages", "url": "/#home", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Messages", "short_name": "Messages", "url": "/#inbox", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

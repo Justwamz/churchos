@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Card, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Hist, Load, PageHead } from './bits';
 import { orgQs } from './Wallets';
@@ -14,6 +14,23 @@ const ERR: Record<string, string> = {
 const explain = (e: any) => ERR[e?.code] ?? friendly(e?.message);
 
 type Mode = 'shared' | 'per_branch';
+
+/** The newest request for a sender field, if it is still waiting or was turned down. */
+function latest(requests: any[], kind: string, branchId: string | null) {
+  const q = requests.filter((x) => x.kind === kind && (x.branchId ?? null) === branchId).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+  return q && (q.status === 'pending' || q.status === 'rejected') ? q : null;
+}
+
+/** Shows what is in use now, and any change that is waiting for or was refused by ChurchOS. */
+function Status({ active, req }: { active: string | null | undefined; req: any }) {
+  return (
+    <div style={{ marginBottom: 6, fontSize: 13 }}>
+      <span className="muted">Active: <b>{active || 'None yet'}</b></span>
+      {req?.status === 'pending' && <> <Badge tone="warn">Waiting for approval: {req.value}</Badge></>}
+      {req?.status === 'rejected' && <> <Badge tone="bad">Not approved: {req.value}</Badge>{req.reason && <div className="tiny" style={{ color: 'var(--bad)' }}>Reason: {req.reason}</div>}</>}
+    </div>
+  );
+}
 
 function Choice({ on, onClick, title, text, disabled }: { on: boolean; onClick: () => void; title: string; text: string; disabled?: boolean }) {
   return (
@@ -38,6 +55,7 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
   const [br, setBr] = useState<Record<string, { sms: string; wa: string }>>(
     Object.fromEntries((data.branches ?? []).map((b: any) => [b.id, { sms: b.smsSenderId ?? '', wa: b.whatsappNumber ?? '' }])),
   );
+  const requests: any[] = data.requests ?? [];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [testing, setTesting] = useState('');
@@ -56,11 +74,12 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
     const pending = newEmail.trim().toLowerCase();
     const list = pending && !emails.includes(pending) ? [...emails, pending] : emails;
     try {
-      await api.put('/integrations' + orgQs(s), {
+      const r: any = await api.put('/integrations' + orgQs(s), {
         walletMode: mode, smsSenderId: sms, whatsappDisplayName: waName, whatsappNumber: waNum, alertEmails: list,
         branches: (data.branches ?? []).map((b: any) => ({ branchId: b.id, smsSenderId: br[b.id]?.sms ?? '', whatsappNumber: br[b.id]?.wa ?? '' })),
       });
-      setNewEmail(''); toast.show('Settings saved'); reload();
+      setNewEmail('');
+      toast.show(r?.requested > 0 ? `Saved. ${r.requested} ${r.requested === 1 ? 'change is' : 'changes are'} waiting for ChurchOS to approve.` : 'Settings saved'); reload();
     } catch (e: any) { setError(explain(e)); }
     setBusy(false);
   };
@@ -81,6 +100,7 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
 
   return (
     <div className="stack">
+      <Note>ChurchOS approves sender names and numbers before they are used. This usually takes one working day. Until then your current ones keep working. Prices are set by ChurchOS.</Note>
       {!edit && <Note>You can see these settings but only a church administrator can change them.</Note>}
 
       <Card title="Who pays for messages" action={<Button kind="ghost" small onClick={() => s.go('wallets')}>See the wallets</Button>}>
@@ -94,18 +114,21 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
       </Card>
 
       <Card title="SMS">
+        <Status active={data.smsSenderId} req={latest(requests, 'sms_sender', null)} />
         <Field label="Sender name" hint="The name members see on their phone. 3 to 11 letters and numbers, starting with a letter.">
           <input disabled={!edit} maxLength={11} placeholder="e.g. GRACECHURCH" value={sms} onChange={(e) => setSms(e.target.value)} />
         </Field>
-        <p className="tiny">SMS costs {kes(rates.sms)} per message part, taken from the SMS wallet.</p>
+        <p className="tiny">SMS costs {kes(rates.sms)} per message part right now, taken from the SMS wallet. Prices are set by ChurchOS.</p>
       </Card>
 
       <Card title="WhatsApp">
         <div className="grid cols-2">
-          <Field label="Display name"><input disabled={!edit} maxLength={60} value={waName} onChange={(e) => setWaName(e.target.value)} /></Field>
-          <Field label="Business number" hint="With country code, for example 254700123456"><input disabled={!edit} inputMode="tel" value={waNum} onChange={(e) => setWaNum(e.target.value)} /></Field>
+          <div><Status active={data.whatsappDisplayName} req={latest(requests, 'whatsapp_display', null)} />
+          <Field label="Display name"><input disabled={!edit} maxLength={60} value={waName} onChange={(e) => setWaName(e.target.value)} /></Field></div>
+          <div><Status active={data.whatsappNumber} req={latest(requests, 'whatsapp_number', null)} />
+          <Field label="Business number" hint="With country code, for example 254700123456"><input disabled={!edit} inputMode="tel" value={waNum} onChange={(e) => setWaNum(e.target.value)} /></Field></div>
         </div>
-        <p className="tiny">WhatsApp costs {kes(rates.whatsapp)} per message. It is only sent to people who agreed to receive it.</p>
+        <p className="tiny">WhatsApp costs {kes(rates.whatsapp)} per message right now. It is only sent to people who agreed to receive it.</p>
       </Card>
 
       <Card title="Low-balance alerts">
@@ -133,8 +156,8 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
             {branches.map((b) => (
               <tr key={b.id}>
                 <td><b>{b.name}</b></td>
-                <td><input disabled={!edit} aria-label={`SMS sender name for ${b.name}`} maxLength={11} value={br[b.id]?.sms ?? ''} onChange={(e) => setBr({ ...br, [b.id]: { ...br[b.id], sms: e.target.value } })} /></td>
-                <td><input disabled={!edit} aria-label={`WhatsApp number for ${b.name}`} inputMode="tel" value={br[b.id]?.wa ?? ''} onChange={(e) => setBr({ ...br, [b.id]: { ...br[b.id], wa: e.target.value } })} /></td>
+                <td><Status active={b.smsSenderId} req={latest(requests, 'sms_sender', b.id)} /><input disabled={!edit} aria-label={`SMS sender name for ${b.name}`} maxLength={11} value={br[b.id]?.sms ?? ''} onChange={(e) => setBr({ ...br, [b.id]: { ...br[b.id], sms: e.target.value } })} /></td>
+                <td><Status active={b.whatsappNumber} req={latest(requests, 'whatsapp_number', b.id)} /><input disabled={!edit} aria-label={`WhatsApp number for ${b.name}`} inputMode="tel" value={br[b.id]?.wa ?? ''} onChange={(e) => setBr({ ...br, [b.id]: { ...br[b.id], wa: e.target.value } })} /></td>
               </tr>
             ))}
           </Table>
@@ -177,7 +200,7 @@ export function Integrations() {
   const { data, error, loading, reload } = useAsync<any>(() => api.get('/integrations' + orgQs(s)), [s.grant.org.id]);
   return (
     <div>
-      <PageHead title="Integrations" sub="How your church sends SMS and WhatsApp messages, and who pays for them." />
+      <PageHead title="Messaging settings" sub="Who pays for messages, your sender name and WhatsApp number, and who gets alerts." />
       <Load loading={loading} error={error} hasData={!!data}>
         {data && <Editor data={data} reload={reload} />}
       </Load>

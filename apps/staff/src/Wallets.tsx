@@ -9,6 +9,7 @@ export const orgQs = (s: Session) => (s.orgs.length > 1 ? `?org=${s.grant.org.id
 export type WalletInfo = {
   id: string; branchId: string | null; channel: 'sms' | 'whatsapp'; scope: string; label: string; balance: number; rate: number;
   messagesLeft: number; threshold: number; state: 'ok' | 'low' | 'empty'; paybillReference: string; canTopUp: boolean; canManage: boolean;
+  price?: { current: number; next: number | null; unitsLeftInBand: number | null; usedThisMonth: number; month: string };
 };
 
 const STATE: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' }> = {
@@ -96,7 +97,7 @@ function TopUp({ wallet, onClose, onDone }: { wallet: WalletInfo; onClose: () =>
     <Modal title={`Top up ${wallet.label}`} onClose={onClose}>
       {step === 1 && (
         <>
-          <p className="muted">How much credit would you like to add? At {kes(wallet.rate)} per message, KES 1,000 buys about {fmt(Math.floor(100000 / wallet.rate))} messages.</p>
+          <p className="muted">How much credit would you like to add? Messages cost {kes(wallet.price?.current ?? wallet.rate)} each right now. The price drops as you send more in a month.</p>
           <div className="chips" style={{ marginBottom: 12 }}>
             {PRESETS.map((p) => (
               <button key={p} type="button" className={`chip ${!custom && amount === p ? 'on' : ''}`} onClick={() => { setAmount(p); setCustom(''); }}>KES {fmt(p)}</button>
@@ -288,6 +289,14 @@ function WalletCard({ w, all, reload }: { w: WalletInfo; all: WalletInfo[]; relo
       </div>
       <div style={{ fontFamily: 'var(--serif)', fontSize: '2.4rem', lineHeight: 1.1, margin: '8px 0 2px', color: w.state === 'ok' ? 'var(--ink)' : `var(--${st.tone})` }} className="mono">{kes(w.balance)}</div>
       <div className="muted">About {fmt(w.messagesLeft)} messages left</div>
+      {w.price && (
+        <div className="tiny" style={{ marginTop: 4 }}>
+          Costs {kes(w.price.current)} per {w.channel === 'sms' ? 'SMS' : 'message'} now.
+          {w.price.unitsLeftInBand !== null && w.price.next !== null && <> {fmt(w.price.unitsLeftInBand)} more at this price, then {kes(w.price.next)} per {w.channel === 'sms' ? 'SMS' : 'message'}.</>}
+          {w.price.unitsLeftInBand === null && <> This is the lowest price.</>}
+          {' '}Used this month: {fmt(w.price.usedThisMonth)}.
+        </div>
+      )}
       <div className="tiny" style={{ marginTop: 4 }}>Warning level {kes(w.threshold)}</div>
       <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--brand-tint)' }}>
         <div className="tiny">You can also top up by paybill using this reference</div>
@@ -320,13 +329,13 @@ export function Wallets() {
   );
   return (
     <div>
-      <PageHead title="Messaging wallets" sub="Credit that pays for SMS and WhatsApp messages. In-app messages are always free." action={s.can('integrations.manage') ? <Button kind="ghost" onClick={() => s.go('integrations')}>Integrations</Button> : undefined} />
+      <PageHead title="Messaging wallets" sub="Credit that pays for SMS and WhatsApp messages. In-app messages are always free." action={s.can('integrations.manage') ? <Button kind="ghost" onClick={() => s.go('integrations')}>Messaging settings</Button> : undefined} />
       <Load loading={loading} error={error} hasData={!!data}>
         {data && (
           <div className="stack">
             <Note>
               {perBranch ? 'Each branch pays for its own messages.' : 'All branches share these wallets.'}
-              {rates && <> SMS costs {kes(rates.sms)} per message part. WhatsApp costs {kes(rates.whatsapp)} per message.</>}
+              {rates && <> Right now SMS costs {kes(rates.sms)} per message part and WhatsApp costs {kes(rates.whatsapp)} per message. Prices are set by ChurchOS and get cheaper the more you send in a month.</>}
             </Note>
             {wallets.length === 0 && <Empty>There are no wallets you can see yet.</Empty>}
             {org.length > 0 && <div><h2 style={{ marginBottom: 10 }}>Church-wide</h2>{cards(org)}</div>}

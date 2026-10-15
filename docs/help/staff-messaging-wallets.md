@@ -13,7 +13,7 @@ version: 1
 Messages to members by SMS and WhatsApp are paid for from prepaid wallets. In-app messages are free.
 
 ## One wallet for each channel
-Your church has an **SMS** wallet and a **WhatsApp** wallet. An SMS costs KES 1.00 per 160-character part. A WhatsApp message costs KES 3.00. The prices are set by ChurchOS.
+Your church has an **SMS** wallet and a **WhatsApp** wallet. Prices are set by ChurchOS and shown on each wallet: the price per message now, how many are left at that price and the next price. Larger churches can pay less per message as monthly volume grows, so the price can step down during the month and starts again on the 1st. An SMS costs one price for each 160-character part.
 
 ## Who pays: shared or per branch
 On the **Integrations** page your church chooses one of two ways:

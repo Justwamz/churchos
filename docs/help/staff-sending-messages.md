@@ -18,7 +18,7 @@ Sending is a permission that can be given to any role, for the whole church, a r
 ## Choosing the audience
 - **Whole church** (or all of your branches), **a region**, **a branch**, or **a group**.
 - Narrow it down: everyone, adults only, or parents and guardians of children. You can also choose age bands and sex.
-- Children are reached through their guardians. A person who is both a direct recipient and a guardian gets one message, not two.
+- Children never receive SMS, WhatsApp or email. They are reached through their guardians, who get one copy however many children they have, starting "For Ruth:". A person who is both a direct recipient and a guardian gets one message, not two.
 
 ## Choosing channels
 - **In-app** is always included, free.

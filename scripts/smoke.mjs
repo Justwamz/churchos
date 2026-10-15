@@ -175,5 +175,37 @@ step('The Integrations page shows who pays for messages', m5Int.status === 200 &
 const m5Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 5 activity', m5Rec.json.ok === true);
 
+// 14. Slice 6: tariffs, verified email, sender approvals, children, adverts.
+const janeTok = await login('0711000001');
+const s6Tar = await call('GET', '/admin/tariffs', undefined, admin);
+step('Platform admin sees the tariffs, with a default and a volume example', s6Tar.status === 200 && s6Tar.json.some((t) => t.isDefault) && s6Tar.json.some((t) => t.name === 'Volume bands'));
+const s6Quote = await call('POST', '/admin/tariffs/quote', { bands: [{ upTo: 3500, price: 95 }, { upTo: 15000, price: 85 }, { upTo: null, price: 70 }], used: 3400, count: 200 }, admin);
+step('The calculator prices across a band boundary (100 at 0.95 then 100 at 0.85)', s6Quote.json.total === 18000, 'KES ' + s6Quote.json.total / 100);
+const s6NoTar = await call('GET', '/admin/tariffs', undefined, daniel);
+step('A church cannot see or change tariffs', s6NoTar.status === 403);
+const s6Prof = await call('GET', '/me/profile', undefined, daniel);
+step('An owner who receives alerts has a confirmed email', s6Prof.json.emailRequired === true && s6Prof.json.emailVerified === true);
+const s6Int = await call('PUT', '/integrations', { walletMode: 'per_branch', smsSenderId: 'GRACESMOKE' }, daniel);
+const s6Req = await call('GET', '/admin/sender-requests?status=pending', undefined, admin);
+const s6One = s6Req.json.find((r) => r.value === 'GRACESMOKE');
+step('A new sender name becomes a request for the platform to approve', s6Int.status === 200 && !!s6One);
+const s6Dec = await call('POST', `/admin/sender-requests/${s6One?.id}/decide`, { approve: true }, admin);
+step('A platform admin approves it and it becomes active', s6Dec.json.status === 'approved' && (await call('GET', '/integrations', undefined, daniel)).json.smsSenderId === 'GRACESMOKE');
+const s6Ads = await call('GET', '/me/adverts', undefined, janeTok);
+step('A member sees the church adverts on the home slider', s6Ads.status === 200 && s6Ads.json.some((a) => a.title === 'Christmas Carols Night'), s6Ads.json.map((a) => a.title).join(', '));
+const s6Img = await fetch(API + s6Ads.json[0].imageUrl + '?token=' + janeTok);
+step('The advert artwork loads as an image', s6Img.status === 200 && (s6Img.headers.get('content-type') || '').startsWith('image/'));
+const s6Pend = await call('GET', '/adverts', undefined, daniel);
+const s6Bake = s6Pend.json.find((a) => a.title === 'Mothers Union Bake Sale');
+step('An advert waiting for approval is hidden from members and approvable by someone else', s6Bake?.status === 'pending' && s6Bake.canApprove === true && !s6Ads.json.some((a) => a.title === s6Bake.title));
+const s6Appr = await call('POST', `/adverts/${s6Bake.id}/decide`, { approve: true }, daniel);
+step('Approving it puts it on the slider', s6Appr.json.status === 'approved' && (await call('GET', '/me/adverts', undefined, janeTok)).json.some((a) => a.title === s6Bake.title));
+const s6Pay = await call('GET', '/public/ad/WED001');
+step('A paid advert shows the advertiser what they owe', s6Pay.json.price === 500000 && s6Pay.json.purpose === 'AD-WED001');
+const s6Down = await call('POST', `/admin/adverts/${s6Bake.id}/takedown`, { reason: 'Smoke test takedown' }, admin);
+step('A platform admin can take an advert down at once', s6Down.json.status === 'taken_down' && !(await call('GET', '/me/adverts', undefined, janeTok)).json.some((a) => a.title === s6Bake.title));
+const s6Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 6 activity', s6Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

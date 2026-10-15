@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
 import { Badge, Button, ErrorNote, HelpButton, LoginGate, Spinner } from '@churchos/ui';
-import { api, SessionCtx, friendly, type Session } from './session';
+import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
+import { EmailGate } from './EmailGate';
+import { Adverts } from './Adverts';
 import { Dashboard } from './Dashboard';
 import { Collections } from './Collections';
 import { Settlements } from './Settlements';
@@ -25,7 +27,7 @@ import { AuditPage } from './Audit';
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -38,7 +40,8 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'groups', label: 'Groups', any: ['members.view', 'groups.manage'], el: Groups },
   { id: 'messages', label: 'Messages', any: ['messages.send', 'messages.view'], el: Messages },
   { id: 'wallets', label: 'Messaging wallets', any: ['wallets.view'], el: Wallets },
-  { id: 'integrations', label: 'Integrations', any: ['integrations.manage', 'wallets.view'], el: Integrations },
+  { id: 'integrations', label: 'Messaging settings', any: ['integrations.manage', 'wallets.view'], el: Integrations },
+  { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: Adverts },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
   { id: 'records', label: 'Records', any: ['records.view'], el: Records },
@@ -57,12 +60,21 @@ function Shell({ signOut }: { signOut: () => void }) {
   const [scope, setScope] = useState('all');
   const [page, setPage] = useState('');
 
+  const [gate, setGate] = useState(false);
+  const [tick, setTick] = useState(0);
   const [kyc, setKyc] = useState<KycSummary | null>(null);
   const unverified = !!kyc && kyc.tone !== 'done';
 
   useEffect(() => {
     api.get('/staff/me').then(setMe).catch((e) => setError(friendly(e.message)));
   }, []);
+
+  useEffect(() => {
+    const on = () => setGate(true);
+    window.addEventListener(EMAIL_REQUIRED_EVENT, on);
+    return () => window.removeEventListener(EMAIL_REQUIRED_EVENT, on);
+  }, []);
+  const reloadMe = () => api.get('/staff/me').then((m: any) => { setMe(m); setGate(false); setTick((t) => t + 1); }).catch((e) => setError(friendly(e.message)));
 
   const grant = me?.orgs?.[orgIdx];
   const session = useMemo<Session | null>(() => {
@@ -113,6 +125,7 @@ function Shell({ signOut }: { signOut: () => void }) {
   return (
     <SessionCtx.Provider value={session}>
       <div className="shell">
+        {((me.emailRequired && !me.emailVerified) || gate) && <EmailGate initialEmail={me.user.email} onVerified={reloadMe} />}
         <aside className="sidebar">
           <div className="brand">ChurchOS</div>
           {visible.map((p) => (
@@ -142,7 +155,7 @@ function Shell({ signOut }: { signOut: () => void }) {
           {kyc && kyc.tone !== 'done' && current?.id !== 'verification' && <VerificationBanner s={kyc} onGo={() => setPage('verification')} />}
           <WalletBanner page={current?.id ?? ''} />
           {kyc && <VerificationDialog s={kyc} userKey={me.user.id} onGo={() => setPage('verification')} />}
-          {Page ? <Page key={`${current.id}:${grant.org.id}:${scope}`} /> : <ErrorNote>You do not have access to any pages yet.</ErrorNote>}
+          {Page ? <Page key={`${current.id}:${grant.org.id}:${scope}:${tick}`} /> : <ErrorNote>You do not have access to any pages yet.</ErrorNote>}
           <div style={{ height: 80 }} aria-hidden="true" />
         </main>
         <HelpButton api={api} audience="staff" screen={HELP_SCREEN[current?.id ?? ''] ?? 'staff.dashboard'} />

@@ -1,20 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
 import type { CertificatePayload } from '@churchos/ui';
 import { api, errText, useOnline } from './api';
-import { Inbox, NotificationsPreview } from './Inbox';
+import { Inbox } from './Inbox';
 import { MessageChoices } from './Choices';
 import { MyGroups } from './MyGroups';
+import { AdvertSlider } from './Adverts';
+import { Icon, Sheet, Skeleton } from './ui';
 
-type Tab = 'home' | 'give' | 'inbox' | 'history' | 'church' | 'help';
+type Tab = 'home' | 'give' | 'inbox' | 'groups' | 'me';
+type GiveSub = 'give' | 'pledges' | 'history';
+type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
+type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
 const TABS: { key: Tab; label: string; ico: string }[] = [
-  { key: 'home', label: 'Home', ico: '⌂' },
-  { key: 'give', label: 'Give', ico: '♡' },
-  { key: 'inbox', label: 'Inbox', ico: '✉' },
-  { key: 'history', label: 'History', ico: '☰' },
-  { key: 'church', label: 'Church', ico: '⛪' },
-  { key: 'help', label: 'Help', ico: '?' },
+  { key: 'home', label: 'Home', ico: 'home' },
+  { key: 'give', label: 'Give', ico: 'give' },
+  { key: 'inbox', label: 'Messages', ico: 'chat' },
+  { key: 'groups', label: 'Groups', ico: 'groups' },
+  { key: 'me', label: 'Me', ico: 'me' },
 ];
+const TITLES: Record<Tab, string> = { home: 'Home', give: 'Give', inbox: 'Messages', groups: 'Groups', me: 'Me' };
 
 const METHODS = [
   { key: 'mpesa', label: 'M-Pesa' },
@@ -32,7 +37,7 @@ function friendlyStatus(s: string) {
   return <StatusBadge status={s} />;
 }
 
-function Loading() { return <Spinner />; }
+function Loading() { return <div className="card"><Skeleton lines={3} /></div>; }
 function Failed({ error, retry }: { error: string; retry: () => void }) {
   return (
     <div className="stack">
@@ -42,6 +47,10 @@ function Failed({ error, retry }: { error: string; retry: () => void }) {
   );
 }
 
+const isReceipt = (r: any) => r.kind === 'receipt' || r.kind === 'giving' || r.kind === 'gift';
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const initials = (n: string) => (n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('') || 'U').toUpperCase();
+
 export function App() {
   return (
     <LoginGate api={api} title="ChurchOS Member" subtitle="Give, follow your giving and stay connected to your church. Sign in with your phone number.">
@@ -50,158 +59,228 @@ export function App() {
   );
 }
 
+function parseHash(): Nav {
+  const h = location.hash.replace('#', '');
+  if (h === 'history') return { tab: 'give', sub: 'history', k: 0 };
+  if (h === 'church' || h === 'help') return { tab: 'me', sub: 'give', k: 0 };
+  if (TABS.some((t) => t.key === h)) return { tab: h as Tab, sub: 'give', k: 0 };
+  return { tab: 'home', sub: 'give', k: 0 };
+}
+
 function Shell({ user, signOut }: { user: any; signOut: () => void }) {
-  const initial = (): Tab => {
-    const h = location.hash.replace('#', '') as Tab;
-    return TABS.some((t) => t.key === h) ? h : 'home';
-  };
-  const [tab, setTab] = useState<Tab>(initial);
+  const [nav, setNav] = useState<Nav>(parseHash);
+  const tab = nav.tab;
   const me = useAsync<any>(() => api.get('/me'));
   const online = useOnline();
   const notif = useAsync<any>(() => api.get('/me/notifications'));
   const notifReload = useRef(notif.reload);
   notifReload.current = notif.reload;
+  const notifData = useRef<any>(undefined);
+  notifData.current = notif.data;
+  const setNotifData = useRef(notif.setData);
+  setNotifData.current = notif.setData;
+  const mainRef = useRef<HTMLElement>(null);
   const unread = Number(notif.data?.unread ?? 0);
+
   useEffect(() => {
     const tick = () => { if (document.visibilityState === 'visible' && navigator.onLine) notifReload.current(); };
     const timer = setInterval(tick, 20000);
+    // after a gift the server writes the receipt a moment later: look up to 5 times, 1s apart
+    let alive = true;
+    const onGift = async () => {
+      const known = new Set<string>((notifData.current?.rows ?? []).filter(isReceipt).map((r: any) => r.id));
+      for (let i = 0; i < 5 && alive; i++) {
+        await sleep(1000);
+        try {
+          const r = await api.get('/me/notifications');
+          if ((r?.rows ?? []).some((x: any) => isReceipt(x) && !known.has(x.id))) { setNotifData.current(r); return; }
+        } catch { /* try again */ }
+      }
+      if (alive) notifReload.current();
+    };
     document.addEventListener('visibilitychange', tick);
     window.addEventListener('online', tick);
-    window.addEventListener('churchos:gift-done', tick);
-    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('online', tick); window.removeEventListener('churchos:gift-done', tick); };
+    window.addEventListener('churchos:gift-done', onGift);
+    return () => { alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('online', tick); window.removeEventListener('churchos:gift-done', onGift); };
   }, []);
-  const go = (t: Tab) => { setTab(t); try { history.replaceState(null, '', `#${t}`); } catch { /* ignore */ } window.scrollTo(0, 0); };
+
+  const go: Go = (t, o) => {
+    setNav((p) => ({ tab: t, sub: o?.sub ?? 'give', purpose: o?.purpose, k: p.k + 1 }));
+    try { history.replaceState(null, '', `#${t}`); } catch { /* ignore */ }
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  };
 
   useEffect(() => { if (!api.getToken()) signOut(); }, [me.error]); // eslint-disable-line
 
   const m = me.data?.memberships?.[0];
+  const name = String(m?.full_name ?? user?.name ?? '');
+  const helpScreen = tab === 'give' && nav.sub === 'history' ? 'member.history' : tab === 'groups' || tab === 'me' ? 'member.church' : tab === 'inbox' ? 'member.inbox' : tab === 'give' ? 'member.give' : 'member.home';
   return (
-    <>
-      <main className="mobile">
-        {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
-        {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
-          <>
-            {tab === 'home' && <Home me={me.data} user={user} go={go} notif={notif} />}
-            {tab === 'give' && <Give me={me.data} user={user} online={online} />}
-            {tab === 'inbox' && <Inbox n={notif} online={online} />}
-            {tab === 'history' && <History />}
-            {tab === 'church' && <Church me={me.data} reload={me.reload} />}
-            {tab === 'help' && <Help />}
-          </>
-        )}
-        <p className="tiny no-print" style={{ textAlign: 'center', marginTop: 24 }}>
-          {m ? `${m.branch_name} · ` : ''}{phonePretty(user?.phone)} ·{' '}
-          <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>Sign out</a>
-        </p>
+    <div className="app">
+      <header className="appbar">
+        <div className="appbar-title">
+          {tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{TITLES[tab]}</strong>}
+        </div>
+        <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
+          <Icon name="bell" size={24} />
+          {unread > 0 && <span className="count" aria-hidden="true">{unread > 9 ? '9+' : unread}</span>}
+        </button>
+        <button type="button" className="avatar" aria-label="My profile" onClick={() => go('me')}>{initials(name)}</button>
+      </header>
+
+      <main className="app-main" ref={mainRef} id="main">
+        <div className="page" key={tab}>
+          {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
+          {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
+            <>
+              {tab === 'home' && <Home me={me.data} user={user} go={go} notif={notif} />}
+              {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
+              {tab === 'inbox' && <Inbox n={notif} online={online} />}
+              {tab === 'groups' && <MyGroups />}
+              {tab === 'me' && <Me me={me.data} user={user} reload={me.reload} signOut={signOut} />}
+            </>
+          )}
+        </div>
       </main>
-      <style>{`.mobile { padding-bottom: 150px; } .tabbar button { position: relative; } .tab-badge { position: absolute; top: 4px; left: 54%; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #c0392b; color: #fff; font-size: 10px; line-height: 16px; text-align: center; font-weight: 700; } .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } .switch-row, .check-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; } .switch-row input, .check-row input { width: 20px; height: 20px; margin-top: 2px; flex: none; } .pick-list { max-height: 220px; overflow: auto; display: grid; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; } .notif-unread { background: rgba(127,127,127,0.1); border-left: 3px solid var(--brand); padding-left: 10px; }`}</style>
-      <HelpButton api={api} audience="member" screen={`member.${tab}`} />
+
+      <HelpButton api={api} audience="member" screen={helpScreen} />
       <nav className="tabbar" aria-label="Main">
         {TABS.map((t) => (
-          <button key={t.key} className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
-            <span className="ico" aria-hidden="true">{t.ico}</span>{t.label}
-            {t.key === 'inbox' && unread > 0 && <span className="tab-badge" aria-label={`${unread} unread`}>{unread > 9 ? '9+' : unread}</span>}
+          <button key={t.key} type="button" className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
+            <span className="tab-ico"><Icon name={t.ico} filled={tab === t.key} />
+              {t.key === 'inbox' && unread > 0 && <span className="tab-badge" aria-label={`${unread} unread`}>{unread > 9 ? '9+' : unread}</span>}
+            </span>
+            <span className="tab-label">{t.label}</span>
           </button>
         ))}
       </nav>
-    </>
+    </div>
   );
 }
 
 // ---------------- Home ----------------
 
-function Home({ me, user, go, notif }: { me: any; user: any; go: (t: Tab) => void; notif: any }) {
-  const m = me?.memberships?.[0];
-  const giving = useAsync<any>(() => api.get('/me/giving'));
-  const pledges = useAsync<any[]>(() => api.get('/me/pledges'));
-  const first = String(m?.full_name ?? user?.name ?? '').split(' ')[0];
-  return (
-    <div className="stack">
-      <div className="hero">
-        <h1>Hello{first ? `, ${first}` : ''}</h1>
-        {m ? (
-          <div className="sub">{m.branch_name} · {m.org_name}<br />Member no. {m.member_number}</div>
-        ) : (
-          <div className="sub">You are not linked to a church yet. Ask your church to add you, or request a move in the Church tab.</div>
-        )}
-        <Button onClick={() => go('give')}>Give now</Button>
-      </div>
-
-      <InstallCard />
-
-      <NotificationsPreview n={notif} go={() => go('inbox')} />
-
-      {giving.loading ? <Loading /> : giving.error ? <Failed error={giving.error} retry={giving.reload} /> : (
-        <Stat label="Total given" value={kes(giving.data?.total ?? 0)} hint={giving.data?.rows?.length ? `${giving.data.rows.length} gift${giving.data.rows.length === 1 ? '' : 's'}` : 'Your first gift will show here'} />
-      )}
-
-      <Card title="My pledges">
-        {pledges.loading ? <Loading /> : pledges.error ? <Failed error={pledges.error} retry={pledges.reload} /> : !pledges.data?.length ? (
-          <Empty>No pledges yet. You can pledge to a church project from the Give tab.</Empty>
-        ) : (
-          <ul className="list">
-            {pledges.data.map((p) => {
-              const pct = p.amount > 0 ? Math.min(100, Math.round((p.paid / p.amount) * 100)) : 0;
-              return (
-                <li key={p.id}>
-                  <div className="row"><strong>{p.project}</strong><span className="tiny">{pct}%</span></div>
-                  <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${p.project} pledge progress`}><i style={{ width: `${pct}%` }} /></div>
-                  <div className="tiny">{kes(p.paid)} given of {kes(p.amount)} pledged</div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
-    </div>
-  );
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
-function InstallCard() {
-  const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
-  const [installed, setInstalled] = useState(false);
-  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
-  useEffect(() => {
-    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
-    const onInstalled = () => { setInstalled(true); setEvt(null); (window as any).__installPrompt = null; };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('appinstalled', onInstalled); };
-  }, []);
-  if (standalone || installed) return null;
-  if (evt) {
-    const install = async () => {
-      try {
-        await evt.prompt();
-        const r = await evt.userChoice;
-        if (r?.outcome === 'accepted') setInstalled(true);
-      } catch { /* the browser decided not to show it */ }
-      setEvt(null);
-      (window as any).__installPrompt = null;
-    };
-    return (
-      <Card title="Install the app">
-        <div className="stack">
-          <p className="muted" style={{ margin: 0 }}>Add ChurchOS to your home screen to open it like any other app.</p>
-          <Button onClick={install}>Install app</Button>
-        </div>
-      </Card>
-    );
-  }
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  if (ios) return <p className="tiny" style={{ margin: 0 }}>To install: tap Share, then Add to Home Screen</p>;
-  return null;
+function Home({ me, user, go, notif }: { me: any; user: any; go: Go; notif: any }) {
+  const m = me?.memberships?.[0];
+  const giving = useAsync<any>(() => api.get('/me/giving'));
+  const first = String(m?.full_name ?? user?.name ?? '').split(' ')[0];
+  const household: any[] = me?.household ?? [];
+  const children = household.filter((h) => h.relationship === 'Child');
+  const recent: any[] = (giving.data?.rows ?? []).slice(0, 3);
+  const latest: any[] = (notif.data?.rows ?? []).slice(0, 2);
+  const unread = Number(notif.data?.unread ?? 0);
+  const actions: { ico: string; label: string; on: () => void }[] = [
+    { ico: 'give', label: 'Give tithe', on: () => go('give', { purpose: 'TITHE' }) },
+    { ico: 'coin', label: 'Give offering', on: () => go('give', { purpose: 'OFFERING' }) },
+    { ico: 'history', label: 'My giving history', on: () => go('give', { sub: 'history' }) },
+    { ico: 'cert', label: 'Records and certificates', on: () => go('me') },
+    { ico: 'swap', label: 'Transfer church', on: () => go('me') },
+    { ico: 'pledge', label: 'My pledges', on: () => go('give', { sub: 'pledges' }) },
+  ];
+  return (
+    <div className="stack">
+      <div className="greet">
+        <h1>{greeting()}{first ? `, ${first}` : ''}</h1>
+        {m ? <p>{m.branch_name} · {m.org_name}</p> : <p>You are not linked to a church yet. Ask your church to add you, or request a move in the Me tab.</p>}
+      </div>
+
+      <AdvertSlider />
+
+      <div className="quick" role="group" aria-label="Quick actions">
+        {actions.map((a) => (
+          <button type="button" key={a.label} className="tile" onClick={a.on}>
+            <span className="tile-ico"><Icon name={a.ico} size={26} /></span>
+            <span className="tile-label">{a.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {latest.length > 0 && (
+        <section className="block">
+          <div className="block-head"><h3>Latest messages{unread > 0 ? <span className="badge warn" style={{ marginLeft: 8 }}>{unread} new</span> : null}</h3><button type="button" className="link-btn" onClick={() => go('inbox')}>See all</button></div>
+          <ul className="plain-list">
+            {latest.map((r) => (
+              <li key={r.id}>
+                <button type="button" className={`mini-msg ${r.read ? '' : 'unread'}`} onClick={() => go('inbox')}>
+                  <span className={`msg-ico ${isReceipt(r) ? 'good' : ''}`}><Icon name={isReceipt(r) ? 'check' : 'chat'} size={18} /></span>
+                  <span className="mini-text"><strong>{r.title}</strong><span className="clamp2">{r.body}</span></span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="block">
+        <div className="block-head"><h3>Recent giving</h3><button type="button" className="link-btn" onClick={() => go('give', { sub: 'history' })}>History</button></div>
+        {giving.loading ? <Skeleton lines={3} /> : giving.error ? <Failed error={giving.error} retry={giving.reload} /> : (
+          <>
+            <div className="total-row"><span className="tiny">Total given</span><span className="total">{kes(giving.data?.total ?? 0)}</span></div>
+            {!recent.length ? <Empty>Your first gift will show here.</Empty> : (
+              <ul className="plain-list">
+                {recent.map((r) => (
+                  <li key={r.id} className="gift-row">
+                    <span className="msg-ico good"><Icon name="give" size={18} /></span>
+                    <span className="gift-main"><strong>{purposeLabel(r.purpose)}</strong><span className="tiny">{shortDate(r.date)} · {r.church ?? 'Church'}</span></span>
+                    <span className="amt">{kes(r.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </section>
+
+      {children.length > 0 && (
+        <section className="block">
+          <div className="block-head"><h3>For your family</h3></div>
+          <ul className="plain-list">
+            {children.map((c) => (
+              <li key={c.id} className="gift-row">
+                <span className="msg-ico"><Icon name="family" size={18} /></span>
+                <span className="gift-main"><strong>{c.full_name}</strong><span className="tiny">Child · {c.member_number}</span></span>
+              </li>
+            ))}
+          </ul>
+          <p className="tiny" style={{ margin: '10px 0 0' }}>Children do not sign in. Messages about them from your church arrive in your Messages, marked with their name.</p>
+        </section>
+      )}
+    </div>
+  );
 }
 
 // ---------------- Give ----------------
 
 type Receipt = { status: string; church: string; purpose: string; amountPaid: number; receipt: string | null };
 
-function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
+function GiveTab({ me, user, online, nav, go }: { me: any; user: any; online: boolean; nav: Nav; go: Go }) {
   const m = me?.memberships?.[0];
   const code: string | undefined = m?.branch_code;
   const church = useAsync<any>(() => (code ? api.get(`/public/church/${encodeURIComponent(code)}`) : Promise.resolve(undefined)), [code]);
-  const [purpose, setPurpose] = useState('TITHE');
+  const [sub, setSub] = useState<GiveSub>(nav.sub);
+  useEffect(() => { setSub(nav.sub); }, [nav.k]); // eslint-disable-line
+  const SUBS: { key: GiveSub; label: string }[] = [{ key: 'give', label: 'Give' }, { key: 'pledges', label: 'Pledges' }, { key: 'history', label: 'History' }];
+  return (
+    <div className="stack">
+      <div className="seg" role="tablist" aria-label="Giving">
+        {SUBS.map((s) => <button key={s.key} type="button" role="tab" aria-selected={sub === s.key} className={sub === s.key ? 'on' : ''} onClick={() => setSub(s.key)}>{s.label}</button>)}
+      </div>
+      {sub === 'give' && <Give me={me} user={user} online={online} church={church} initPurpose={nav.purpose} nav={nav} go={go} />}
+      {sub === 'pledges' && <Pledges me={me} church={church} />}
+      {sub === 'history' && <History />}
+    </div>
+  );
+}
+
+function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; user: any; online: boolean; church: any; initPurpose?: string; nav: Nav; go: Go }) {
+  const m = me?.memberships?.[0];
+  const code: string | undefined = m?.branch_code;
+  const [purpose, setPurpose] = useState(initPurpose ?? 'TITHE');
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('mpesa');
   const [phone, setPhone] = useState(phonePretty(user?.phone));
@@ -211,8 +290,11 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
   const [intent, setIntent] = useState<{ id: string; message: string } | null>(null);
   const [result, setResult] = useState<Receipt | null>(null);
   const [slow, setSlow] = useState(false);
-  const [pledgeOpen, setPledgeOpen] = useState(false);
-  const toast = useToast();
+
+  const purposes: any[] = church.data?.purposes ?? [];
+  useEffect(() => {
+    if (initPurpose && purposes.some((p) => p.key === initPurpose)) setPurpose(initPurpose);
+  }, [nav.k, purposes.length]); // eslint-disable-line
 
   const n = Number(amount);
   const valid = Number.isFinite(n) && n >= 10 && n <= 150000;
@@ -235,7 +317,7 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
       try {
         const r: Receipt = await api.get(`/public/give/${intent.id}`);
         if (!alive) return;
-        if (r.status === 'completed' || r.status === 'failed') { clearInterval(timer); setResult(r); setIntent(null); window.dispatchEvent(new Event('churchos:gift-done')); return; }
+        if (r.status === 'completed' || r.status === 'failed') { clearInterval(timer); setResult(r); setIntent(null); if (r.status === 'completed') window.dispatchEvent(new Event('churchos:gift-done')); return; }
       } catch { /* keep trying until the time is up */ }
       if (alive && Date.now() - started > 90000) { clearInterval(timer); setSlow(true); setIntent(null); }
     }, 1500);
@@ -253,24 +335,16 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
     setBusy(false);
   };
 
-  if (!m) return <Card title="Give"><Empty>You are not linked to a church yet, so we cannot show where to give. Visit the Church tab to request a move.</Empty></Card>;
+  if (!m) return <Card title="Give"><Empty>You are not linked to a church yet, so we cannot show where to give. Open the Me tab to request a move.</Empty></Card>;
   if (church.loading) return <Loading />;
   if (church.error || !church.data) return <Failed error={church.error ?? 'We could not load your church.'} retry={church.reload} />;
 
-  if (result) {
-    const ok = result.status === 'completed';
+  if (result && result.status !== 'completed') {
     return (
       <Card className="receipt">
         <div className="big-amount">{kes(result.amountPaid)}</div>
-        {ok ? (
-          <>
-            <Note tone="good">Thank you. Your gift to {result.church} was received.</Note>
-            <p className="muted">Receipt code <strong>{result.receipt}</strong></p>
-          </>
-        ) : (
-          <Note tone="warn">The payment did not go through, so nothing was taken. You can try again when you are ready.</Note>
-        )}
-        <Button onClick={reset}>{ok ? 'Give again' : 'Try again'}</Button>
+        <Note tone="warn">The payment did not go through, so nothing was taken. You can try again when you are ready.</Note>
+        <Button onClick={reset}>Try again</Button>
       </Card>
     );
   }
@@ -285,15 +359,14 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
   }
   if (intent) {
     return (
-      <Card>
-        <Spinner />
-        <p style={{ textAlign: 'center' }}><strong>{intent.message}</strong></p>
+      <Card className="waiting">
+        <div className="pulse" aria-hidden="true"><Icon name="give" size={32} /></div>
+        <p style={{ textAlign: 'center', fontSize: 17 }}><strong>{intent.message}</strong></p>
         <p className="tiny" style={{ textAlign: 'center' }}>Waiting for confirmation…</p>
       </Card>
     );
   }
 
-  const projects: any[] = church.data.projects ?? [];
   return (
     <div className="stack">
       {!online && <Note tone="warn">You are offline. You can look around, but you need a connection to give.</Note>}
@@ -301,7 +374,7 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
         <div className="stack">
           <div>
             <div className="field-label" id="purpose-l">What is it for?</div>
-            <div className="chips" role="group" aria-labelledby="purpose-l" style={{ marginTop: 6 }}>
+            <div className="chips" role="group" aria-labelledby="purpose-l" style={{ marginTop: 8 }}>
               {church.data.purposes.map((p: any) => (
                 <button key={p.key} type="button" className={`chip ${purpose === p.key ? 'on' : ''}`} aria-pressed={purpose === p.key} onClick={() => setPurpose(p.key)}>{p.label}</button>
               ))}
@@ -309,18 +382,18 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
           </div>
           <div>
             <div className="field-label" id="amt-l">Amount (KES)</div>
-            <div className="chips" role="group" aria-labelledby="amt-l" style={{ margin: '6px 0' }}>
+            <div className="chips" role="group" aria-labelledby="amt-l" style={{ margin: '8px 0' }}>
               {QUICK.map((q) => (
                 <button key={q} type="button" className={`chip ${n === q ? 'on' : ''}`} aria-pressed={n === q} onClick={() => setAmount(String(q))}>{q.toLocaleString('en-KE')}</button>
               ))}
             </div>
             <Field label="Other amount" hint="KES 10 to KES 150,000" error={amount && !valid ? 'Enter an amount between 10 and 150,000' : undefined}>
-              <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 750" />
+              <input className="amount-input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 750" />
             </Field>
           </div>
           <div>
             <div className="field-label" id="meth-l">Pay with</div>
-            <div className="chips" role="group" aria-labelledby="meth-l" style={{ marginTop: 6 }}>
+            <div className="chips" role="group" aria-labelledby="meth-l" style={{ marginTop: 8 }}>
               {METHODS.map((x) => (
                 <button key={x.key} type="button" className={`chip ${method === x.key ? 'on' : ''}`} aria-pressed={method === x.key} onClick={() => setMethod(x.key)}>{x.label}</button>
               ))}
@@ -329,45 +402,81 @@ function Give({ me, user, online }: { me: any; user: any; online: boolean }) {
           <Field label="Phone to pay from"><input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
           {bearerMember && valid && fee > 0 && <Note tone="info">A service fee of {kes(fee)} is added. You will pay {kes(Math.round(n * 100) + fee)} in total.</Note>}
           {error && <ErrorNote>{error}</ErrorNote>}
-          <Button disabled={!online || busy || !valid || phone.trim().length < 9} onClick={give}>{busy ? 'Sending…' : valid ? `Give ${kes(Math.round(n * 100))}` : 'Give'}</Button>
         </div>
       </Card>
+      <div className="sticky-cta">
+        <Button disabled={!online || busy || !valid || phone.trim().length < 9} onClick={give}>{busy ? 'Sending…' : valid ? `Give ${kes(Math.round(n * 100))}` : 'Give'}</Button>
+      </div>
 
-      <Card title="Make a pledge">
-        {!projects.length ? <Empty>There are no open projects to pledge to right now.</Empty> : pledgeOpen ? (
-          <PledgeForm church={church.data} projects={projects} onDone={() => { setPledgeOpen(false); toast.show('Pledge saved. Thank you.'); }} />
-        ) : (
-          <div className="stack">
-            <p className="muted" style={{ margin: 0 }}>Promise a gift to a church project and track your progress on the Home tab.</p>
-            <Button kind="ghost" onClick={() => setPledgeOpen(true)}>Pledge to a project</Button>
-          </div>
-        )}
-      </Card>
-      {toast.node}
+      <GiftSuccess r={result && result.status === 'completed' ? result : null} onClose={reset} onMessages={() => { reset(); go('inbox'); }} />
     </div>
   );
 }
 
-function PledgeForm({ church, projects, onDone }: { church: any; projects: any[]; onDone: () => void }) {
-  const [proj, setProj] = useState(projects[0].code);
-  const [amount, setAmount] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | undefined>();
-  const n = Number(amount);
-  const submit = async () => {
-    setBusy(true); setError(undefined);
-    try { await api.post('/me/pledges', { churchCode: church.code, projectCode: proj, amount: n }); onDone(); }
-    catch (e) { setError(errText(e)); }
-    setBusy(false);
-  };
+function GiftSuccess({ r, onClose, onMessages }: { r: Receipt | null; onClose: () => void; onMessages: () => void }) {
+  return (
+    <Sheet open={!!r} onClose={onClose} full title="Thank you" label="Thank you, your gift was received">
+      {r && (
+        <div className="thanks">
+          <svg className="bigcheck" viewBox="0 0 80 80" width="112" height="112" aria-hidden="true">
+            <circle className="bc-ring" cx="40" cy="40" r="36" fill="none" strokeWidth="5" />
+            <path className="bc-tick" d="M24 41.5 35 52.5 57 29" fill="none" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <div className="thanks-amt">{kes(r.amountPaid)}</div>
+          <p className="muted">Your gift to {r.church} was received.</p>
+          <dl className="thanks-meta">
+            <div><dt>Church</dt><dd>{r.church}</dd></div>
+            <div><dt>Purpose</dt><dd>{purposeLabel(r.purpose)}</dd></div>
+            {r.receipt && <div><dt>Receipt</dt><dd>{r.receipt}</dd></div>}
+          </dl>
+          <p className="tiny">We also sent a confirmation to your Messages.</p>
+          <div className="thanks-actions">
+            <Button onClick={onClose}>Done</Button>
+            <Button kind="ghost" onClick={onMessages}>View my Messages</Button>
+          </div>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+function Pledges({ me, church }: { me: any; church: any }) {
+  const pledges = useAsync<any[]>(() => api.get('/me/pledges'));
+  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  const projects: any[] = church.data?.projects ?? [];
   return (
     <div className="stack">
-      <div className="chips" role="group" aria-label="Project">
-        {projects.map((p) => <button key={p.code} type="button" className={`chip ${proj === p.code ? 'on' : ''}`} aria-pressed={proj === p.code} onClick={() => setProj(p.code)}>{p.name}</button>)}
-      </div>
-      <Field label="Pledge amount (KES)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 20000" /></Field>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Button disabled={busy || !(n > 0)} onClick={submit}>{busy ? 'Saving…' : 'Save pledge'}</Button>
+      <Card title="My pledges">
+        {pledges.loading ? <Skeleton lines={3} /> : pledges.error ? <Failed error={pledges.error} retry={pledges.reload} /> : !pledges.data?.length ? (
+          <Empty>No pledges yet. You can pledge to a church project below.</Empty>
+        ) : (
+          <ul className="list">
+            {pledges.data.map((p) => {
+              const pct = p.amount > 0 ? Math.min(100, Math.round((p.paid / p.amount) * 100)) : 0;
+              return (
+                <li key={p.id}>
+                  <div className="row"><strong>{p.project}</strong><span className="tiny">{pct}%</span></div>
+                  <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`${p.project} pledge progress`}><i style={{ width: `${pct}%` }} /></div>
+                  <div className="tiny">{kes(p.paid)} given of {kes(p.amount)} pledged</div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+      <Card title="Make a pledge">
+        {!me?.memberships?.length ? <Empty>You are not linked to a church yet.</Empty> : church.loading ? <Skeleton lines={2} /> : !projects.length ? <Empty>There are no open projects to pledge to right now.</Empty> : (
+          <div className="stack">
+            <p className="muted" style={{ margin: 0 }}>Promise a gift to a church project and track your progress here.</p>
+            <Button kind="ghost" onClick={() => setOpen(true)}>Pledge to a project</Button>
+          </div>
+        )}
+      </Card>
+      <Sheet open={open} onClose={() => setOpen(false)} title="Make a pledge">
+        {open && church.data && projects.length > 0 && <PledgeForm church={church.data} projects={projects} onDone={() => { setOpen(false); pledges.reload(); toast.show('Pledge saved. Thank you.'); }} />}
+      </Sheet>
+      {toast.node}
     </div>
   );
 }
@@ -409,7 +518,11 @@ function History() {
 
   return (
     <div className="stack">
-      <Stat label="Total given" value={kes(g.data?.total ?? 0)} />
+      <div className="hero-total">
+        <span>Total given</span>
+        <strong>{kes(g.data?.total ?? 0)}</strong>
+        <small>{rows.length ? `${rows.length} gift${rows.length === 1 ? '' : 's'}` : 'Your first gift will show here'}</small>
+      </div>
       <Button kind="ghost" onClick={() => setStatement(true)} disabled={!rows.length}>Giving statement</Button>
       <Card title="My giving">
         {!rows.length ? <Empty>No gifts yet. When you give, your receipts will appear here.</Empty> : (
@@ -428,18 +541,22 @@ function History() {
   );
 }
 
-// ---------------- Church ----------------
+// ---------------- Me ----------------
 
 const REL: Record<string, string> = { Adult: 'Adult', Child: 'Child' };
 
-function Church({ me, reload }: { me: any; reload: () => void }) {
+function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => void; signOut: () => void }) {
   const ms: any[] = me?.memberships ?? [];
+  const m = ms[0];
   const household: any[] = me?.household ?? [];
   const transfers: any[] = me?.transfers ?? [];
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const toast = useToast();
+  const name = String(m?.full_name ?? user?.name ?? '');
 
   const request = async () => {
     setBusy(true); setError(undefined);
@@ -447,6 +564,7 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
       const r = await api.post('/me/transfer-request', { toChurchCode: code });
       toast.show(`Request sent to ${r.to}`);
       setCode('');
+      setMoveOpen(false);
       reload();
     } catch (e) { setError(errText(e)); }
     setBusy(false);
@@ -454,13 +572,24 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
 
   return (
     <div className="stack">
+      <div className="profile">
+        <span className="avatar big" aria-hidden="true">{initials(name)}</span>
+        <div className="profile-text">
+          <strong>{name || 'Member'}</strong>
+          <span>{phonePretty(user?.phone)}</span>
+          {m && <span>{m.branch_name} · {m.member_number}</span>}
+        </div>
+      </div>
+
+      <InstallCard />
+
       <Card title="My membership">
         {!ms.length ? <Empty>You are not linked to a church yet.</Empty> : (
           <ul className="list">
-            {ms.map((m) => (
-              <li key={m.id}>
-                <div className="row"><strong>{m.branch_name}</strong><Badge tone="good">Active</Badge></div>
-                <div className="tiny">{m.org_name} · Member no. {m.member_number}{m.joined_at ? ` · Joined ${dateOnly(m.joined_at)}` : ''}</div>
+            {ms.map((x) => (
+              <li key={x.id}>
+                <div className="row"><strong>{x.branch_name}</strong><Badge tone="good">Active</Badge></div>
+                <div className="tiny">{x.org_name} · Member no. {x.member_number}{x.joined_at ? ` · Joined ${dateOnly(x.joined_at)}` : ''}</div>
               </li>
             ))}
           </ul>
@@ -468,8 +597,6 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
       </Card>
 
       <MyRecords />
-
-      <MyGroups />
 
       <MessageChoices />
 
@@ -486,19 +613,6 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
         )}
       </Card>
 
-      <Card title="Moving to a new church?">
-        <div className="stack">
-          <p className="muted" style={{ margin: 0 }}>
-            The new church must approve your request. You keep your own record: in the same church you keep your member number, in a different church you get a new one, and your old church keeps its own history.
-          </p>
-          <Field label="New church code" hint="For example GRC002 or HPC001">
-            <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="GRC002" autoCapitalize="characters" />
-          </Field>
-          {error && <ErrorNote>{error}</ErrorNote>}
-          <Button disabled={busy || code.trim().length < 3} onClick={request}>{busy ? 'Sending…' : 'Request to move'}</Button>
-        </div>
-      </Card>
-
       {transfers.length > 0 && (
         <Card title="My requests">
           <ul className="list">
@@ -511,11 +625,91 @@ function Church({ me, reload }: { me: any; reload: () => void }) {
           </ul>
         </Card>
       )}
+
+      <div className="menu">
+        <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button>
+        <button type="button" onClick={() => setHelpOpen(true)}><Icon name="help" /><span>Help and payment issues</span><Icon name="chev" size={18} /></button>
+        <button type="button" className="danger" onClick={signOut}><Icon name="logout" /><span>Sign out</span></button>
+      </div>
+
+      <Sheet open={moveOpen} onClose={() => setMoveOpen(false)} title="Moving to a new church?">
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>
+            The new church must approve your request. You keep your own record: in the same church you keep your member number, in a different church you get a new one, and your old church keeps its own history.
+          </p>
+          <Field label="New church code" hint="For example GRC002 or HPC001">
+            <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="GRC002" autoCapitalize="characters" />
+          </Field>
+          {error && <ErrorNote>{error}</ErrorNote>}
+          <Button disabled={busy || code.trim().length < 3} onClick={request}>{busy ? 'Sending…' : 'Request to move'}</Button>
+        </div>
+      </Sheet>
+      <Sheet open={helpOpen} onClose={() => setHelpOpen(false)} title="Help">
+        {helpOpen && <Help />}
+      </Sheet>
       {toast.node}
     </div>
   );
 }
 
+function InstallCard() {
+  const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
+  const [installed, setInstalled] = useState(false);
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+  useEffect(() => {
+    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
+    const onInstalled = () => { setInstalled(true); setEvt(null); (window as any).__installPrompt = null; };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('appinstalled', onInstalled); };
+  }, []);
+  if (standalone || installed) return null;
+  if (evt) {
+    const install = async () => {
+      try {
+        await evt.prompt();
+        const r = await evt.userChoice;
+        if (r?.outcome === 'accepted') setInstalled(true);
+      } catch { /* the browser decided not to show it */ }
+      setEvt(null);
+      (window as any).__installPrompt = null;
+    };
+    return (
+      <Card title="Install the app">
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>Add ChurchOS to your home screen to open it like any other app.</p>
+          <Button onClick={install}>Install app</Button>
+        </div>
+      </Card>
+    );
+  }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (ios) return <p className="tiny" style={{ margin: 0 }}>To install: tap Share, then Add to Home Screen</p>;
+  return null;
+}
+function PledgeForm({ church, projects, onDone }: { church: any; projects: any[]; onDone: () => void }) {
+  const [proj, setProj] = useState(projects[0].code);
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const n = Number(amount);
+  const submit = async () => {
+    setBusy(true); setError(undefined);
+    try { await api.post('/me/pledges', { churchCode: church.code, projectCode: proj, amount: n }); onDone(); }
+    catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="stack">
+      <div className="chips" role="group" aria-label="Project">
+        {projects.map((p) => <button key={p.code} type="button" className={`chip ${proj === p.code ? 'on' : ''}`} aria-pressed={proj === p.code} onClick={() => setProj(p.code)}>{p.name}</button>)}
+      </div>
+      <Field label="Pledge amount (KES)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 20000" /></Field>
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <Button disabled={busy || !(n > 0)} onClick={submit}>{busy ? 'Saving…' : 'Save pledge'}</Button>
+    </div>
+  );
+}
 // ---------------- Records ----------------
 
 const CARD_WIDTH = 1040;
@@ -644,7 +838,6 @@ function RecordView({ rec, onBack }: { rec: any; onBack: () => void }) {
     </div>
   );
 }
-
 // ---------------- Help ----------------
 
 function Help() {

@@ -159,7 +159,7 @@ export function ComposeMessage({ onClose, onSent }: { onClose: () => void; onSen
           <b>Narrow it down</b>
           {kind !== 'group' && (
             <div className="chips" role="radiogroup" aria-label="Who">
-              {([['all', 'Everyone'], ['adults', 'Adults only'], ['children', 'Parents and guardians of children']] as const).map(([v, t]) => (
+              {([['all', 'Everyone'], ['adults', 'Adults only'], ['children', 'Guardians of children']] as const).map(([v, t]) => (
                 <button key={v} type="button" className={`chip ${who === v ? 'on' : ''}`} onClick={() => setWho(v)}>{t}</button>
               ))}
             </div>
@@ -168,15 +168,15 @@ export function ComposeMessage({ onClose, onSent }: { onClose: () => void; onSen
             <div className="chips">{AGE_BANDS.map((b) => <button key={b} type="button" className={`chip ${bands.includes(b) ? 'on' : ''}`} onClick={() => toggleBand(b)}>{b}</button>)}</div></div>
           <div><div className="tiny" style={{ marginBottom: 6 }}>Sex</div>
             <div className="chips">{([['', 'Any'], ['male', 'Male'], ['female', 'Female']] as const).map(([v, t]) => <button key={v} type="button" className={`chip ${sex === v ? 'on' : ''}`} onClick={() => setSex(v)}>{t}</button>)}</div></div>
-          {kind !== 'group' && who === 'children' && <div className="tiny">Children are reached through their guardians.</div>}
+          {kind !== 'group' && who === 'children' && <Note tone="info">Children only get in-app messages. Their guardians get a copy on every channel you choose, once per guardian, marked 'For &lt;child&gt;'.</Note>}
         </div>
       </Card>
 
       <Card title="2. How should it reach them?">
         <div className="stack" style={{ gap: 10 }}>
           <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked disabled readOnly /> <span><b>In-app</b> <span className="tiny">Always included, free</span></span></label>
-          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={sms} onChange={(e) => setSms(e.target.checked)} /> <span><b>SMS</b> <span className="tiny">KES 1.00 per 160-character part, per person</span></span></label>
-          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={wa} onChange={(e) => setWa(e.target.checked)} /> <span><b>WhatsApp</b> <span className="tiny">KES 3.00 per person, only to people who agreed</span></span></label>
+          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={sms} onChange={(e) => setSms(e.target.checked)} /> <span><b>SMS</b> <span className="tiny">{est?.sms ? `About ${kes(est.sms.perMessage)} per person` : 'Charged per 160-character part, per person'}</span></span></label>
+          <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={wa} onChange={(e) => setWa(e.target.checked)} /> <span><b>WhatsApp</b> <span className="tiny">{est?.whatsapp ? `About ${kes(est.whatsapp.perMessage)} per person. ` : 'Charged per person. '}Only to people who agreed</span></span></label>
         </div>
       </Card>
 

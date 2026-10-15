@@ -93,3 +93,13 @@ needs a float policy for this.
 - **Scheduled:** a "Sunday service reminder" is scheduled two days ahead. In the admin console (Test tools) advance the clock 49 hours and it goes out.
 - **PWA:** the member app is installable, with real icons and an offline shell. Open http://localhost:3002 in Chrome or Edge and look for the install button.
 - **Staff email:** add your email under **My profile** to receive alerts. Daniel, Samuel, Esther and Grace Achieng already have one.
+
+## Tariffs, children, adverts and the app-like member app (Slice 6)
+
+- **Verified alert email:** anyone whose role receives alerts (for example wallet viewers) must confirm an email before using the staff app. A window asks for the email and then a 6-digit code (dev code shown on screen, also in the admin **Email outbox**). Staff who receive no alerts need no email.
+- **Tariffs** (admin console > Tariffs): the platform sets message prices as monthly volume bands, marginal and per church per channel, with versions and effective dates. "Standard" is flat (SMS KES 1.00, WhatsApp KES 3.00) and is the default. "Volume bands" (SMS 0 to 3,500 at 0.95, to 15,000 at 0.85, above at 0.70) is assigned to New Hope Fellowship. Use the calculator, or assign a tariff to Grace and watch the price on its Wallets page change.
+- **Providers and sender approvals** (admin console): providers and credentials belong to the platform. Churches only have a slim **Messaging settings** page, and sender names or WhatsApp numbers they request wait for platform approval.
+- **Children** never get SMS, WhatsApp or email. A message meant for children reaches their guardians once, starting "For Ruth:", and sits in the guardian's inbox. A child always has a guardian, and a sole guardian cannot move to another church.
+- **Adverts** (staff > Adverts, member Home slider, admin > Adverts): artwork 16:9, at least 800 px wide, up to 1 MB; audience whole church, branch or group; indefinite or dated; a different person approves; a paid third-party advert (try "Mary and John", pay link `http://localhost:3001/?ad=WED001`, KES 5,000) goes live when paid. Daniel (`0700000001`) approves what Samuel (`0700000003`) creates; the platform admin (`0700000099`) can take any advert down.
+- **Member app** is a mobile app shell: bottom tabs, app bar, bottom sheets, advert slider. Open http://localhost:3002 on your phone or in a 390 px wide browser window, sign in as `0711000001` (Jane).
+- **Screenshots:** `node scripts/shots.mjs member 0711000001 shots /` (needs Chrome or Edge and the apps running).

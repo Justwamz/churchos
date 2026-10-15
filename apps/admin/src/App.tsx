@@ -4,12 +4,13 @@ import {
   AuditLog, Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, HistoryButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table,
   createApi, kes, phonePretty, shortDate, useAsync, useToast,
 } from '@churchos/ui';
+import { Adverts, Providers, Tariffs } from './MessagingAdmin';
 
 const api = createApi('churchos:admin-token');
 const num = (v: unknown) => Number(v ?? 0);
 const errText = (e: any) => (e && typeof e.message === 'string' && !e.message.trim().startsWith('{') ? e.message : 'Something went wrong. Please try again.');
 
-type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'messaging' | 'outbox';
+type Page = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'messaging' | 'outbox' | 'tariffs' | 'providers' | 'adverts';
 const PAGES: { id: Page; label: string }[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'tenants', label: 'Tenants and fees' },
@@ -20,6 +21,9 @@ const PAGES: { id: Page; label: string }[] = [
   { id: 'kyc', label: 'Church verification' },
   { id: 'payout-requests', label: 'Payout account changes' },
   { id: 'messaging', label: 'Messaging' },
+  { id: 'tariffs', label: 'Tariffs' },
+  { id: 'providers', label: 'Providers' },
+  { id: 'adverts', label: 'Adverts' },
   { id: 'outbox', label: 'Email outbox' },
   { id: 'tools', label: 'Test tools' },
   { id: 'audit', label: 'Audit log' },
@@ -61,6 +65,9 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {page === 'payout-requests' && <PayoutRequests {...p} />}
         {page === 'messaging' && <Messaging />}
         {page === 'outbox' && <Outbox />}
+        {page === 'tariffs' && <Tariffs toast={toast.show} />}
+        {page === 'providers' && <Providers toast={toast.show} />}
+        {page === 'adverts' && <Adverts toast={toast.show} />}
       </main>
       <HelpButton api={api} audience="admin" screen={`admin.${page === 'messaging' ? 'sms' : page}`} />
       {toast.node}
@@ -938,8 +945,8 @@ function Messaging() {
             <Note tone={empty ? 'warn' : 'info'}>{summary} Church wallets are read-only here. Churches top up their own wallets.</Note>
             <div style={{ height: 16 }} />
             <div className="grid cols-4">
-              <Stat label="SMS price per message" value={kes(v.rates?.sms)} />
-              <Stat label="WhatsApp price per message" value={kes(v.rates?.whatsapp)} />
+              <Stat label="SMS price per message" value={kes(v.rates?.sms)} hint="Default tariff, first band. See Tariffs." />
+              <Stat label="WhatsApp price per message" value={kes(v.rates?.whatsapp)} hint="Default tariff, first band. See Tariffs." />
               <Stat label="SMS revenue to date" value={kes(rev.sms)} tone="good" />
               <Stat label="WhatsApp revenue to date" value={kes(rev.whatsapp)} tone="good" hint={`Total ${kes(num(rev.sms) + num(rev.whatsapp))}`} />
             </div>

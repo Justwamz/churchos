@@ -35,6 +35,7 @@ interface Church {
   paybill: { number: string; accountReference: string };
 }
 interface CertInfo { serial: string; kind: string; price: number; churchCode: string; church: string; purpose: string }
+interface AdInfo { code: string; title: string; advertiser: string; price: number; startsAt: string; endsAt: string | null; churchCode: string; church: string; purpose: string }
 interface Intent { status: string; church: string; purpose: string; amountPaid: number | string; receipt: string | null }
 
 const validPhone = (p: string) => /^(?:0[17]\d{8}|(?:\+?254)[17]\d{8})$/.test(p.replace(/[\s-]/g, ''));
@@ -88,8 +89,48 @@ function CodeBox({ onGo, initial = '', error }: { onGo: (c: string) => void; ini
   );
 }
 
+function AdPage() {
+  const [search] = useSearchParams();
+  const adCode = search.get('ad') ?? '';
+  const [ad, setAd] = useState<AdInfo | null | undefined>(undefined);
+  const [church, setChurch] = useState<Church | null | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    setAd(undefined); setChurch(undefined);
+    api.get<AdInfo>(`/public/ad/${encodeURIComponent(adCode)}`)
+      .then((a) => {
+        if (!alive) return;
+        setAd(a);
+        return api.get<Church>(`/public/church/${encodeURIComponent(a.churchCode)}`)
+          .then((c) => alive && setChurch(c))
+          .catch(() => alive && setChurch(null));
+      })
+      .catch(() => alive && setAd(null));
+    return () => { alive = false; };
+  }, [adCode]);
+
+  if (ad === undefined || (ad && church === undefined)) return <Shell title="One moment"><Spinner /></Shell>;
+  if (!ad || !church) {
+    return (
+      <Shell title="Advert payment">
+        <Card>
+          <Note tone="warn">There is no advert waiting for payment under this link. It may already be paid, or the church may need to send you a new link.</Note>
+        </Card>
+      </Shell>
+    );
+  }
+  return (
+    <Shell title={church.name} sub={church.organisation}>
+      <GiveForm church={church} ad={ad} />
+    </Shell>
+  );
+}
+
 function Home() {
   const nav = useNavigate();
+  const [homeSearch] = useSearchParams();
+  if (homeSearch.get('ad')) return <AdPage />;
   const saved = store.get(CHURCH_KEY);
   if (saved) return <Navigate to={`/${encodeURIComponent(saved)}`} replace />;
   return (
@@ -166,10 +207,10 @@ type Phase =
   | { t: 'done'; intent: Intent; at: Date }
   | { t: 'failed' };
 
-function GiveForm({ church, cert }: { church: Church; cert?: CertInfo }) {
-  const [purpose, setPurpose] = useState(cert ? cert.purpose : 'OFFERING');
+function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: AdInfo }) {
+  const [purpose, setPurpose] = useState(cert ? cert.purpose : ad ? ad.purpose : 'OFFERING');
   const [phone, setPhone] = useState(() => store.get(PHONE_KEY) ?? '');
-  const [amountText, setAmountText] = useState(cert ? String(cert.price / 100) : '');
+  const [amountText, setAmountText] = useState(cert ? String(cert.price / 100) : ad ? String(ad.price / 100) : '');
   const [method, setMethod] = useState('mpesa');
   const [phase, setPhase] = useState<Phase>({ t: 'form' });
   const [busy, setBusy] = useState(false);
@@ -236,8 +277,8 @@ function GiveForm({ church, cert }: { church: Church; cert?: CertInfo }) {
     setBusy(false);
   };
 
-  const reset = () => { setPhase({ t: 'form' }); if (!cert) setAmountText(''); setApiError(undefined); setTouched(false); setBusy(false); };
-  const purposeLabel = (k: string) => k.startsWith('CERT-') ? 'Certificate copy' : church.purposes.find((p) => p.key === k)?.label ?? k;
+  const reset = () => { setPhase({ t: 'form' }); if (!cert && !ad) setAmountText(''); setApiError(undefined); setTouched(false); setBusy(false); };
+  const purposeLabel = (k: string) => k.startsWith('CERT-') ? 'Certificate copy' : k.startsWith('AD-') ? 'Advert payment' : church.purposes.find((p) => p.key === k)?.label ?? k;
 
   const reference = `${church.code}#${purpose}`;
   const copy = async (text: string, what: string) => {
@@ -276,8 +317,8 @@ function GiveForm({ church, cert }: { church: Church; cert?: CertInfo }) {
         <div aria-live="polite" className="stack">
           <div className="center">
             <div className="tick" aria-hidden="true">&#10003;</div>
-            <h2>{cert ? 'Payment received' : 'Thank you, gift received'}</h2>
-            <p className="muted">{cert ? 'Payment received. Your certificate copy is ready: open the member app or ask your church office to print it.' : 'May it bless many.'}</p>
+            <h2>{cert || ad ? 'Payment received' : 'Thank you, gift received'}</h2>
+            <p className="muted">{ad ? `Payment received. Your advert will appear on the member app of ${church.name} shortly.` : cert ? 'Payment received. Your certificate copy is ready: open the member app or ask your church office to print it.' : 'May it bless many.'}</p>
           </div>
           <dl className="rcpt">
             <dt>Church</dt><dd>{i.church}</dd>
@@ -286,9 +327,45 @@ function GiveForm({ church, cert }: { church: Church; cert?: CertInfo }) {
             <dt>Receipt</dt><dd className="mono">{i.receipt}</dd>
             <dt>Time</dt><dd>{phase.at.toLocaleString('en-KE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</dd>
           </dl>
-          {!cert && <Button onClick={reset}>Give again</Button>}
+          {!cert && !ad && <Button onClick={reset}>Give again</Button>}
         </div>
       </Card>
+    );
+  }
+
+  if (ad) {
+    const fmt = (d: string) => new Date(d).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' });
+    const period = ad.endsAt ? `${fmt(ad.startsAt)} to ${fmt(ad.endsAt)}` : `From ${fmt(ad.startsAt)}, until further notice`;
+    return (
+      <form onSubmit={submit} noValidate className="stack" aria-label="Pay for your advert">
+        {phase.t === 'failed' && <ErrorNote>The payment did not go through. No money was taken. Please check your details and try again.</ErrorNote>}
+        <Card>
+          <h2>Pay for your advert</h2>
+          <dl className="rcpt">
+            <dt>Advert</dt><dd>{ad.title}</dd>
+            <dt>Advertiser</dt><dd>{ad.advertiser}</dd>
+            <dt>Church</dt><dd>{church.name}</dd>
+            <dt>Run period</dt><dd>{period}</dd>
+          </dl>
+          <div className="big-amount" aria-label="Amount">{kes(ad.price)}</div>
+          <p className="tiny">The price is fixed and cannot be changed.</p>
+          <div aria-live="polite">{fee && <Note tone="info">Fee {kes(fee.memberFee)}, you pay {kes(fee.amountPaid)}</Note>}</div>
+        </Card>
+        <Card>
+          <div className="field-label g-label" id="lbl-method-a">Pay with</div>
+          <div className="chips" role="group" aria-labelledby="lbl-method-a">
+            {methods.map((m) => (
+              <button key={m} type="button" className={`chip ${method === m ? 'on' : ''}`} aria-pressed={method === m} onClick={() => setMethod(m)}>{METHOD_LABEL[m] ?? m}</button>
+            ))}
+          </div>
+          <div className="g-gap" />
+          <Field label="Phone number" hint="The number that will receive the payment prompt" error={touched || phone ? phoneErr : undefined}>
+            <input type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!phoneErr} />
+          </Field>
+        </Card>
+        <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+        <Button type="submit" disabled={busy || (touched && !phoneOk)}>{busy ? 'Sending request...' : `Pay ${kes(ad.price)}`}</Button>
+      </form>
     );
   }
 

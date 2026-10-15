@@ -1,19 +1,12 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Note, Spinner, shortDate } from '@churchos/ui';
+import { Button, ErrorNote, Note, shortDate } from '@churchos/ui';
 import { api } from './api';
+import { Icon, Skeleton } from './ui';
 
-export type NotifState = { data?: any; error?: string; loading: boolean; reload: () => void };
+export type NotifState = { data?: any; error?: string; loading: boolean; reload: () => void; setData?: (d: any) => void };
 
-const KIND: Record<string, { label: string; tone: 'info' | 'good' | 'warn' | 'muted' }> = {
-  message: { label: 'Message', tone: 'info' },
-  receipt: { label: 'Receipt', tone: 'good' },
-  reminder: { label: 'Reminder', tone: 'warn' },
-  announcement: { label: 'Announcement', tone: 'muted' },
-};
-const kindChip = (k: string) => {
-  const x = KIND[k] ?? (k === 'giving' || k === 'gift' ? KIND.receipt : KIND.message);
-  return <Badge tone={x.tone}>{x.label}</Badge>;
-};
+const KIND_LABEL: Record<string, string> = { message: 'Message', receipt: 'Receipt', reminder: 'Reminder', announcement: 'Announcement' };
+const kindOf = (k: string) => (k === 'giving' || k === 'gift' ? 'receipt' : k);
 
 async function markAllRead(reload: () => void, setBusy: (b: boolean) => void) {
   setBusy(true);
@@ -22,27 +15,23 @@ async function markAllRead(reload: () => void, setBusy: (b: boolean) => void) {
   reload();
 }
 
-export function NotificationsPreview({ n, go }: { n: NotifState; go: () => void }) {
-  const rows: any[] = (n.data?.rows ?? []).slice(0, 3);
-  const unread = Number(n.data?.unread ?? 0);
+function Row({ r, compact }: { r: any; compact?: boolean }) {
+  const kind = kindOf(r.kind);
+  const receipt = kind === 'receipt';
   return (
-    <Card title="Inbox" action={<Button kind="ghost" small onClick={go}>See all</Button>}>
-      {n.loading && !n.data ? <Spinner /> : n.error && !n.data ? <ErrorNote>{n.error}</ErrorNote> : !rows.length ? (
-        <Empty>Nothing here yet. Messages from your church will appear here.</Empty>
-      ) : (
-        <div className="stack">
-          {unread > 0 && <div><Badge tone="warn">{unread} unread</Badge></div>}
-          <ul className="list">
-            {rows.map((r) => (
-              <li key={r.id} className={r.read ? '' : 'notif-unread'}>
-                <div className="row"><strong>{r.title}</strong><span className="tiny">{shortDate(r.created_at)}</span></div>
-                <div className="muted clamp2">{r.body}</div>
-              </li>
-            ))}
-          </ul>
+    <li className={`msg ${r.read ? '' : 'unread'} ${receipt ? 'receipt-row' : ''}`}>
+      <span className={`msg-ico ${receipt ? 'good' : ''}`} aria-hidden="true"><Icon name={receipt ? 'check' : kind === 'reminder' ? 'bell' : 'chat'} size={20} /></span>
+      <div className="msg-main">
+        <div className="msg-top">
+          <span className="msg-kind">{KIND_LABEL[kind] ?? 'Message'}</span>
+          <span className="msg-date">{shortDate(r.created_at)}</span>
+          {!r.read && <i className="dot" aria-label="Unread" />}
         </div>
-      )}
-    </Card>
+        <strong className="msg-title">{r.title}</strong>
+        {r.for_name && <span className="chip-for">For {r.for_name}</span>}
+        <div className={`msg-body ${compact ? 'clamp2' : ''}`}>{r.body}</div>
+      </div>
+    </li>
   );
 }
 
@@ -52,30 +41,19 @@ export function Inbox({ n, online }: { n: NotifState; online: boolean }) {
   const unread = Number(n.data?.unread ?? 0);
   return (
     <div className="stack">
-      <h1>Inbox</h1>
       {!online && <Note tone="warn">You are offline. Your messages will refresh when you are connected again.</Note>}
-      {n.loading && !n.data ? <Spinner /> : n.error && !n.data ? (
+      {n.loading && !n.data ? <div className="card"><Skeleton lines={4} /></div> : n.error && !n.data ? (
         <div className="stack"><ErrorNote>{n.error}</ErrorNote><Button kind="ghost" onClick={n.reload}>Try again</Button></div>
       ) : !rows.length ? (
-        <Card><Empty>Nothing here yet. Messages from your church will appear here.</Empty></Card>
+        <div className="empty-state"><Icon name="chat" size={40} /><strong>No messages yet</strong><span>Messages and receipts from your church will appear here.</span></div>
       ) : (
-        <Card>
-          <div className="stack">
-            <div className="row">
-              {unread > 0 ? <Badge tone="warn">{unread} unread</Badge> : <span className="tiny">All caught up</span>}
-              <Button kind="ghost" small disabled={busy || unread === 0 || !online} onClick={() => markAllRead(n.reload, setBusy)}>Mark all as read</Button>
-            </div>
-            <ul className="list">
-              {rows.map((r) => (
-                <li key={r.id} className={r.read ? '' : 'notif-unread'}>
-                  <div className="row"><span>{kindChip(r.kind)}</span><span className="tiny">{shortDate(r.created_at)}</span></div>
-                  <strong>{r.title}</strong>
-                  <div className="muted" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{r.body}</div>
-                </li>
-              ))}
-            </ul>
+        <>
+          <div className="inbox-bar">
+            {unread > 0 ? <span className="badge warn">{unread} unread</span> : <span className="tiny">All caught up</span>}
+            <button type="button" className="link-btn" disabled={busy || unread === 0 || !online} onClick={() => markAllRead(n.reload, setBusy)}>Mark all read</button>
           </div>
-        </Card>
+          <ul className="msg-list">{rows.map((r) => <Row key={r.id} r={r} />)}</ul>
+        </>
       )}
     </div>
   );

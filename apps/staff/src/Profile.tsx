@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, ErrorNote, Field, Note, phonePretty, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, ErrorNote, Field, Note, phonePretty, useAsync, useToast } from '@churchos/ui';
 import { api, friendly } from './session';
 import { Load, PageHead } from './bits';
 
@@ -19,13 +19,32 @@ export function Profile() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [code, setCode] = useState('');
+  const [devCode, setDevCode] = useState<string | undefined>();
+  const [info, setInfo] = useState('');
   const [prefBusy, setPrefBusy] = useState(false);
   const [prefError, setPrefError] = useState('');
   useEffect(() => { if (prof.data) setEmail(prof.data.email ?? ''); }, [prof.data]);
 
   const save = async () => {
     setBusy(true); setError('');
-    try { await api.put('/me/profile', { email }); toast.show('Email saved'); prof.reload(); } catch (e: any) { setError(friendly(e.message)); }
+    try {
+      const r: any = await api.put('/me/profile', { email });
+      setDevCode(r.devCode); setCode(''); setInfo('');
+      toast.show(email.trim() ? 'We sent a code to your email' : 'Email removed');
+      prof.reload();
+    } catch (e: any) { setError(friendly(e.message)); }
+    setBusy(false);
+  };
+  const verify = async () => {
+    setBusy(true); setError(''); setInfo('');
+    try { await api.post('/me/profile/verify', { code: code.trim() }); setCode(''); setDevCode(undefined); toast.show('Email confirmed'); prof.reload(); } catch (e: any) { setError(friendly(e.message)); }
+    setBusy(false);
+  };
+  const resend = async () => {
+    setBusy(true); setError(''); setInfo('');
+    try { const r: any = await api.post('/me/profile/resend'); setDevCode(r.devCode); setInfo('We sent you a new code.'); }
+    catch (e: any) { setError(e.status === 429 ? 'Please wait a minute before asking for another code.' : friendly(e.message)); }
     setBusy(false);
   };
   const setPref = async (body: Record<string, boolean>) => {
@@ -46,11 +65,24 @@ export function Profile() {
                   <Field label="Name"><input value={prof.data.name ?? ''} readOnly /></Field>
                   <Field label="Phone number"><input value={phonePretty(prof.data.phone)} readOnly /></Field>
                 </div>
-                <Field label="Email" hint="We use this to email you low-balance alerts and other important notices">
+                <Field label="Email" hint={prof.data.emailRequired ? 'Your role gets low-balance alerts by email, so you need a confirmed email address.' : 'Optional. We use this to email you important notices.'}>
                   <input type="email" inputMode="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </Field>
+                {prof.data.email && email === prof.data.email && (
+                  <p>{prof.data.emailVerified ? <Badge tone="good">Confirmed</Badge> : <Badge tone="warn">Not confirmed yet</Badge>}</p>
+                )}
+                {prof.data.email && !prof.data.emailVerified && email === prof.data.email && (
+                  <div className="stack">
+                    <Field label="6-digit code" hint={<>We sent a code to {prof.data.email}.</>}>
+                      <input inputMode="numeric" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/D/g, ''))} />
+                    </Field>
+                    {devCode && <div className="tiny">Development only: your code is <b>{devCode}</b></div>}
+                    {info && <Note tone="good">{info}</Note>}
+                    <div className="row"><Button disabled={busy || code.length < 6} onClick={verify}>Confirm email</Button><Button kind="ghost" disabled={busy} onClick={resend}>Send a new code</Button></div>
+                  </div>
+                )}
                 {error && <ErrorNote>{error}</ErrorNote>}
-                <Button disabled={busy || email === (prof.data.email ?? '')} onClick={save}>{busy ? 'Saving…' : 'Save email'}</Button>
+                {email !== (prof.data.email ?? '') && <Button disabled={busy || (prof.data.emailRequired && !email.trim())} onClick={save}>{busy ? 'Saving…' : email.trim() ? 'Save and send a code' : 'Remove email'}</Button>}
               </>
             )}
           </Load>
