@@ -103,3 +103,10 @@ needs a float policy for this.
 - **Adverts** (staff > Adverts, member Home slider, admin > Adverts): artwork 16:9, at least 800 px wide, up to 1 MB; audience whole church, branch or group; indefinite or dated; a different person approves; a paid third-party advert (try "Mary and John", pay link `http://localhost:3001/?ad=WED001`, KES 5,000) goes live when paid. Daniel (`0700000001`) approves what Samuel (`0700000003`) creates; the platform admin (`0700000099`) can take any advert down.
 - **Member app** is a mobile app shell: bottom tabs, app bar, bottom sheets, advert slider. Open http://localhost:3002 on your phone or in a 390 px wide browser window, sign in as `0711000001` (Jane).
 - **Screenshots:** `node scripts/shots.mjs member 0711000001 shots /` (needs Chrome or Edge and the apps running).
+
+## Notice board, events and group walls (Slice 7)
+
+- **Notice board** (staff > Notices; member Home): publish to the whole church, a branch or a group, pinned, scheduled or ending, with an optional in-app alert (never SMS). Try Daniel (`0700000001`) publishing to everyone, and Samuel (`0700000003`) who can only reach his own branch.
+- **Events and RSVP** (staff > Events; member Home "Coming up"): "Christmas Carols Night" is for the whole church (capacity 150, David is already coming with two guests). "Youth Movie Night" is for the Youth Fellowship only. Reply as Jane (`0711000001`) with guests, then watch the counts in staff. In Test tools advance the clock to see the 24-hour reminder.
+- **Group walls** (member Groups tab): Youth Fellowship has a pinned leader announcement and a conversation. Sign in as Peter (`0711000002`, leader) or Amina (`0711000003`). Jane is not in the group, so the wall does not exist for her, and neither does it for church admins.
+- **Joining groups:** "Prayer Warriors" is open to requests (Jane leads). Ask to join as Peter or Amina under **Find a group**, then approve as Jane.

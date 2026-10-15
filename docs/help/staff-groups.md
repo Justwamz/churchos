@@ -5,7 +5,7 @@ audience: staff
 area: messaging
 tags: [groups, leader, small christian community, choir, youth, members, message group]
 screens: [staff.groups]
-version: 1
+version: 2
 ---
 
 # Groups and group leaders
@@ -25,6 +25,11 @@ A leader sees their groups in the member app and can message the whole group, or
 
 ## Children in a group
 Children are reached through their guardians.
+
+## How people join, and the wall
+When you create or edit a group choose **How people join**: by invitation only, or members can ask to join and a leader approves. Open groups appear under **Find a group** in the member app.
+
+Every group has a private **wall** in the member app for posts, comments and leader announcements. You can set it so only leaders post. Church staff see the group and its size, never the wall, unless they are in the group themselves.
 
 ## Everything is recorded
 Creating a group and changing its people is written to the audit log, and so is every message a leader sends.

@@ -207,5 +207,28 @@ step('A platform admin can take an advert down at once', s6Down.json.status === 
 const s6Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 6 activity', s6Rec.json.ok === true);
 
+// 15. Slice 7: notice board, events and RSVP, group walls, joining groups.
+const s7Notices = await call('GET', '/me/notices', undefined, janeTok);
+step('A member sees the notice board, pinned first', s7Notices.status === 200 && s7Notices.json[0]?.pinned === true && s7Notices.json.some((n) => n.title === 'Harvest Sunday is coming'), s7Notices.json.map((n) => n.title).join(', '));
+const s7Pub = await call('POST', '/notices', { title: 'Smoke notice', body: 'Published by the smoke test.', audience: { type: 'org' } }, daniel);
+step('Staff publish a notice and members see it at once', s7Pub.status === 200 && (await call('GET', '/me/notices', undefined, janeTok)).json.some((n) => n.title === 'Smoke notice'));
+const s7NoPub = await call('POST', '/notices', { title: 'Nope', body: 'x', audience: { type: 'org' } }, samuel);
+step('A branch admin cannot publish to the whole church', s7NoPub.status === 403);
+const s7Ev = (await call('GET', '/me/events', undefined, janeTok)).json.find((e) => e.title === 'Christmas Carols Night');
+const s7Rsvp = await call('POST', `/me/events/${s7Ev?.id}/rsvp`, { response: 'going', guests: 2 }, janeTok);
+step('A member replies Going with guests and the count follows', s7Rsvp.status === 200 && s7Rsvp.json.peopleComing === s7Ev.peopleComing + 3, `${s7Rsvp.json.peopleComing} coming`);
+const s7Who = await call('GET', `/events/${s7Ev?.id}/rsvps`, undefined, daniel);
+step('Staff see who is coming, without phone numbers', s7Who.status === 200 && s7Who.json.going.length >= 2 && !fullPhone.test(JSON.stringify(s7Who.json)));
+const s7Wall = await call('GET', '/me/groups/grp_youth/wall', undefined, peter);
+step('A group member reads the wall', s7Wall.status === 200 && s7Wall.json.posts.length > 0 && s7Wall.json.group.role === 'leader');
+const s7Out = await call('GET', '/me/groups/grp_youth/wall', undefined, janeTok);
+step('Someone outside the group cannot see the wall', s7Out.status === 404);
+const s7Find = await call('GET', '/me/groups/discover', undefined, peter);
+step('An open group can be found and a request sent', s7Find.status === 200 && s7Find.json.some((g) => g.id === 'grp_prayer') && (await call('POST', '/me/groups/grp_prayer/join-request', {}, peter)).json.status === 'pending');
+const s7Req = await call('GET', '/me/groups/grp_prayer/requests', undefined, janeTok);
+step('The group leader sees the request', s7Req.status === 200 && s7Req.json.some((r) => r.name === 'Peter Otieno'));
+const s7Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 7 activity', s7Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

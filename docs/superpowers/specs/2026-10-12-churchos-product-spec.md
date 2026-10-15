@@ -265,6 +265,17 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L138. Children.** Children have no app. Notices, events and wall posts reach their guardians, who can RSVP for the whole household using the guests count.
 - **L139. Privacy and audit.** Creating, changing, pinning, cancelling and removing notices, events and group posts is audited with who and when. The audit log never stores the text of wall posts or comments, only that they were posted or removed. RSVP lists show names only to staff who manage events.
 
+### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
+Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).
+- **P1. Order of work:** bookings and assets first, then prayer and pastoral requests, then live sessions with video and chat.
+- **P2. Prayer requests** build on groups and walls (L74, L136). The person chooses who sees a request: the pastoral team only, a group, or the whole church. Leaders can mark one answered.
+- **P3. Talking to a pastor and counselling are bookings** with a person (L49), requested from the member app and handled in a confidential care inbox scoped by role and branch.
+- **P4. Confidentiality:** the content of counselling chats and notes is visible only to the member and their assigned counsellor. Admins and ChurchOS staff see that a session happened, never what was said. Nothing is recorded.
+- **P5. Video is bought, not built:** a provider-agnostic adapter like L78, with a simulated provider for development.
+- **P6. Children:** a minor is booked only with recorded guardian consent, and with a second adult involved. Counsellors of minors need a safeguarding role.
+- **P7. Safety:** emergency and helpline numbers on counselling screens, and a way for a counsellor to flag a safeguarding concern to a named senior person.
+- **P8. Money:** free by default. An optional offering or fee goes through the normal giving flow. Who pays for video minutes is open.
+
 ## 5. Money engine
 
 This section details the model adopted as **L20**. It is the most important part of the platform, and the one that must be right the first time.
