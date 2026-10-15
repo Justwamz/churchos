@@ -43,6 +43,9 @@ export const PERMISSIONS = [
   'bookings.manage',
   'team.view',
   'team.manage',
+  'shop.view',
+  'shop.sell',
+  'shop.manage',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -87,6 +90,9 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'audit.view': { group: 'Security and team', label: 'See the audit log' },
   'audit.export': { group: 'Security and team', label: 'Export the audit log' },
   'kyc.manage': { group: 'Security and team', label: 'Manage church verification' },
+  'shop.view': { group: 'Church shop', label: 'See shop items, stock and sales' },
+  'shop.sell': { group: 'Church shop', label: 'Sell at the till and close the till', hint: 'Takes cash and mobile money, and counts the cash at the end of the day.' },
+  'shop.manage': { group: 'Church shop', label: 'Manage the shop', hint: 'Items, prices, stock, voiding sales, cost and margin.' },
   'team.view': { group: 'Security and team', label: 'See the team and their access' },
   'team.manage': { group: 'Security and team', label: 'Add team members and change their access', hint: 'You can only give access that you have yourself.' },
 };
@@ -96,7 +102,7 @@ export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
   'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
-  Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup'],
+  Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
   Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],

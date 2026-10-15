@@ -151,6 +151,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
 
       <HelpButton api={api} audience="member" screen={helpScreen} />
       <nav className="tabbar" aria-label="Main">
+        <div className="rail-brand"><span className="rail-mark" aria-hidden="true">{'✚'}</span><span className="rail-name"><strong>ChurchOS</strong><span>{m?.branch_name ?? 'Welcome'}</span></span></div>
         {TABS.map((t) => (
           <button key={t.key} type="button" className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
             <span className="tab-ico"><Icon name={t.ico} filled={tab === t.key} />
@@ -190,7 +191,7 @@ function Home({ me, user, go, notif, openSub }: { me: any; user: any; go: Go; no
     { ico: 'calendar', label: 'Book', on: () => openSub('book') },
   ];
   return (
-    <div className="stack">
+    <div className="stack home">
       <div className="greet">
         <h1>{greeting()}{first ? `, ${first}` : ''}</h1>
         {m ? <p>{m.branch_name} · {m.org_name}</p> : <p>You are not linked to a church yet. Ask your church to add you, or request a move in the Me tab.</p>}

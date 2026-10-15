@@ -10,6 +10,7 @@ import { runMemberHousekeeping } from '../members';
 import { runScheduledMessages } from '../messages';
 import { runCommunityJobs } from './community';
 import { runBookingJobs } from './bookings';
+import { runShopJobs } from './shop';
 
 function validSchedule(s: any): s is FeeSchedule {
   const rule = s?.platform;
@@ -162,7 +163,8 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const messagesSent = await runScheduledMessages(ctx);
     const community = await runCommunityJobs(ctx);
     const bookings = await runBookingJobs(ctx);
-    return { community, bookings, now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, messagesSent, ...housekeeping };
+    const shop = await runShopJobs(ctx);
+    return { community, bookings, shop, now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, messagesSent, ...housekeeping };
   });
 
   app.post('/admin/provider/fail-next-payout', devAdm, async () => {

@@ -284,6 +284,17 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L153. Roles.** The six built-in roles (Organisation Owner, Branch Admin, Treasurer, Pastor, Auditor, Secretary) cannot be changed. A church builds its own roles from the same permissions, each shown in plain words and grouped. Only someone who manages every branch changes roles, a role in use cannot be deleted, and a role can only contain permissions the person making it holds.
 - **L154. Everything is audited** (who gave or took what, for where), without phone numbers, in the security category. A new team member is told in the app, and a role that can see messaging wallets asks them for a confirmed email (L123).
 
+### 4.29 The church shop: sales and stock (first version)
+- **L155. A shop for each branch.** A branch can sell things such as Bibles, rosaries, books, candles and clothing. Each item has a name, an optional code, a category, a selling price, an optional cost price, and a low-stock level. Each branch keeps its own stock.
+- **L156. Stock is a ledger of movements,** never a number someone edits. Stock comes in when received (with the cost), goes out when sold, comes back when a sale is returned or a waiting sale is released, and is corrected by a stock adjustment or a write-off, each with a reason. Movements cannot be changed or deleted. Stock on hand is their total, and a sale that would take stock below zero is refused.
+- **L157. Selling at the till.** Staff with the sell permission build a sale from items and quantities, optionally name the buyer (a member or a walk-in), and take payment in cash, by M-Pesa or Airtel Money or T-Kash prompt to the buyer's phone, or by card on the hosted page. Prices at the time of the sale are kept on the sale.
+- **L158. Cash sales complete at once.** Mobile money and card sales wait for the payment, hold the stock for 30 minutes, and complete when the payment arrives through the normal payment flow (reference SHOP-code), with the platform fee as for any payment. An unpaid sale lapses and its stock is released.
+- **L159. Voids and returns.** A cash sale can be voided with a reason by someone with the manage permission within 24 hours, putting the stock back if wanted. A mobile or card sale cannot be voided in the shop: the money is returned through the church's normal reversal process.
+- **L160. Closing the till.** At the end of the day the cashier counts the cash. The screen shows what the day's cash sales say it should be and the difference. The count goes into the existing cash count and second-person sign-off (L36 to L38), so the platform fee on cash is charged there. A difference needs a note.
+- **L161. Reports.** Sales by day, item, category and payment method, units and takings, low stock, and the value of stock at cost. Cost and margin are visible only to people with the manage permission.
+- **L162. Permissions.** See the shop, sell at the till, and manage the shop (items, prices, stock, voids, margin). Every item change, price change, stock movement, sale, void and till count is audited.
+- **L163. Later.** A catalogue and pre-orders in the member app, barcode scanning, suppliers and purchase orders.
+
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).
 - **P1. Order of work:** bookings and assets first, then prayer and pastoral requests, then live sessions with video and chat.

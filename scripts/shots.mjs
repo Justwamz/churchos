@@ -1,5 +1,5 @@
 // Takes screenshots of the running apps so the screens can be reviewed by eye.
-// Usage: node scripts/shots.mjs <app> <phone> <outDir> [path ...]
+// Usage: node scripts/shots.mjs <app> <phone> <outDir> [path ...]   (optional: SHOTS_SIZE=820x1180)
 //   app: member | staff | admin | giving   phone: a seeded number, for example 0711000001 (member), 0700000001 (staff), 0700000099 (admin)
 // The apps and API must be running (node scripts/dev.mjs). Needs Chrome or Edge installed.
 import { existsSync, mkdirSync } from 'node:fs';
@@ -12,7 +12,9 @@ const APPS = {
   giving: { url: 'http://localhost:3001', key: 'churchos:giving:token', w: 390, h: 844 },
 };
 const [app, phone, out, ...paths] = process.argv.slice(2);
-const cfg = APPS[app];
+const cfg = { ...APPS[app] };
+// SHOTS_SIZE=820x1180 overrides the window size, for example a tablet in portrait (820x1180) or landscape (1180x820).
+if (process.env.SHOTS_SIZE) { const [w, h] = process.env.SHOTS_SIZE.split('x').map(Number); if (w && h) { cfg.w = w; cfg.h = h; } }
 if (!cfg || !out) { console.error('usage: node scripts/shots.mjs <member|staff|admin|giving> <phone|-> <outDir> [path ...]'); process.exit(1); }
 const chrome = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(existsSync);
 if (!chrome) { console.error('No Chrome or Edge found'); process.exit(1); }

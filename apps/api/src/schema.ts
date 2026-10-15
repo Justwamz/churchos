@@ -534,6 +534,84 @@ CREATE TABLE IF NOT EXISTS booking_items (
 );
 CREATE INDEX IF NOT EXISTS booking_items_resource_idx ON booking_items(resource_id);
 
+-- The church shop (L155 to L163). Times are ISO text so they compare directly.
+CREATE TABLE IF NOT EXISTS shop_items (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  code text,
+  name text NOT NULL,
+  category text,
+  price bigint NOT NULL,
+  cost bigint,
+  low_stock int NOT NULL DEFAULT 5,
+  active boolean NOT NULL DEFAULT true,
+  created_by text NOT NULL,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS shop_items_code_idx ON shop_items(branch_id, lower(code)) WHERE code IS NOT NULL;
+CREATE TABLE IF NOT EXISTS shop_movements (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  item_id text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('received','sold','returned','released','adjusted','written_off')),
+  qty int NOT NULL,
+  unit_cost bigint,
+  sale_id text,
+  reason text,
+  created_by text NOT NULL,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS shop_movements_item_idx ON shop_movements(item_id);
+DROP TRIGGER IF EXISTS shop_movements_no_change ON shop_movements;
+CREATE TRIGGER shop_movements_no_change BEFORE UPDATE OR DELETE ON shop_movements FOR EACH ROW EXECUTE FUNCTION audit_events_immutable();
+CREATE TABLE IF NOT EXISTS shop_sales (
+  id text PRIMARY KEY,
+  code text NOT NULL UNIQUE,
+  receipt_no text NOT NULL,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  buyer_name text,
+  buyer_membership_id text,
+  buyer_phone text,
+  method text NOT NULL,
+  status text NOT NULL CHECK (status IN ('completed','awaiting_payment','voided','lapsed')),
+  total bigint NOT NULL,
+  provider_tx_id text,
+  payment_id text,
+  hold_until text,
+  void_reason text,
+  voided_by text,
+  voided_at text,
+  sold_by text NOT NULL,
+  created_at text NOT NULL,
+  completed_at text
+);
+CREATE TABLE IF NOT EXISTS shop_sale_lines (
+  sale_id text NOT NULL,
+  item_id text NOT NULL,
+  name text NOT NULL,
+  qty int NOT NULL,
+  unit_price bigint NOT NULL,
+  unit_cost bigint,
+  PRIMARY KEY (sale_id, item_id)
+);
+CREATE TABLE IF NOT EXISTS shop_tills (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  day text NOT NULL,
+  expected bigint NOT NULL,
+  counted bigint NOT NULL,
+  note text,
+  cash_entry_id text,
+  counted_by text NOT NULL,
+  created_at text NOT NULL,
+  UNIQUE (branch_id, day)
+);
+
 -- One pending confirmation code per person (L123).
 CREATE TABLE IF NOT EXISTS email_codes (
   user_id text PRIMARY KEY,
@@ -690,7 +768,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

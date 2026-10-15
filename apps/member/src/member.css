@@ -435,3 +435,127 @@ h3 { font-size: 17px; }
 .bk-fields > * { min-width: 0; }
 .date-strip { min-width: 0; }
 .sheet-body > * { min-width: 0; max-width: 100%; }
+
+/* ================= tablet and desktop (700px and up) =================
+   Phone layout (under 700px) is untouched. Tablet is 700 to 1099px, large is 1100px and up.
+   The bottom tab bar becomes a left navigation rail, the app bar becomes a page header, and
+   cards flow in grids. Content-width layouts use a container query on .app-main. */
+.rail-brand { display: none; }
+.app-main { container-type: inline-size; container-name: main; }
+
+@media screen and (min-width: 700px) {
+  :root { --rail-w: 88px; --pad-x: 28px; }
+  body:has(.app) { background: var(--paper); }
+
+  /* shell: rail on the left, header and content on the right */
+  .app { top: 0; bottom: 0; left: 0; right: 0; max-width: none; margin: 0; border-radius: 0; box-shadow: none; display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "rail head" "rail main"; }
+  .appbar { grid-area: head; border-radius: 0; background: var(--paper); color: var(--ink); min-height: 72px; padding: calc(10px + var(--safe-t)) max(var(--pad-x), calc((100% - 1156px) / 2 + var(--pad-x))) 6px; gap: 8px; }
+  .appbar-title strong { font-size: 28px; font-family: var(--serif); letter-spacing: -0.01em; }
+  .appbar-sub { color: var(--ink-2); opacity: 1; }
+  .appbar .icon-btn { color: var(--ink); background: var(--surface); box-shadow: var(--shadow-soft); }
+  .appbar .icon-btn:hover { background: var(--brand-tint); }
+  .appbar .icon-btn:focus-visible, .appbar .avatar:focus-visible { outline-color: var(--focus); }
+  .appbar .avatar { width: 44px; height: 44px; border: 0; background: var(--brand); color: #fff; box-shadow: var(--shadow-soft); }
+  .appbar .avatar:hover { filter: brightness(1.08); }
+  .bell .count { box-shadow: 0 0 0 2px var(--paper); }
+  .app-main { grid-area: main; }
+  .page { max-width: 1156px; margin: 0 auto; padding: 8px var(--pad-x) 96px; }
+
+  /* navigation rail (the same nav and buttons as the phone tab bar) */
+  .tabbar { grid-area: rail; flex-direction: column; justify-content: flex-start; align-items: stretch; gap: 6px; padding: calc(16px + var(--safe-t)) 8px 16px; min-height: 0; border-top: 0; border-right: 1px solid var(--line); box-shadow: none; border-radius: 0; overflow-y: auto; }
+  .rail-brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 14px; min-height: 48px; }
+  .rail-mark { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; font-size: 20px; }
+  .rail-name { display: none; min-width: 0; line-height: 1.2; }
+  .rail-name strong { display: block; font-size: 18px; }
+  .rail-name span { display: block; font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabbar button { flex: none; min-height: 68px !important; border-radius: 16px; padding: 6px 2px; }
+  .tabbar button:hover:not(.active) { background: var(--brand-tint); color: var(--ink); }
+  .tabbar button:focus-visible { outline-offset: -2px; }
+  .tab-badge { right: 8px; }
+
+  /* help button and toast leave the content alone */
+  .app > .help-fab.help-fab, .app:has(.sticky-cta) > .help-fab.help-fab { bottom: 20px; right: 20px; }
+  .toast { bottom: 24px !important; }
+
+  /* sheets become centred dialogs */
+  .sheet-wrap, .sheet-wrap.full { top: 0; bottom: 0; align-items: center; padding: 24px; }
+  .sheet, .sheet-wrap.full .sheet { width: 100%; max-width: 560px; height: auto; max-height: min(88dvh, 860px); border-radius: 24px; padding-bottom: 0; padding-top: 0; box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35); animation: dialog-in 0.18s ease-out; overflow: hidden; }
+  .sheet-wrap.full .sheet { background: var(--surface); }
+  .sheet-wrap.full .sheet-body { display: block; }
+  .sheet-grip { display: none; }
+  .sheet-head { padding-top: 12px; }
+  .sheet-body { padding-bottom: 24px; }
+  .bk-submit { padding-bottom: 16px; }
+  @keyframes dialog-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+  /* sign in: card centred with the logo above it */
+  .login { display: grid; place-items: center; }
+  .login-card { width: min(440px, 100%); }
+
+  /* hover on pointer devices */
+  @media (hover: hover) {
+    .tile:hover, .find-card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(23, 33, 43, 0.06), 0 12px 28px rgba(23, 33, 43, 0.12); }
+    .menu button:hover, .mini-msg:hover, .notice:hover, .event:hover, .bk-mini:hover { background: var(--brand-tint); }
+    .msg:hover { transform: translateY(-1px); }
+    .chip:hover:not(.on) { background: var(--brand-tint); }
+  }
+
+  /* ----- home: cards flow in a grid ----- */
+  .stack.home { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 20px; }
+  .stack.home > * { order: 3; }
+  .stack.home > .greet { order: 0; grid-column: 1 / -1; margin-top: -4px; }
+  .stack.home > .greet h1 { display: none; } /* the page header already carries the title */
+  .stack.home > .ads { order: 1; grid-column: 1 / -1; margin: 0; }
+  .stack.home > .quick { order: 2; grid-column: 1 / -1; }
+  .ad-track { padding: 2px 0 6px; scroll-padding-inline: 0; }
+  .ad-slide { flex: 0 0 min(88%, 640px); max-height: 360px; }
+  .ad-slide:only-child { flex-basis: 100%; }
+  .ad-scrim { padding: 48px 20px 16px; }
+  .ad-scrim strong { font-size: 21px; }
+  .ad-body { font-size: 15px; }
+  .quick { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .tile { min-height: 116px; padding: 16px 8px; }
+  .tile-label { font-size: 14px; }
+  .block { padding: 18px 22px; }
+
+  /* ----- other tabs ----- */
+  .page > .stack:has(> .seg) { max-width: 720px; margin-inline: auto; }
+  .page > .stack:has(> .seg):has(.sticky-cta) { max-width: 560px; }
+  .page > .stack:has(> .seg):has(.sticky-cta) .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .page > .stack:has(> .seg):has(.sticky-cta) .chips::-webkit-scrollbar { display: none; }
+  .page > .stack:has(> .seg):has(.sticky-cta) .chip { flex: 1 0 auto; }
+  .sticky-cta { bottom: 0; }
+
+  .page > .stack:has(> .profile) { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 20px; }
+  .stack > .profile, .stack > .menu { grid-column: 1 / -1; }
+
+  .inbox-bar, .page > .stack > .msg-list { max-width: 820px; width: 100%; margin-inline: auto; }
+  .msg { padding: 18px 20px; }
+
+  .page > .stack .notice-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+  .notice-list > li.block { padding: 12px 18px; }
+  .gpage { max-width: 720px; width: 100%; margin-inline: auto; gap: 16px; }
+  .composer { margin: 4px 0 -32px; border-radius: 16px 16px 0 0; }
+  .find-list li { padding: 16px 0; }
+  .res-card { align-content: start; }
+}
+
+/* three columns when the content area is wide enough (large screens, or tablet landscape with room) */
+@container main (min-width: 940px) {
+  .stack.home { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .quick { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; }
+  .page > .stack .notice-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media screen and (min-width: 1100px) {
+  :root { --rail-w: 220px; --pad-x: 32px; }
+  .tabbar { padding: calc(20px + var(--safe-t)) 14px 20px; }
+  .rail-brand { justify-content: flex-start; padding: 0 6px; margin-bottom: 20px; }
+  .rail-name { display: block; }
+  .tabbar button { flex-direction: row !important; justify-content: flex-start; align-items: center; gap: 14px; min-height: 52px !important; padding: 0 14px; font-size: 16px !important; }
+  .tabbar button.active { background: var(--brand-tint); }
+  .tabbar button.active .tab-ico { background: transparent; }
+  .tab-ico { width: 28px; height: 28px; flex: none; }
+  .tab-badge { top: -6px !important; right: -8px; }
+  .tab-label { line-height: 1.2; }
+}

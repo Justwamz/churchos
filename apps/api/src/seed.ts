@@ -250,6 +250,35 @@ export async function seed(ctx: Ctx) {
     ],
   );
 
+  // The church shop at Nairobi (L155 to L163): items with stock, and a few cash sales from the last days so the reports have something to show.
+  const shopItems: [string, string, string, string, number, number, number, number][] = [
+    ['itm_bible_kjv', 'BIB-KJV', 'Bible, KJV hardcover', 'Bibles', 180000, 120000, 5, 24],
+    ['itm_bible_sw', 'BIB-SW', 'Bible, Swahili', 'Bibles', 150000, 100000, 5, 12],
+    ['itm_rosary_wood', 'ROS-WD', 'Rosary, wooden', 'Rosaries', 25000, 12000, 10, 60],
+    ['itm_rosary_crystal', 'ROS-CR', 'Rosary, crystal', 'Rosaries', 60000, 35000, 5, 18],
+    ['itm_prayerbook', 'BOK-PRY', 'Prayer book', 'Books', 40000, 22000, 5, 4],
+    ['itm_candles', 'CND-12', 'Candles, pack of 12', 'Candles', 15000, 8000, 10, 40],
+    ['itm_tshirt', 'TSH-GCC', 'Church T-shirt', 'Clothing', 100000, 55000, 5, 0],
+  ];
+  for (const [id, code, name, category, price, cost, low, stock] of shopItems) {
+    await db.query(`INSERT INTO shop_items (id, org_id, branch_id, code, name, category, price, cost, low_stock, created_by, created_at, updated_at) VALUES ($1,'org_grace','br_grc001',$2,$3,$4,$5,$6,$7,'u_owner',$8,$8) ON CONFLICT DO NOTHING`, [id, code, name, category, price, cost, low, now]);
+    if (stock > 0) await db.query(`INSERT INTO shop_movements (id, org_id, branch_id, item_id, kind, qty, unit_cost, reason, created_by, created_at) VALUES ($1,'org_grace','br_grc001',$2,'received',$3,$4,'Opening stock','u_owner',$5)`, ['mov_open_' + id, id, stock + 0, cost, new Date(ctx.clock.now().getTime() - 6 * 86400_000).toISOString()]);
+  }
+  const pastSale = async (n: number, daysAgo: number, method: string, lines: [string, number][], buyer: string | null) => {
+    const at = new Date(ctx.clock.now().getTime() - daysAgo * 86400_000).toISOString();
+    const total = lines.reduce((s, [id, q]) => s + q * (shopItems.find((i) => i[0] === id)![4]), 0);
+    const sid = 'sal_demo_' + n;
+    await db.query(`INSERT INTO shop_sales (id, code, receipt_no, org_id, branch_id, buyer_name, method, status, total, sold_by, created_at, completed_at) VALUES ($1,$2,$3,'org_grace','br_grc001',$4,$5,'completed',$6,'u_treas',$7,$7) ON CONFLICT DO NOTHING`, [sid, 'DEMO0' + n, 'GRC001-0000' + n, buyer, method, total, at]);
+    for (const [iid, q] of lines) {
+      const it = shopItems.find((i) => i[0] === iid)!;
+      await db.query(`INSERT INTO shop_sale_lines (sale_id, item_id, name, qty, unit_price, unit_cost) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`, [sid, iid, it[2], q, it[4], it[5]]);
+      await db.query(`INSERT INTO shop_movements (id, org_id, branch_id, item_id, kind, qty, sale_id, created_by, created_at) VALUES ($1,'org_grace','br_grc001',$2,'sold',$3,$4,'u_treas',$5) ON CONFLICT DO NOTHING`, [`mov_${sid}_${iid}`, iid, -q, sid, at]);
+    }
+  };
+  await pastSale(1, 3, 'cash', [['itm_bible_kjv', 2], ['itm_rosary_wood', 3]], 'Walk-in');
+  await pastSale(2, 2, 'mpesa', [['itm_prayerbook', 1], ['itm_candles', 4]], 'Jane Wanjiku');
+  await pastSale(3, 1, 'cash', [['itm_rosary_crystal', 2], ['itm_bible_sw', 1]], null);
+
   // Adverts for the member app's home slider (L130 to L132). Daniel approves what Samuel creates. Artwork is generated so the slider has something to show.
   const art = (a: [number, number, number], b: [number, number, number]) => gradientPng(1280, 720, a, b);
   const inTwoWeeks = new Date(ctx.clock.now().getTime() + 14 * 86400_000).toISOString();
