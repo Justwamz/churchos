@@ -28,11 +28,12 @@ import { Notifications } from './Notifications';
 import { Records } from './Records';
 import { Template } from './Template';
 import { AuditPage } from './Audit';
+import { Team } from './Team';
 
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -56,6 +57,7 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
   { id: 'records', label: 'Records', any: ['records.view'], el: Records },
   { id: 'template', label: 'Certificate design', any: ['records.view'], el: Template },
+  { id: 'team', label: 'Team', any: ['team.view', 'team.manage'], el: Team },
   { id: 'audit', label: 'Audit log', any: ['audit.view'], el: AuditPage },
   { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: Verification },
   { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: Payout },

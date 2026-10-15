@@ -117,3 +117,9 @@ needs a float policy for this.
 - **Book as a member** (member app > Home > Book): sign in as Jane (`0711000001`), choose Pastor Daniel, pick a free time and send. Daniel (`0700000001`) sees it in **My diary** in the member app or under **Bookings** in the staff app and approves it. Try asking for the pastor and the hall together: both must say yes.
 - **Paid booking:** book the Main hall as Peter (`0711000002`). Samuel (`0700000003`, Nairobi branch admin) approves it, and Peter gets a **Pay** button (a giving page, `/?booking=CODE`). Pay and it is confirmed. Leave it unpaid and advance the clock 25 hours in the admin Test tools and the time is released.
 - **Calendar** (staff > Calendar): confirmed bookings and events together, filtered by resource. Notes members write are private to them and whoever answers the request.
+
+## Team and roles (staff app > Team)
+
+- **People:** everyone with access to the church, where each role applies (whole church, a region or a branch), with masked phone numbers. **Add team member** takes a name, a phone number, a role and a place. They sign in with that number and a code. Use the **x** on a role label to take access away, and **Add access** to give a second role.
+- **Roles:** six built-in roles plus your own. **New role** lists every permission in plain words, grouped (Money, Members, Messaging, Bookings and so on).
+- **The rules:** you can only give access that you hold yourself, for places you look after, so Samuel (\`0700000003\`, Nairobi branch admin) can add a treasurer for Nairobi but not an auditor or a church-wide role. A church always keeps one Organisation Owner. Try it as Daniel (\`0700000001\`) first.

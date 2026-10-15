@@ -276,6 +276,14 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L147. Calendar.** Staff see one calendar of confirmed bookings and events, filtered by resource, within what they manage. Members see their own bookings and the free times of resources they may book.
 - **L148. Privacy.** What a member writes in a booking note is visible only to them and the people who decide that booking. The audit log records requests, decisions, cancellations and payments but never the note.
 
+### 4.28 Team and roles screen (the screen for L32 to L35)
+- **L149. A Team page in the staff app** lists the people with access to the church, where each one's access applies (the whole church, a region or a branch) and what role they hold. Phone numbers are masked. People who work in branches you do not manage are not shown.
+- **L150. Adding people.** Someone with the team permission adds a person by name and phone number and gives them a role for a place. They sign in with that number and a code. If the number already belongs to a member, their name is kept. A role can be given more than once, for different places. Taking a role away takes effect at once.
+- **L151. Nobody can give more than they have.** A person can give access only for places they manage with the team permission, and only a role whose every permission they hold there themselves. A refused request leaves nothing behind. A branch admin can therefore add a treasurer for their own branch, but not an auditor or a church-wide role.
+- **L152. A church always keeps an Organisation Owner.** The last church-wide owner role cannot be removed.
+- **L153. Roles.** The six built-in roles (Organisation Owner, Branch Admin, Treasurer, Pastor, Auditor, Secretary) cannot be changed. A church builds its own roles from the same permissions, each shown in plain words and grouped. Only someone who manages every branch changes roles, a role in use cannot be deleted, and a role can only contain permissions the person making it holds.
+- **L154. Everything is audited** (who gave or took what, for where), without phone numbers, in the security category. A new team member is told in the app, and a role that can see messaging wallets asks them for a confirmed email (L123).
+
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).
 - **P1. Order of work:** bookings and assets first, then prayer and pastoral requests, then live sessions with video and chat.
