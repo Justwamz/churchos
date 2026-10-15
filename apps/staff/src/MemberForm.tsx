@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Badge, Button, ErrorNote, Field, Note, Spinner, phonePretty, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
+import { maskedPretty, useReveal } from './Reveal';
 
 export function useDebounced<T>(value: T, ms = 300): T {
   const [v, setV] = useState(value);
@@ -113,7 +114,8 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
   const [branchId, setBranchId] = useState<string>(member?.branch_id ?? defaultBranch);
   const [sex, setSex] = useState<string>(member?.sex ?? '');
   const [dob, setDob] = useState<string>(isoDate(member?.dob));
-  const [phone, setPhone] = useState<string>(phonePretty(member?.phone));
+  const [phone, setPhone] = useState<string>('');
+  const reveal = useReveal(member?.id ?? '');
   const [number, setNumber] = useState('');
   const [guardians, setGuardians] = useState<Guardian[]>(member?.guardians ?? []);
   const [hhMode, setHhMode] = useState<'default' | 'new' | 'existing' | 'none'>('default');
@@ -128,7 +130,6 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
     if (fullName.trim().length < 2) return setError('Enter the member’s full name.');
     if (!editing && !branchId) return setError('Choose a branch.');
     if (!editing && !child && !phone.trim()) return setError('An adult needs their own phone number, for example 0712 345 678.');
-    if (editing && !child && !phone.trim()) return setError('An adult needs their own phone number, for example 0712 345 678.');
     if (child && !dob && !(editing && member?.age_band)) return setError('A child needs a date of birth so they can become an adult at 18.');
     if (child && guardians.length === 0) return setError('Choose at least one guardian for a child.');
     if (!editing && hhMode === 'existing' && !hh) return setError('Choose which household to join, or pick another option.');
@@ -138,7 +139,7 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
       if (editing) {
         const body: any = { fullName, sex };
         if (dob) body.dob = dob;
-        if (!child && phone.trim() && phone.trim() !== phonePretty(member.phone)) body.phone = phone.trim();
+        if (!child && phone.trim()) body.phone = phone.trim();
         if (child) body.guardianIds = guardians.map((g) => g.id);
         await api.put(`/members/${member.id}` + s.qs({ branch: undefined }), body);
         toast.show('Changes saved.');
@@ -182,10 +183,18 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
           </Field>
         </div>
         {!child && (
-          <Field label="Phone number" hint="Their own number, for example 0712 345 678">
-            <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0712 345 678" />
+          <Field label="Phone number" hint={editing ? `Current number: ${maskedPretty(member.phone) || 'none'}` : 'Their own number, for example 0712 345 678'}>
+            <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder={editing ? 'Leave blank to keep the current number' : '0712 345 678'} />
+            {editing && reveal.canReveal && (
+              <div style={{ marginTop: 6 }}>
+                {reveal.data
+                  ? <span>Current number: <b>{phonePretty(reveal.data.phone)}</b> <Button small kind="ghost" onClick={reveal.hide}>Hide</Button></span>
+                  : <Button small kind="ghost" onClick={reveal.ask}>Show number</Button>}
+              </div>
+            )}
           </Field>
         )}
+        {child && editing && <div className="tiny">Contact numbers come from the guardians{member.contact_phones?.length ? `: ${member.contact_phones.map((c: any) => maskedPretty(typeof c === 'string' ? c : c.phone)).join(', ')}` : ''}.</div>}
         {!editing && (
           <Field label="Member number (optional)" hint="Leave blank to use your church's numbering, or type an existing number">
             <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder={nextPreview ? `Next: ${nextPreview}` : 'Generated for you'} />
@@ -226,6 +235,7 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
         {error && <ErrorNote>{error}</ErrorNote>}
         <div className="row"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Add member'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </form>
+      {reveal.dialog}
       {toast.node}
     </Modal>
   );

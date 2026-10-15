@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge, Button, Card, Empty, Field, Table, dateOnly, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Hist, Load, PageHead } from './bits';
 
 function Pledges({ id }: { id: string }) {
   const s = useSession();
@@ -91,6 +91,7 @@ export function Projects() {
                       <span>{p.branch_name}{p.deadline ? ` · by ${dateOnly(p.deadline)}` : ''}</span>
                     </div>
                     <div style={{ marginTop: 10 }}>
+                      <Hist entity="project" entityId={p.id} title={p.name} />{' '}
                       <Button small kind="ghost" onClick={() => setOpen(open === p.id ? null : p.id)}>{open === p.id ? 'Hide pledges' : 'Show pledges'}</Button>
                       {s.can('projects.manage') && <> <Button small kind="ghost" disabled={reminding === p.id} onClick={() => remind(p.id)}>{reminding === p.id ? 'Sending…' : 'Send reminders'}</Button></>}
                     </div>

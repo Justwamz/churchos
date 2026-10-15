@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, ErrorNote, Field, Note } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load } from './bits';
+import { Hist, Load } from './bits';
 import { useAsync } from '@churchos/ui';
 
 const PRESETS = ['M{SEQ:5}', 'GRC/{YYYY}/{SEQ:4}', '{BRANCH}-{SEQ:4}'];
@@ -29,7 +29,7 @@ export function MemberNumberSettings({ settings, reload }: { settings: ReturnTyp
   };
 
   return (
-    <Card title="Member number format">
+    <Card title="Member number format" action={<Hist entity="member_number_format" entityId={s.grant.org.id} title="Member number format" />}>
       <Load loading={settings.loading} error={settings.error} hasData={!!d}>
         {d && (
           <div className="stack">

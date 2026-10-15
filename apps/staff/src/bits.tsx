@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { ErrorNote, Spinner, kes } from '@churchos/ui';
-import { friendly } from './session';
+import { ErrorNote, HistoryButton, Spinner, kes } from '@churchos/ui';
+import { api, friendly, useSession } from './session';
 
 /** Standard loading / error wrapper. */
 export function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode }) {
@@ -34,4 +34,11 @@ export function PageHead({ title, sub, action }: { title: string; sub?: ReactNod
       {action}
     </div>
   );
+}
+
+/** Small ghost History button, shown only to people who may read the audit log. */
+export function Hist({ entity, entityId, title, label }: { entity: string; entityId: string; title: string; label?: string }) {
+  const s = useSession();
+  if (!s.can('audit.view')) return null;
+  return <HistoryButton api={api} base="/audit" entity={entity} entityId={entityId} title={title} label={label} qs={s.orgs.length > 1 ? `&org=${s.grant.org.id}` : ''} />;
 }

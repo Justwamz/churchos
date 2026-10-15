@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Empty, Note, StatusBadge, Table, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, Empty, Note, StatusBadge, Table, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Hist, Load, PageHead } from './bits';
+import { MemberPhone } from './Reveal';
 import { HouseholdModal, MemberFormModal, useDebounced } from './MemberForm';
 import { MemberRecords } from './Records';
 import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
@@ -57,7 +58,7 @@ function MemberRows({ members, household, canEdit, canRecords, onRecords, onEdit
   members: any[]; household?: any; canEdit: boolean; canRecords: boolean; onRecords: (m: any) => void; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
 }) {
   return (
-    <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', ...(canEdit || canRecords ? [''] : [])]}>
+    <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', '']}>
       {members.map((m) => (
         <tr key={m.id}>
           <td><b>{m.full_name}</b>{m.is_primary_contact && <> <Badge tone="info">Primary contact</Badge></>}</td>
@@ -68,16 +69,12 @@ function MemberRows({ members, household, canEdit, canRecords, onRecords, onEdit
           <td className="mono">{m.member_number}</td>
           <td>{m.branch_name}</td>
           <td>
-            {m.category === 'child' ? (
-              <>
-                <div>Guardians: {m.guardians?.length ? m.guardians.map((g: any) => g.full_name).join(', ') : '-'}</div>
-                <div className="tiny">Contact: {m.contact_phones?.length ? m.contact_phones.map(phonePretty).join(', ') : '-'}</div>
-              </>
-            ) : m.phone ? phonePretty(m.phone) : <Badge tone="warn">Needs own phone</Badge>}
+            {m.category === 'child' || m.phone ? <MemberPhone member={m} /> : <Badge tone="warn">Needs own phone</Badge>}
           </td>
-          {(canEdit || canRecords) && (
-            <td><div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+          {(
+            <td><div className="row" style={{ gap: 6 }}>
               {canEdit && <Button small kind="ghost" onClick={() => onEdit(m)}>Edit</Button>}
+              <Hist entity="membership" entityId={m.id} title={m.full_name} />
               {canEdit && <Button small kind="ghost" onClick={() => onHousehold(m)}>Household</Button>}
               {canRecords && <Button small kind="ghost" onClick={() => onRecords(m)}>Records</Button>}
               {canEdit && household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}

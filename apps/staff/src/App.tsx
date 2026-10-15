@@ -14,11 +14,12 @@ import { Sms } from './Sms';
 import { Payout } from './Payout';
 import { Records } from './Records';
 import { Template } from './Template';
+import { AuditPage } from './Audit';
 
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', sms: 'staff.sms', payout: 'staff.payout', records: 'staff.records', template: 'staff.template',
+  verification: 'staff.verification', sms: 'staff.sms', payout: 'staff.payout', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -32,6 +33,7 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
   { id: 'records', label: 'Records', any: ['records.view'], el: Records },
   { id: 'template', label: 'Certificate design', any: ['records.view'], el: Template },
+  { id: 'audit', label: 'Audit log', any: ['audit.view'], el: AuditPage },
   { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: Verification },
   { id: 'sms', label: 'SMS wallet', any: ['sms.manage'], el: Sms },
   { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: Payout },

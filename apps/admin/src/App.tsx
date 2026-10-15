@@ -1,7 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { computeFee, DEFAULT_FEE_SCHEDULE, type FeeSchedule, type PaymentMethod } from '@churchos/shared';
 import {
-  Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table,
+  AuditLog, Badge, Button, Card, Empty, ErrorNote, Field, HelpButton, HistoryButton, LoginGate, Note, Spinner, Stat, StatusBadge, Table,
   createApi, kes, phonePretty, shortDate, useAsync, useToast,
 } from '@churchos/ui';
 
@@ -52,7 +52,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {page === 'tenants' && <Tenants {...p} />}
         {page === 'suspense' && <Suspense {...p} />}
         {page === 'reversals' && <Reversals {...p} />}
-        {page === 'payments' && <Payments />}
+        {page === 'payments' && <Payments {...p} />}
         {page === 'settlements' && <Settlements {...p} />}
         {page === 'tools' && <Tools {...p} />}
         {page === 'audit' && <Audit />}
@@ -83,7 +83,83 @@ function Load<T>({ s, children }: { s: { data?: T; error?: string; loading: bool
   return <>{children(s.data)}</>;
 }
 
+// ---------------- Masked phone with logged reveal ----------------
+
+function RevealPhone({ paymentId, masked, toast }: { paymentId: string; masked: string; toast: PageProps['toast'] }) {
+  const [real, setReal] = useState<string>();
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const hide = () => { if (timer.current) clearTimeout(timer.current); setReal(undefined); };
+  const reveal = async () => {
+    setBusy(true);
+    try {
+      const out = await api.post<any>(`/admin/payments/${paymentId}/reveal`, { reason: reason.trim() || undefined });
+      setReal(String(out.payer_phone ?? ''));
+      setAsking(false); setReason('');
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setReal(undefined), 30_000);
+    } catch (e: any) { toast(errText(e), 'bad'); setAsking(false); }
+    setBusy(false);
+  };
+  return (
+    <>
+      <span>{real ? phonePretty(real) : (masked || 'Not recorded')}</span>{' '}
+      {masked && (real
+        ? <Button kind="ghost" small onClick={hide}>Hide</Button>
+        : <Button kind="ghost" small onClick={() => setAsking(true)}>Show number</Button>)}
+      {asking && (
+        <div className="modal-scrim" role="dialog" aria-modal="true" onClick={() => setAsking(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Showing a number is recorded in the audit log</h2>
+            <p className="muted">The number is shown for 30 seconds, then hidden again.</p>
+            <Field label="Reason (optional)"><input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Member called about this payment" /></Field>
+            <div className="row" style={{ marginTop: 12 }}>
+              <Button onClick={reveal} disabled={busy}>{busy ? 'Working…' : 'Show the number'}</Button>
+              <Button kind="ghost" onClick={() => setAsking(false)}>Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---------------- Overview ----------------
+
+function AuditBanner() {
+  const [v, setV] = useState<any>();
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    setBusy(true);
+    try { setV(await api.get('/admin/audit/verify')); } catch { /* ignore quietly */ }
+    setBusy(false);
+  };
+  useEffect(() => { check(); }, []);
+  if (!v) return busy ? <Card><Spinner /></Card> : null;
+  const chains: any[] = v.chains ?? [];
+  const failing = chains.filter((c) => !c.ok);
+  const ok = v.ok !== false && failing.length === 0;
+  const total = chains.reduce((n, c) => n + num(c.events), 0);
+  return (
+    <Card className={`integrity ${ok ? 'ok' : 'bad'}`}>
+      <div className="row between">
+        <div role={ok ? undefined : 'alert'}>
+          <div className="tiny" style={{ textTransform: 'uppercase', letterSpacing: '.06em' }}>Audit log</div>
+          {ok
+            ? <div style={{ color: 'var(--good)', fontWeight: 600 }}>Audit log verified: {total.toLocaleString()} events across {chains.length} logs, nothing changed or removed</div>
+            : <>
+                <div style={{ color: 'var(--bad)', fontWeight: 600 }}>The audit log does not verify</div>
+                {failing.map((c, i) => <div key={i} className="muted">Log {String(c.chain)}: {c.reason} (event number {String(c.brokenAtSeq)})</div>)}
+              </>}
+        </div>
+        <Button kind="ghost" small onClick={check} disabled={busy}>{busy ? 'Checking…' : 'Verify again'}</Button>
+      </div>
+    </Card>
+  );
+}
 
 function Overview() {
   const rec = useAsync(() => api.get('/admin/reconcile'));
@@ -103,6 +179,8 @@ function Overview() {
   return (
     <>
       <Head title="Overview" sub="Is the money where it should be?" action={<Button kind="ghost" onClick={reload}>Refresh</Button>} />
+      <AuditBanner />
+      <div style={{ height: 16 }} />
       <Load s={rec}>
         {(r: any) => (
           <Card className={`integrity ${r.ok ? 'ok' : 'bad'}`}>
@@ -192,6 +270,7 @@ function TenantCard({ org, toast, onSaved }: { org: any; toast: PageProps['toast
   const [psp, setPsp] = useState<Record<string, { bps: string; fixed: string }>>(
     Object.fromEntries(METHODS.map((m) => [m, { bps: String(init.psp?.[m]?.bps ?? 0), fixed: String((num(init.psp?.[m]?.fixed)) / 100) }])),
   );
+  const [feeReason, setFeeReason] = useState('');
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
 
@@ -205,7 +284,7 @@ function TenantCard({ org, toast, onSaved }: { org: any; toast: PageProps['toast
   const save = async () => {
     setBusy(true); setErr(undefined);
     try {
-      await api.put(`/admin/tenants/${org.id}/fees`, { feeBearer: bearer, feeSchedule: schedule });
+      await api.put(`/admin/tenants/${org.id}/fees`, { feeBearer: bearer, feeSchedule: schedule, reason: feeReason.trim() || undefined });
       toast(`Fees saved for ${org.name}`);
       onSaved();
     } catch (e: any) { setErr(errText(e)); }
@@ -217,7 +296,7 @@ function TenantCard({ org, toast, onSaved }: { org: any; toast: PageProps['toast
   };
 
   return (
-    <Card title={org.name} action={<div className="row"><Badge tone="info">{org.feeBearer === 'member' ? 'Member pays on top' : 'Church absorbs'}</Badge><Button kind="ghost" small onClick={() => setOpen(!open)}>{open ? 'Hide fee editor' : 'Edit fees'}</Button></div>}>
+    <Card title={org.name} action={<div className="row"><Badge tone="info">{org.feeBearer === 'member' ? 'Member pays on top' : 'Church absorbs'}</Badge><HistoryButton api={api} base="/admin/audit" entity="fee_schedule" entityId={org.id} title={`${org.name} fees`} label="Fee history" /><Button kind="ghost" small onClick={() => setOpen(!open)}>{open ? 'Hide fee editor' : 'Edit fees'}</Button></div>}>
       <Table head={['Branch', 'Code', 'In 48h hold', 'Ready to pay out', 'Owed to us', 'Payouts']}>
         {org.branches.map((b: any) => (
           <tr key={b.id}>
@@ -290,6 +369,7 @@ function TenantCard({ org, toast, onSaved }: { org: any; toast: PageProps['toast
               );
             }))}
           </Table>
+          <div style={{ marginTop: 14, maxWidth: 480 }}><Field label="Fee change reason (optional)" hint="Recorded in the audit log with this change."><input value={feeReason} onChange={(e) => setFeeReason(e.target.value)} /></Field></div>
           {err && <div style={{ marginTop: 12 }}><ErrorNote>{err}</ErrorNote></div>}
           <div className="row" style={{ marginTop: 14 }}>
             <Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save fees'}</Button>
@@ -336,7 +416,7 @@ function Suspense({ toast }: PageProps) {
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td>{r.reference ? <code>{r.reference}</code> : <span className="tiny">(empty)</span>}<div className="tiny">{r.provider_tx_id}</div></td>
-                  <td>{phonePretty(r.payer_phone)}</td>
+                  <td><RevealPhone paymentId={r.id} masked={r.payer_phone} toast={toast} /></td>
                   <td className="num">{kes(r.amount_paid)}</td>
                   <td>{shortDate(r.received_at)}</td>
                   <td><Badge tone={new Date(r.expiresAt).getTime() <= now ? 'bad' : 'warn'}>{countdown(new Date(r.expiresAt).getTime() - now)}</Badge><div className="tiny">{shortDate(r.expiresAt)}</div></td>
@@ -379,13 +459,15 @@ function Reversals({ toast, user }: PageProps) {
   const [confirm, setConfirm] = useState<{ id: string; approve: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Record<string, string>>({});
+  const [why, setWhy] = useState('');
 
   const decide = async (row: any, approve: boolean) => {
+    if (!approve && !why.trim()) { toast('Please give a reason for rejecting this request.', 'bad'); return; }
     setBusy(true);
     try {
-      const out = await api.post(`/admin/reversal-requests/${row.id}/decide`, { approve });
+      const out = await api.post(`/admin/reversal-requests/${row.id}/decide`, { approve, reason: why.trim() || undefined });
       toast(out.status === 'awaiting_second' ? 'First approval recorded. A different admin must give the second approval.' : approve ? 'Reversal approved and refund started' : 'Request rejected');
-      setConfirm(null); r.reload();
+      setConfirm(null); setWhy(''); r.reload();
     } catch (e: any) {
       const text = e.code === 'same_person' ? 'You gave the first approval. A different admin must approve this one.' : errText(e);
       setMsg((m) => ({ ...m, [row.id]: text })); toast(text, 'bad'); setConfirm(null);
@@ -416,15 +498,16 @@ function Reversals({ toast, user }: PageProps) {
                     </div>
                     {open && (
                       <div className="row">
-                        <Button kind="danger" small onClick={() => setConfirm({ id: x.id, approve: false })}>Reject</Button>
-                        <Button small disabled={mine} onClick={() => setConfirm({ id: x.id, approve: true })}>{x.status === 'awaiting_second' ? 'Give second approval' : 'Approve'}</Button>
+                        <Button kind="danger" small onClick={() => { setWhy(''); setConfirm({ id: x.id, approve: false }); }}>Reject</Button>
+                        <Button small disabled={mine} onClick={() => { setWhy(''); setConfirm({ id: x.id, approve: true }); }}>{x.status === 'awaiting_second' ? 'Give second approval' : 'Approve'}</Button>
                       </div>
                     )}
                   </div>
                   <div className="grid cols-3" style={{ marginTop: 10 }}>
                     <div><div className="tiny">Reason</div>{x.reason}</div>
-                    <div><div className="tiny">Asked by</div>{x.requested_by_name ?? phonePretty(x.payer_phone)} <Badge tone="muted">{x.source === 'staff' ? 'Church staff' : 'Member'}</Badge></div>
+                    <div><div className="tiny">Asked by</div>{x.requested_by_name ?? 'Unknown'} <Badge tone="muted">{x.source === 'staff' ? 'Church staff' : 'Member'}</Badge></div>
                     <div><div className="tiny">Asked on</div>{shortDate(x.created_at)}</div>
+                    {x.payment_id && <div><div className="tiny">Payer phone</div><RevealPhone paymentId={x.payment_id} masked={x.payer_phone} toast={toast} /></div>}
                   </div>
                   {x.message && <details style={{ marginTop: 8 }}><summary className="tiny" style={{ cursor: 'pointer' }}>Pasted confirmation message</summary><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', background: 'var(--paper)', padding: 10, borderRadius: 8 }}>{x.message}</pre></details>}
                   {x.failure && <div style={{ marginTop: 8 }}><ErrorNote>{x.failure}</ErrorNote></div>}
@@ -438,6 +521,9 @@ function Reversals({ toast, user }: PageProps) {
                             ? `Approve returning ${kes(x.amount_paid)}? The platform fee is returned; third-party mobile money charges are not.${needsTwo && x.status === 'pending' ? ' A second admin must still approve.' : ''}`
                             : 'Reject this request? The payment stays where it is.'}</span>
                           <span className="row"><Button kind="ghost" small onClick={() => setConfirm(null)}>Cancel</Button><Button small kind={cf.approve ? 'primary' : 'danger'} disabled={busy} onClick={() => decide(x, cf.approve)}>{busy ? 'Working…' : cf.approve ? 'Yes, approve' : 'Yes, reject'}</Button></span>
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          <Field label={cf.approve ? 'Reason (optional, but helpful for the record)' : 'Reason (required)'}><input value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder={cf.approve ? 'e.g. Sent to the wrong paybill' : 'e.g. The payment was already refunded'} /></Field>
                         </div>
                       </Note>
                     </div>
@@ -454,7 +540,7 @@ function Reversals({ toast, user }: PageProps) {
 
 // ---------------- Payments ----------------
 
-function Payments() {
+function Payments({ toast }: PageProps) {
   const [stage, setStage] = useState('');
   const p = useAsync(() => api.get<any[]>(`/admin/payments${stage ? `?stage=${stage}` : ''}`), [stage]);
   return (
@@ -467,12 +553,13 @@ function Payments() {
       <Card>
         <Load s={p}>
           {(rows) => rows.length === 0 ? <Empty>No payments at this stage.</Empty> : (
-            <Table head={['Received', 'Code', 'Branch', 'Method', 'Reference', 'Paid', 'Platform fee', 'Provider cost', 'Church net', 'Stage']}>
+            <Table head={['Received', 'Code', 'Branch', 'Method', 'Reference', 'Payer', 'Paid', 'Platform fee', 'Provider cost', 'Church net', 'Stage']}>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td>{shortDate(r.received_at)}</td><td><code>{r.provider_tx_id}</code></td>
                   <td>{r.branch_name ?? <span className="tiny">Unmatched</span>}</td><td>{METHOD_LABEL[r.method] ?? r.method}</td>
                   <td>{r.reference}</td>
+                  <td><RevealPhone paymentId={r.id} masked={r.payer_phone} toast={toast} /></td>
                   <td className="num">{kes(r.amount_paid)}</td><td className="num">{kes(r.platform_fee)}</td><td className="num">{kes(r.psp_cost)}</td><td className="num">{kes(r.net)}</td>
                   <td><StatusBadge status={r.stage} /></td>
                 </tr>
@@ -858,26 +945,16 @@ function SmsOverview() {
 // ---------------- Audit ----------------
 
 function Audit() {
-  const a = useAsync(() => api.get<any[]>('/admin/audit'));
-  const metaText = (m: any) => {
-    if (!m) return '';
-    const o = typeof m === 'string' ? (() => { try { return JSON.parse(m); } catch { return m; } })() : m;
-    return typeof o === 'object' ? Object.entries(o).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ') : String(o);
-  };
+  const t = useAsync(() => api.get<any[]>('/admin/tenants'));
+  const [org, setOrg] = useState('');
   return (
     <>
-      <Head title="Audit log" sub="The last 100 actions on the platform." action={<Button kind="ghost" onClick={a.reload}>Refresh</Button>} />
-      <Card>
-        <Load s={a}>
-          {(rows) => rows.length === 0 ? <Empty>No activity yet.</Empty> : (
-            <Table head={['Time', 'Actor', 'Action', 'Entity', 'Details']}>
-              {rows.map((r) => (
-                <tr key={r.id}><td>{shortDate(r.at)}</td><td className="tiny">{r.actor ?? 'system'}</td><td><b>{r.action}</b></td><td className="tiny">{r.entity ? `${r.entity} ${r.entity_id ?? ''}` : ''}</td><td className="muted">{metaText(r.meta)}</td></tr>
-              ))}
-            </Table>
-          )}
-        </Load>
-      </Card>
+      <Head title="Audit log" sub="Every change across every church is recorded here. Entries cannot be edited or deleted." action={
+        <select value={org} onChange={(e) => setOrg(e.target.value)} style={{ width: 240 }} aria-label="Church">
+          <option value="">All churches</option>
+          {(t.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+        </select>} />
+      <AuditLog api={api} base="/admin/audit" showOrg qs={org ? `&org=${encodeURIComponent(org)}` : ''} />
     </>
   );
 }

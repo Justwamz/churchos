@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, CertificateCard, Card, Empty, ErrorNote, Field, Note, Spinner, StatusBadge, Table, dateOnly, kes, printCertificate, shortDate, useAsync, useToast, type CertificatePayload } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Hist, Load, PageHead } from './bits';
 import { useDebounced } from './MemberForm';
 
 const MAX_BYTES = 3 * 1024 * 1024;
@@ -335,6 +335,7 @@ function RecordDetail({ id, onClose, onChanged }: { id: string; onClose: () => v
               {r.has_pending_changes && <Badge tone="warn">Changes waiting for approval</Badge>}
               {r.serial && <span className="mono tiny">{r.serial}</span>}
               <span className="tiny">{r.branch_name}</span>
+              <Hist entity="record" entityId={r.id} title={r.subject_name ?? (KIND[r.kind] + ' record')} />
             </div>
             <Note tone={r.status === 'rejected' ? 'bad' : 'info'}>{statusLine(r)}</Note>
             {r.has_pending_changes && r.pending_changes && (

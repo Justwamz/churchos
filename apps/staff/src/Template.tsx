@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Card, ErrorNote, Field, Note, useAsync, useToast, type CertificatePayload } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Hist, Load, PageHead } from './bits';
 import { ScaledCard } from './Records';
 
 const MAX_LOGO = 500 * 1024;
@@ -181,7 +181,7 @@ function TemplateEditor({ data, reload }: { data: any; reload: () => void }) {
           <div className="stack">
             {branches.map((b) => (
               <div key={b.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
-                <b>{b.name}</b>
+                <div className="row between"><b>{b.name}</b><Hist entity="branch_profile" entityId={b.id} title={`${b.name} address`} label="Address history" /></div>
                 <div className="grid cols-2" style={{ marginTop: 8 }}>
                   <Field label="Address"><input disabled={ro} value={b.address} onChange={(e) => setBranch(b.id, 'address', e.target.value)} /></Field>
                   <Field label="Town"><input disabled={ro} value={b.town} onChange={(e) => setBranch(b.id, 'town', e.target.value)} /></Field>
@@ -207,7 +207,7 @@ export function Template() {
   useEffect(() => { setV((x) => x + 1); }, [d.data]);
   return (
     <>
-      <PageHead title="Certificate design" sub="How your baptism cards look." />
+      <PageHead title="Certificate design" sub="How your baptism cards look." action={<Hist entity="template" entityId={s.grant.org.id} title="Certificate design" label="Design history" />} />
       <Load loading={d.loading} error={d.error} hasData={!!d.data}>
         {d.data && <TemplateEditor key={v} data={d.data} reload={d.reload} />}
       </Load>

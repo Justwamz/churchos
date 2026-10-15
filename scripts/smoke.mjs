@@ -124,5 +124,24 @@ step('The church template and logo load', tpl.status === 200 && !!tpl.json.logo)
 const rec3 = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 3 activity', rec3.json.ok === true);
 
+// 12. Slice 4: audit, history and masking.
+const auditor = await login('0700000007');
+const fullPhone = /\b254\d{9}\b|\b07\d{8}\b/;
+const members = await call('GET', '/members?q=Jane', undefined, samuel);
+step('Member phone numbers are masked for staff', members.status === 200 && !fullPhone.test(JSON.stringify(members.json)) && /•••/.test(JSON.stringify(members.json)));
+const jane = members.json.find((m) => m.full_name === 'Jane Wanjiku');
+const revealed = await call('POST', `/members/${jane.id}/reveal`, { fields: ['phone'], reason: 'Smoke test' }, samuel);
+step('A permitted person can reveal one number', revealed.status === 200 && fullPhone.test(revealed.json.phone ?? ''));
+const denied = await call('POST', `/members/${jane.id}/reveal`, {}, auditor);
+step('The read-only auditor cannot reveal numbers', denied.status === 403);
+const log = await call('GET', '/audit/events?action=access.reveal', undefined, daniel);
+step('The reveal was written to the audit log with the reason', log.status === 200 && log.json.events[0]?.reason === 'Smoke test' && log.json.events[0]?.actor_name === 'Samuel Kiptoo');
+const chain = await call('GET', '/audit/verify', undefined, daniel);
+step('The audit chain verifies', chain.status === 200 && chain.json.ok === true, `${chain.json.events} events`);
+const exp = await fetch(API + '/audit/export', { headers: { authorization: 'Bearer ' + auditor } });
+step('The auditor can export the log, and the export is masked', exp.status === 200 && !fullPhone.test(await exp.text()));
+const noExport = await call('GET', '/audit/export', undefined, samuel);
+step('A branch admin cannot export', noExport.status === 403);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

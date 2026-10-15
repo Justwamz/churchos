@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Card, Empty, Field, Note, Stat, StatusBadge, Table, kes, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, label, methodLabel, useSession } from './session';
 import { Load, PageHead } from './bits';
+import { maskedPretty } from './Reveal';
 
 const METHODS = ['mpesa', 'airtel', 'card', 'tkash', 'cash'];
 
@@ -50,7 +51,7 @@ export function Collections() {
   return (
     <>
       <div className="page-head">
-        <div><h1 style={{ margin: 0 }}>Collections</h1><p>Every payment and recorded cash, with the fee shown as one amount.</p></div>
+        <div><h1 style={{ margin: 0 }}>Collections</h1><p>Every payment and recorded cash, with the fee shown as one amount.</p><p className="tiny">Phone numbers are partly hidden to protect your members.</p></div>
         <Button kind="ghost" onClick={csv}>Download CSV</Button>
       </div>
       <Card>
@@ -104,7 +105,7 @@ export function Collections() {
                       <td>{r.branch}</td>
                       <td>{methodLabel(r.method)}</td>
                       <td>{label(r.purpose)}</td>
-                      <td>{r.member ? <>{r.member} <span className="tiny">{r.member_number}</span></> : r.phone ?? '-'}</td>
+                      <td>{r.member ? <>{r.member} <span className="tiny">{r.member_number}</span></> : maskedPretty(r.phone) || '-'}</td>
                       <td className="num">{kes(r.gross)}</td>
                       <td className="num">{kes(r.fee)}</td>
                       <td className="num">{kes(r.net)}</td>
