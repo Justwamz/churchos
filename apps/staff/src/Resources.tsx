@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
@@ -222,6 +222,19 @@ function Blocks({ res, canManage, onClose }: { res: any; canManage: boolean; onC
   );
 }
 
+const DAY_NAMES: [string, string][] = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
+/** "Mon to Fri 09:00-12:00, 14:00-17:00" in a short form, grouping days that share the same hours. */
+const hoursText = (h: Record<string, string[][]> | undefined) => {
+  const groups: { days: string[]; times: string }[] = [];
+  for (const [k, label] of DAY_NAMES) {
+    const t = (h?.[k] ?? []).map(([a, b]) => `${a}-${b}`).join(', ');
+    if (!t) continue;
+    const g = groups.find((x) => x.times === t);
+    if (g) g.days.push(label); else groups.push({ days: [label], times: t });
+  }
+  if (!groups.length) return 'Closed';
+  return groups.map((g) => `${g.days.length > 2 ? `${g.days[0]} to ${g.days[g.days.length - 1]}` : g.days.join(', ')} ${g.times}`).join('; ');
+};
 const priceText = (r: any) => (r.price == null ? 'Free' : `${kes(r.price)} ${r.pricePer === 'hour' ? 'per hour' : 'per booking'}`);
 
 export function Resources() {
@@ -232,6 +245,8 @@ export function Resources() {
   const [editing, setEditing] = useState<any>(null);
   const [blocks, setBlocks] = useState<any>(null);
   const canManage = s.can('resources.manage');
+  const [view, setView] = useState<'cards' | 'list'>(() => { try { return localStorage.getItem('churchos:resources-view') === 'list' ? 'list' : 'cards'; } catch { return 'cards'; } });
+  const pick = (v: 'cards' | 'list') => { setView(v); try { localStorage.setItem('churchos:resources-view', v); } catch { /* ignore */ } };
 
   const toggle = async (r: any) => {
     try { await api.post(`/resources/${r.id}/active` + s.qs({ branch: undefined }), { active: !r.active }); toast.show(r.active ? 'Switched off' : 'Switched on'); list.reload(); }
@@ -251,8 +266,36 @@ export function Resources() {
   return (
     <div>
       <PageHead title="Resources" sub="The people, places and things members can ask to book." action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>Add something</Button> : undefined} />
+      {!!list.data?.length && (
+        <div className="chips" role="group" aria-label="How to show the list" style={{ marginBottom: 12 }}>
+          <button type="button" className={`chip ${view === 'cards' ? 'on' : ''}`} aria-pressed={view === 'cards'} onClick={() => pick('cards')}>Cards</button>
+          <button type="button" className={`chip ${view === 'list' ? 'on' : ''}`} aria-pressed={view === 'list'} onClick={() => pick('list')}>List</button>
+        </div>
+      )}
       <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-        {list.data && (list.data.length === 0 ? <Empty>Nothing can be booked yet.{canManage ? ' Add your first one.' : ''}</Empty> : (
+        {list.data && view === 'list' && list.data.length > 0 && (
+          <Table head={['Name', 'Kind', 'Belongs to', 'Hours', 'Booking length', 'Price', 'Approval', 'Holds', 'Status', '']}>
+            {[...list.data].sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name)).map((r) => (
+              <tr key={r.id} className={r.active ? '' : 'bk-off'}>
+                <td><b>{r.name}</b>{r.kind === 'person' && r.ownerName && <div className="tiny">Diary of {r.ownerName}</div>}</td>
+                <td>{({ person: 'Person', place: 'Place', thing: 'Thing' } as Record<string, string>)[r.kind]}</td>
+                <td>{r.branchName ?? 'Whole church'}</td>
+                <td className="tiny" style={{ minWidth: 160 }}>{hoursText(r.hours)}</td>
+                <td>{r.slotMinutes} min{r.maxMinutes ? <div className="tiny">up to {r.maxMinutes} min</div> : null}</td>
+                <td>{priceText(r)}</td>
+                <td>{r.approval === 'auto' ? 'Automatic' : 'Needs approval'}</td>
+                <td>{r.capacity ?? '-'}</td>
+                <td>{r.active ? <Badge tone="good">Available</Badge> : <Badge tone="muted">Switched off</Badge>}</td>
+                <td><div className="row">
+                  {canManage && <Button small kind="ghost" onClick={() => { setEditing(r); setMode('form'); }}>Edit</Button>}
+                  {canManage && <Button small kind="ghost" onClick={() => toggle(r)}>{r.active ? 'Switch off' : 'Switch on'}</Button>}
+                  <Button small kind="ghost" onClick={() => setBlocks(r)}>Blocked times</Button>
+                </div></td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {list.data && view === 'cards' && (list.data.length === 0 ? <Empty>Nothing can be booked yet.{canManage ? ' Add your first one.' : ''}</Empty> : (
           <div className="stack" style={{ gap: 24 }}>
             {groups.map(([k, title]) => {
               const rows = list.data!.filter((r) => r.kind === k);

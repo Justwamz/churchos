@@ -34,3 +34,7 @@
 .cal-agenda { display: grid; gap: 8px; }
 .cal-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--line); }
 @media (max-width: 600px) { .cal-row { grid-template-columns: 1fr; gap: 2px; } .cal-day { min-height: 64px; } .cal-it { font-size: 10px; } }
+
+/* Bookings list filters */
+.bk-filters { display: grid; gap: 14px; }
+.bk-filter-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }

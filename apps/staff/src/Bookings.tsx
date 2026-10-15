@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, Empty, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
@@ -11,8 +11,6 @@ const STATUS: Record<string, { text: string; tone: 'warn' | 'good' | 'bad' | 'in
   requested: { text: 'Waiting for an answer', tone: 'warn' }, awaiting_payment: { text: 'Waiting for payment', tone: 'info' }, confirmed: { text: 'Confirmed', tone: 'good' },
   declined: { text: 'Declined', tone: 'bad' }, cancelled: { text: 'Cancelled', tone: 'muted' }, completed: { text: 'Done', tone: 'good' }, no_show: { text: 'No show', tone: 'bad' }, lapsed: { text: 'Not paid in time', tone: 'muted' },
 };
-const TABS = { need: 'requested', up: 'confirmed,awaiting_payment', past: 'completed,no_show,declined,cancelled,lapsed' } as const;
-type Tab = keyof typeof TABS;
 
 const explain = (e: any) => {
   switch (e?.code) {
@@ -94,53 +92,150 @@ function BookingCard({ b, canManage, onApprove, onDecline, onCancel, onComplete 
   );
 }
 
+type DateMode = 'month' | 'day' | 'all';
+const FILTERS: { key: string; label: string; statuses: string }[] = [
+  { key: 'pending', label: 'Pending', statuses: 'requested' },
+  { key: 'approved', label: 'Approved, waiting for payment', statuses: 'awaiting_payment' },
+  { key: 'confirmed', label: 'Confirmed', statuses: 'confirmed' },
+  { key: 'declined', label: 'Declined', statuses: 'declined' },
+  { key: 'cancelled', label: 'Cancelled', statuses: 'cancelled' },
+  { key: 'done', label: 'Done', statuses: 'completed' },
+  { key: 'noshow', label: 'No show', statuses: 'no_show' },
+  { key: 'lapsed', label: 'Not paid in time', statuses: 'lapsed' },
+];
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const eatToday = () => new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10);
+/** The start and end (ISO) of a day or a month in East Africa Time. */
+const range = (mode: DateMode, month: string, dayStr: string): { from?: string; to?: string } => {
+  if (mode === 'all') return {};
+  if (mode === 'day') {
+    const t = Date.parse(`${dayStr}T00:00:00+03:00`);
+    return Number.isNaN(t) ? {} : { from: new Date(t).toISOString(), to: new Date(t + 86400_000 - 1).toISOString() };
+  }
+  const [y, m] = month.split('-').map(Number);
+  if (!y || !m) return {};
+  return { from: new Date(Date.UTC(y, m - 1, 1) - 3 * 3600_000).toISOString(), to: new Date(Date.UTC(y, m, 1) - 3 * 3600_000 - 1).toISOString() };
+};
+const shiftMonth = (month: string, d: number) => { const [y, m] = month.split('-').map(Number); const t = new Date(Date.UTC(y, m - 1 + d, 1)); return `${t.getUTCFullYear()}-${pad2(t.getUTCMonth() + 1)}`; };
+const monthLabel = (month: string) => new Date(`${month}-01T12:00:00Z`).toLocaleString('en-KE', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
 export function Bookings() {
   const s = useSession();
   const toast = useToast();
-  const [tab, setTab] = useState<Tab>('need');
-  const q = (t: Tab): Promise<any[]> => api.get(`/bookings${s.qs({ branch: undefined, status: TABS[t] })}`);
-  const need = useAsync<any[]>(() => q('need'), [s.grant.org.id]);
-  const other = useAsync<any[]>(() => (tab === 'need' ? Promise.resolve([]) : q(tab)), [s.grant.org.id, tab]);
+  const [mode, setMode] = useState<DateMode>('month');
+  const [month, setMonth] = useState(() => eatToday().slice(0, 7));
+  const [dayStr, setDayStr] = useState(eatToday);
+  const [picked, setPicked] = useState<string[]>([]); // filter keys, empty means every status
+  const [resource, setResource] = useState('');
+  const [open, setOpen] = useState<any>(null);
   const [deciding, setDeciding] = useState<{ b: any; it: any } | null>(null);
   const [cancelling, setCancelling] = useState<any>(null);
   const canManage = s.can('bookings.manage');
-  const needing = (need.data ?? []).filter((b) => b.status === 'requested' && b.items.some((i: any) => i.mine && i.status === 'requested'));
-  const reload = () => { need.reload(); other.reload(); };
+  const resources = useAsync<any[]>(() => api.get('/resources' + s.qs({ branch: undefined })).catch(() => []), [s.grant.org.id]);
+  const { from, to } = range(mode, month, dayStr);
+  const statuses = picked.length ? FILTERS.filter((f) => picked.includes(f.key)).map((f) => f.statuses).join(',') : '';
+  const list = useAsync<any[]>(
+    () => api.get(`/bookings${s.qs({ branch: undefined, status: statuses || undefined, from, to, resource: resource || undefined })}`),
+    [s.grant.org.id, statuses, from, to, resource],
+  );
+  const reload = () => list.reload();
   const post = async (path: string, body: any, msg: string) => {
-    try { await api.post(path + s.qs({ branch: undefined }), body); toast.show(msg); reload(); } catch (e: any) { toast.show(explain(e)); }
+    try { await api.post(path + s.qs({ branch: undefined }), body); toast.show(msg); setOpen(null); reload(); } catch (e: any) { toast.show(explain(e)); }
   };
+  const rows = [...(list.data ?? [])].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const waiting = rows.filter((b) => b.status === 'requested' && b.items.some((i: any) => i.mine && i.status === 'requested')).length;
+  const toggleKey = (k: string) => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
 
-  const d = tab === 'need'
-    ? { loading: need.loading, error: need.error, data: need.data ? needing : undefined }
-    : { loading: other.loading, error: other.error, data: other.data ? (tab === 'up' ? [...other.data].reverse() : other.data) : undefined };
   return (
     <div>
       <PageHead title="Bookings" sub="Requests to use a place, a person's time or something your church owns." />
       <div className="stack">
-        <div className="chips" role="tablist">
-          <button type="button" className={`chip ${tab === 'need' ? 'on' : ''}`} onClick={() => setTab('need')}>Needs an answer{needing.length > 0 && <span className="bk-count">{needing.length}</span>}</button>
-          <button type="button" className={`chip ${tab === 'up' ? 'on' : ''}`} onClick={() => setTab('up')}>Coming up</button>
-          <button type="button" className={`chip ${tab === 'past' ? 'on' : ''}`} onClick={() => setTab('past')}>Past and closed</button>
-        </div>
+        <section className="card bk-filters">
+          <div className="bk-filter-row">
+            <div className="chips" role="group" aria-label="Which dates">
+              <button type="button" className={`chip ${mode === 'month' ? 'on' : ''}`} aria-pressed={mode === 'month'} onClick={() => setMode('month')}>By month</button>
+              <button type="button" className={`chip ${mode === 'day' ? 'on' : ''}`} aria-pressed={mode === 'day'} onClick={() => setMode('day')}>By day</button>
+              <button type="button" className={`chip ${mode === 'all' ? 'on' : ''}`} aria-pressed={mode === 'all'} onClick={() => setMode('all')}>All dates</button>
+            </div>
+            {mode === 'month' && (
+              <div className="row" style={{ alignItems: 'center' }}>
+                <Button small kind="ghost" onClick={() => setMonth(shiftMonth(month, -1))}>Previous</Button>
+                <b style={{ minWidth: 130, textAlign: 'center' }}>{monthLabel(month)}</b>
+                <Button small kind="ghost" onClick={() => setMonth(shiftMonth(month, 1))}>Next</Button>
+                <Button small kind="ghost" onClick={() => setMonth(eatToday().slice(0, 7))}>This month</Button>
+              </div>
+            )}
+            {mode === 'day' && (
+              <div className="row" style={{ alignItems: 'center' }}>
+                <input type="date" aria-label="Day" value={dayStr} onChange={(e) => e.target.value && setDayStr(e.target.value)} style={{ width: 180 }} />
+                <Button small kind="ghost" onClick={() => setDayStr(eatToday())}>Today</Button>
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="field-label" id="bk-st">Status</div>
+            <div className="chips" role="group" aria-labelledby="bk-st">
+              <button type="button" className={`chip ${picked.length === 0 ? 'on' : ''}`} aria-pressed={picked.length === 0} onClick={() => setPicked([])}>All</button>
+              {FILTERS.map((f) => <button type="button" key={f.key} className={`chip ${picked.includes(f.key) ? 'on' : ''}`} aria-pressed={picked.includes(f.key)} onClick={() => toggleKey(f.key)}>{f.label}</button>)}
+            </div>
+          </div>
+          {!!resources.data?.length && (
+            <label className="field" style={{ margin: 0, maxWidth: 320 }}>
+              <span className="field-label">What was booked</span>
+              <select value={resource} onChange={(e) => setResource(e.target.value)}>
+                <option value="">Everything</option>
+                {resources.data.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </label>
+          )}
+        </section>
         <div className="tiny">Notes are private. Only people who answer a request can read them.</div>
-        <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-          {d.data && (d.data.length === 0
-            ? <Empty>{tab === 'need' ? 'Nothing is waiting for you.' : tab === 'up' ? 'No bookings coming up.' : 'No past bookings.'}</Empty>
-            : <div>{d.data.map((b) => (
-              <BookingCard key={b.id} b={b} canManage={canManage}
-                onApprove={(it) => post(`/bookings/${b.id}/items/${it.resourceId}/decide`, { approve: true, reason: '' }, `Approved ${it.name}`)}
-                onDecline={(it) => setDeciding({ b, it })} onCancel={() => setCancelling(b)}
-                onComplete={(o) => post(`/bookings/${b.id}/complete`, { outcome: o }, o === 'completed' ? 'Marked as done' : 'Marked as no show')} />
-            ))}</div>)}
+        <Load loading={list.loading} error={list.error} hasData={!!list.data}>
+          {list.data && (rows.length === 0
+            ? <Empty>No bookings match these choices.</Empty>
+            : (
+              <>
+                <div className="tiny">{rows.length} {rows.length === 1 ? 'booking' : 'bookings'}{waiting ? `. ${waiting} for you to answer.` : ''}</div>
+                <Table head={['When', 'Booking', 'Asked by', 'What', 'Status', 'Price', '']}>
+                  {rows.map((b) => {
+                    const st = STATUS[b.status] ?? { text: b.status, tone: 'muted' as const };
+                    const mine = b.status === 'requested' ? b.items.filter((i: any) => i.mine && i.status === 'requested') : [];
+                    return (
+                      <tr key={b.id}>
+                        <td style={{ whiteSpace: 'nowrap' }}><b>{day(b.startsAt)}</b><div className="tiny">{clock(b.startsAt)} to {clock(b.endsAt)}</div></td>
+                        <td style={{ minWidth: 140 }}>{b.title}<div className="tiny">Code {b.code}{b.attendees ? `, ${b.attendees} people` : ''}</div></td>
+                        <td>{b.requester}</td>
+                        <td>{b.items.map((it: any) => <div key={it.resourceId}>{it.name} {b.items.length > 1 && <Badge tone={(ITEM[it.status] ?? ITEM.requested).tone}>{(ITEM[it.status] ?? ITEM.requested).text}</Badge>}</div>)}</td>
+                        <td><Badge tone={st.tone}>{st.text}</Badge>{b.status === 'awaiting_payment' && b.holdUntil && <div className="tiny">until {day(b.holdUntil)}, {clock(b.holdUntil)}</div>}</td>
+                        <td>{b.price == null ? 'Free' : <>{kes(b.price)}<div className="tiny">{b.paid ? 'Paid' : 'Not paid'}</div></>}</td>
+                        <td><div className="row">
+                          {mine.length === 1 && <Button small onClick={() => post(`/bookings/${b.id}/items/${mine[0].resourceId}/decide`, { approve: true, reason: '' }, `Approved ${mine[0].name}`)}>Approve</Button>}
+                          {mine.length === 1 && <Button small kind="ghost" onClick={() => setDeciding({ b, it: mine[0] })}>Decline</Button>}
+                          <Button small kind="ghost" onClick={() => setOpen(b)}>{mine.length > 1 ? 'Answer' : 'Details'}</Button>
+                        </div></td>
+                      </tr>
+                    );
+                  })}
+                </Table>
+              </>
+            ))}
         </Load>
       </div>
+      {open && (
+        <Modal title={open.title} onClose={() => setOpen(null)}>
+          <BookingCard b={list.data?.find((x) => x.id === open.id) ?? open} canManage={canManage}
+            onApprove={(it) => post(`/bookings/${open.id}/items/${it.resourceId}/decide`, { approve: true, reason: '' }, `Approved ${it.name}`)}
+            onDecline={(it) => setDeciding({ b: open, it })} onCancel={() => setCancelling(open)}
+            onComplete={(o) => post(`/bookings/${open.id}/complete`, { outcome: o }, o === 'completed' ? 'Marked as done' : 'Marked as no show')} />
+        </Modal>
+      )}
       {deciding && (
         <ReasonDialog title={`Decline ${deciding.it.name}?`} label="Why not?" button="Decline" onClose={() => setDeciding(null)}
-          run={async (reason) => { await api.post(`/bookings/${deciding.b.id}/items/${deciding.it.resourceId}/decide` + s.qs({ branch: undefined }), { approve: false, reason }); setDeciding(null); toast.show('Declined'); reload(); }} />
+          run={async (reason) => { await api.post(`/bookings/${deciding.b.id}/items/${deciding.it.resourceId}/decide` + s.qs({ branch: undefined }), { approve: false, reason }); setDeciding(null); setOpen(null); toast.show('Declined'); reload(); }} />
       )}
       {cancelling && (
         <ReasonDialog title="Cancel this booking?" note="The member is told. If they paid, arrange any refund through Payment help." label="Why is it cancelled?" button="Cancel booking" onClose={() => setCancelling(null)}
-          run={async (reason) => { await api.post(`/bookings/${cancelling.id}/cancel` + s.qs({ branch: undefined }), { reason }); setCancelling(null); toast.show('Booking cancelled'); reload(); }} />
+          run={async (reason) => { await api.post(`/bookings/${cancelling.id}/cancel` + s.qs({ branch: undefined }), { reason }); setCancelling(null); setOpen(null); toast.show('Booking cancelled'); reload(); }} />
       )}
       {toast.node}
     </div>
