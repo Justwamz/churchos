@@ -347,3 +347,25 @@ describe('calendar and reminders (L146, L147)', () => {
     expect((await call(ADMIN, 'POST', `/bookings/${r.id}/complete`, {})).statusCode).toBe(409);
   });
 });
+
+describe('searching bookings', () => {
+  it('finds a booking by its code, the member or the reason, and treats wildcards as plain text', async () => {
+    const t = when(3, '09:00', 20);
+    const made = (await book(AMINA, ['res_pastor'], t, 30, { title: 'Zebra picnic planning' })).json();
+    const all = (await call(OWNER, 'GET', '/bookings')).json();
+    const mine = all.find((b: any) => b.id === made.id);
+    const ids = async (q: string) => (await call(OWNER, 'GET', `/bookings?q=${encodeURIComponent(q)}`)).json().map((b: any) => b.id);
+    expect(await ids(mine.code)).toEqual([made.id]);
+    expect(await ids(mine.code.toLowerCase())).toEqual([made.id]); // not case sensitive
+    expect(await ids('amina')).toContain(made.id);
+    expect(await ids('Hassan')).toContain(made.id);
+    expect(await ids('zebra picnic')).toEqual([made.id]);
+    expect(await ids('nobody-by-this-name')).toEqual([]);
+    expect(await ids('%')).toEqual([]); // a wildcard is not a match-everything
+    expect(await ids('_')).toEqual([]);
+    expect((await call(HOPE, 'GET', `/bookings?q=${encodeURIComponent('amina')}`)).json()).toEqual([]); // another church sees nothing
+    const jane = (await call(OWNER, 'GET', '/bookings?q=Jane')).json();
+    expect(jane.length).toBeGreaterThan(0);
+    expect(jane.every((b: any) => /jane/i.test(b.requester) || /jane/i.test(b.title) || /jane/i.test(b.code))).toBe(true);
+  });
+});

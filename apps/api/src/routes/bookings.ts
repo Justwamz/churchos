@@ -546,6 +546,9 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     if (q.status) { params.push(String(q.status).split(',')); where += ` AND b.status = ANY($${params.length}::text[])`; }
     if (q.from) { params.push(new Date(String(q.from)).toISOString()); where += ` AND b.ends_at >= $${params.length}`; }
     if (q.to) { params.push(new Date(String(q.to)).toISOString()); where += ` AND b.starts_at <= $${params.length}`; }
+    // Search by booking code, the member's name or the reason for the booking. Wildcard characters typed by the user are taken literally.
+    const term = String(q.q ?? '').trim().slice(0, 60);
+    if (term) { params.push(`%${term.replace(/[!%_]/g, (c) => `!${c}`)}%`); where += ` AND (b.code ILIKE $${params.length} ESCAPE '!' OR b.requester_name ILIKE $${params.length} ESCAPE '!' OR b.title ILIKE $${params.length} ESCAPE '!')`; }
     if (q.resource) { params.push(String(q.resource)); where += ` AND EXISTS (SELECT 1 FROM booking_items i WHERE i.booking_id=b.id AND i.resource_id=$${params.length})`; }
     const rows = await ctx.db.query<any>(`SELECT b.* FROM bookings b WHERE ${where} ORDER BY b.starts_at DESC LIMIT 300`, params);
     const out = [];

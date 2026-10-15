@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
@@ -127,6 +127,9 @@ export function Bookings() {
   const [dayStr, setDayStr] = useState(eatToday);
   const [picked, setPicked] = useState<string[]>([]); // filter keys, empty means every status
   const [resource, setResource] = useState('');
+  const [search, setSearch] = useState('');
+  const [term, setTerm] = useState(''); // the search as sent, a moment after typing stops
+  useEffect(() => { const t = setTimeout(() => setTerm(search.trim()), 300); return () => clearTimeout(t); }, [search]);
   const [open, setOpen] = useState<any>(null);
   const [deciding, setDeciding] = useState<{ b: any; it: any } | null>(null);
   const [cancelling, setCancelling] = useState<any>(null);
@@ -135,8 +138,8 @@ export function Bookings() {
   const { from, to } = range(mode, month, dayStr);
   const statuses = picked.length ? FILTERS.filter((f) => picked.includes(f.key)).map((f) => f.statuses).join(',') : '';
   const list = useAsync<any[]>(
-    () => api.get(`/bookings${s.qs({ branch: undefined, status: statuses || undefined, from, to, resource: resource || undefined })}`),
-    [s.grant.org.id, statuses, from, to, resource],
+    () => api.get(`/bookings${s.qs({ branch: undefined, status: statuses || undefined, from, to, resource: resource || undefined, q: term || undefined })}`),
+    [s.grant.org.id, statuses, from, to, resource, term],
   );
   const reload = () => list.reload();
   const post = async (path: string, body: any, msg: string) => {
@@ -151,6 +154,10 @@ export function Bookings() {
       <PageHead title="Bookings" sub="Requests to use a place, a person's time or something your church owns." />
       <div className="stack">
         <section className="card bk-filters">
+          <label className="field" style={{ margin: 0 }}>
+            <span className="field-label">Search</span>
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Booking code, member name or reason" maxLength={60} autoComplete="off" />
+          </label>
           <div className="bk-filter-row">
             <div className="chips" role="group" aria-label="Which dates">
               <button type="button" className={`chip ${mode === 'month' ? 'on' : ''}`} aria-pressed={mode === 'month'} onClick={() => setMode('month')}>By month</button>
@@ -192,7 +199,7 @@ export function Bookings() {
         <div className="tiny">Notes are private. Only people who answer a request can read them.</div>
         <Load loading={list.loading} error={list.error} hasData={!!list.data}>
           {list.data && (rows.length === 0
-            ? <Empty>No bookings match these choices.</Empty>
+            ? <Empty>{term ? `No bookings match "${term}" with these choices. Try All dates and All statuses.` : 'No bookings match these choices.'}</Empty>
             : (
               <>
                 <div className="tiny">{rows.length} {rows.length === 1 ? 'booking' : 'bookings'}{waiting ? `. ${waiting} for you to answer.` : ''}</div>
