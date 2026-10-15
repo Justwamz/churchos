@@ -17,6 +17,7 @@ import { walletRoutes } from './routes/wallets';
 import { tariffRoutes } from './routes/tariffs';
 import { providerRoutes } from './routes/providers';
 import { advertRoutes } from './routes/adverts';
+import { communityRoutes } from './routes/community';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -87,6 +88,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   tariffRoutes(app, ctx);
   providerRoutes(app, ctx);
   advertRoutes(app, ctx);
+  communityRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

@@ -380,6 +380,94 @@ CREATE TABLE IF NOT EXISTS advert_seen (
   PRIMARY KEY (advert_id, user_id, day, kind)
 );
 
+-- Notice board, events and group walls (L133 to L139). Times are ISO text so they compare directly.
+CREATE TABLE IF NOT EXISTS notices (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  title text NOT NULL,
+  body text NOT NULL,
+  audience jsonb NOT NULL,
+  pinned boolean NOT NULL DEFAULT false,
+  publish_at text NOT NULL,
+  expires_at text,
+  notify boolean NOT NULL DEFAULT false,
+  notified boolean NOT NULL DEFAULT false,
+  status text NOT NULL DEFAULT 'published' CHECK (status IN ('published','archived')),
+  created_by text NOT NULL,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  title text NOT NULL,
+  description text,
+  location text,
+  starts_at text NOT NULL,
+  ends_at text,
+  audience jsonb NOT NULL,
+  rsvp boolean NOT NULL DEFAULT false,
+  capacity int,
+  status text NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','cancelled')),
+  cancel_reason text,
+  reminder_sent boolean NOT NULL DEFAULT false,
+  created_by text NOT NULL,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS event_rsvps (
+  event_id text NOT NULL,
+  user_id text NOT NULL,
+  org_id text NOT NULL,
+  name text NOT NULL,
+  response text NOT NULL CHECK (response IN ('going','not_going')),
+  guests int NOT NULL DEFAULT 0,
+  updated_at text NOT NULL,
+  PRIMARY KEY (event_id, user_id)
+);
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS join_policy text NOT NULL DEFAULT 'invite';
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS posting text NOT NULL DEFAULT 'members';
+CREATE TABLE IF NOT EXISTS group_posts (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  group_id text NOT NULL,
+  author_id text NOT NULL,
+  author_name text NOT NULL,
+  kind text NOT NULL DEFAULT 'post' CHECK (kind IN ('post','announcement')),
+  body text NOT NULL,
+  pinned boolean NOT NULL DEFAULT false,
+  created_at text NOT NULL,
+  deleted_at text,
+  deleted_by text
+);
+CREATE INDEX IF NOT EXISTS group_posts_idx ON group_posts(group_id, created_at);
+CREATE TABLE IF NOT EXISTS group_comments (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  group_id text NOT NULL,
+  post_id text NOT NULL,
+  author_id text NOT NULL,
+  author_name text NOT NULL,
+  body text NOT NULL,
+  created_at text NOT NULL,
+  deleted_at text,
+  deleted_by text
+);
+CREATE TABLE IF NOT EXISTS group_join_requests (
+  group_id text NOT NULL,
+  user_id text NOT NULL,
+  org_id text NOT NULL,
+  membership_id text NOT NULL,
+  name text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined','withdrawn')),
+  decided_by text,
+  decided_at text,
+  created_at text NOT NULL,
+  PRIMARY KEY (group_id, user_id)
+);
+
 -- One pending confirmation code per person (L123).
 CREATE TABLE IF NOT EXISTS email_codes (
   user_id text PRIMARY KEY,
@@ -536,7 +624,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

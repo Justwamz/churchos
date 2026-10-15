@@ -256,6 +256,15 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 
 ---
 
+### 4.25 Notice board, events and group walls (details of L52 to L54)
+- **L133. A notice board for the congregation.** Staff with the notices permission publish notices with a headline, text, optional pin, and a start and optional end time. The audience is the whole church, a branch or a group, chosen the same way as for adverts and limited to what the publisher manages. Members see the notices meant for them on the member app, pinned first, then newest. A notice can also send an in-app alert when it goes live, never an SMS (use Messages for that).
+- **L134. An events calendar.** Staff with the events permission create events with a title, description, place, start and end, and an audience (whole church, branch or group). Members see upcoming events meant for them as an agenda. An event can be cancelled, and members who said they are going are told. Past events leave the agenda.
+- **L135. RSVP.** An event can ask for replies. A member answers Going or Not going, and may bring up to 10 guests who count towards a capacity if the event has one. A full event shows as full and takes no more Going replies, but a member can always change to Not going. Staff see counts and the names of people going, never phone numbers. Members who are going get an in-app reminder 24 hours before the start.
+- **L136. Group walls.** Each group has a private wall that only its members can read (L53). Members and leaders post, and members comment. A group can be set so that only leaders post. A leader can post an announcement that stays at the top, pin or remove any post or comment, and may also send it as an in-app alert to the group. An author can delete their own. Church admins see the group list and sizes, never the wall, unless they are in that group.
+- **L137. Joining groups.** A group is either by invitation (staff or leaders add people, the first version) or open to requests. For an open group a member asks to join from the app and a leader approves or declines. A member sees their own pending requests.
+- **L138. Children.** Children have no app. Notices, events and wall posts reach their guardians, who can RSVP for the whole household using the guests count.
+- **L139. Privacy and audit.** Creating, changing, pinning, cancelling and removing notices, events and group posts is audited with who and when. The audit log never stores the text of wall posts or comments, only that they were posted or removed. RSVP lists show names only to staff who manage events.
+
 ## 5. Money engine
 
 This section details the model adopted as **L20**. It is the most important part of the platform, and the one that must be right the first time.

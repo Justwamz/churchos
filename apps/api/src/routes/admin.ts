@@ -8,6 +8,7 @@ import { applyDuePayoutChanges } from './kyc';
 import { diff, FEE_SPECS, flattenFees, maskedSnapshot, recordVersion } from '../audit';
 import { runMemberHousekeeping } from '../members';
 import { runScheduledMessages } from '../messages';
+import { runCommunityJobs } from './community';
 
 function validSchedule(s: any): s is FeeSchedule {
   const rule = s?.platform;
@@ -158,7 +159,8 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const released = await ctx.ledger.releasePending();
     const housekeeping = await runMemberHousekeeping(ctx);
     const messagesSent = await runScheduledMessages(ctx);
-    return { now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, messagesSent, ...housekeeping };
+    const community = await runCommunityJobs(ctx);
+    return { community, now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, messagesSent, ...housekeeping };
   });
 
   app.post('/admin/provider/fail-next-payout', devAdm, async () => {

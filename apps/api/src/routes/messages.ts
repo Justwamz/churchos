@@ -210,7 +210,7 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/groups', auth, async (req) => {
     const sc = await groupScope(req, 'members.view');
     const rows = await ctx.db.query<any>(
-      `SELECT g.id, g.name, g.description, g.branch_id, b.name AS branch_name, g.created_at,
+      `SELECT g.id, g.name, g.description, g.branch_id, g.join_policy, g.posting, b.name AS branch_name, g.created_at,
               (SELECT COUNT(*) FROM group_members gm WHERE gm.group_id=g.id) AS member_count,
               (SELECT string_agg(m.full_name, ', ' ORDER BY m.full_name) FROM group_members gm JOIN memberships m ON m.id=gm.membership_id WHERE gm.group_id=g.id AND gm.role='leader') AS leaders
          FROM groups g LEFT JOIN branches b ON b.id=g.branch_id WHERE g.org_id=$1 AND (g.branch_id IS NULL OR g.branch_id = ANY($2::text[])) ORDER BY g.name`,
@@ -229,7 +229,9 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
     const dupe = (await ctx.db.query<any>(`SELECT 1 FROM groups WHERE org_id=$1 AND lower(name)=lower($2) AND COALESCE(branch_id,'')=$3`, [sc.orgId, name, branchId ?? '']))[0];
     if (dupe) throw new HttpError(409, 'A group with that name already exists', 'duplicate');
     const id = ctx.newId('grp');
-    await ctx.db.query(`INSERT INTO groups (id, org_id, branch_id, name, description, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [id, sc.orgId, branchId, name, String(b.description ?? '').trim().slice(0, 300) || null, req.session!.uid, ctx.clock.now().toISOString()]);
+    const joinPolicy = b.joinPolicy === 'request' ? 'request' : 'invite';
+    const posting = b.posting === 'leaders' ? 'leaders' : 'members';
+    await ctx.db.query(`INSERT INTO groups (id, org_id, branch_id, name, description, created_by, created_at, join_policy, posting) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, sc.orgId, branchId, name, String(b.description ?? '').trim().slice(0, 300) || null, req.session!.uid, ctx.clock.now().toISOString(), joinPolicy, posting]);
     await ctx.ledger.audit({ orgId: sc.orgId, branchId, actor: req.session!.uid, action: 'group.create', category: 'member', entity: 'group', entityId: id, summary: `Created the group ${name}`, changes: [{ field: 'name', label: 'Name', before: null, after: name }] });
     return { id };
   });
@@ -240,8 +242,10 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
     const name = b.name !== undefined ? String(b.name).trim().replace(/\s+/g, ' ') : g.name;
     if (name.length < 2 || name.length > 80) throw new HttpError(400, 'Give the group a name of 2 to 80 characters', 'bad_name');
     const description = b.description !== undefined ? String(b.description).trim().slice(0, 300) || null : g.description;
-    await ctx.db.query(`UPDATE groups SET name=$2, description=$3 WHERE id=$1`, [g.id, name, description]);
-    const changes = diff([{ field: 'name', label: 'Name' }, { field: 'description', label: 'Description' }], g, { name, description });
+    const joinPolicy = b.joinPolicy === 'request' || b.joinPolicy === 'invite' ? b.joinPolicy : g.join_policy;
+    const posting = b.posting === 'leaders' || b.posting === 'members' ? b.posting : g.posting;
+    await ctx.db.query(`UPDATE groups SET name=$2, description=$3, join_policy=$4, posting=$5 WHERE id=$1`, [g.id, name, description, joinPolicy, posting]);
+    const changes = diff([{ field: 'name', label: 'Name' }, { field: 'description', label: 'Description' }, { field: 'join_policy', label: 'How people join' }, { field: 'posting', label: 'Who can post on the wall' }], g, { name, description, join_policy: joinPolicy, posting });
     if (changes.length) await ctx.ledger.audit({ orgId: sc.orgId, branchId: g.branch_id, actor: req.session!.uid, action: 'group.update', category: 'member', entity: 'group', entityId: g.id, summary: `Updated the group ${name}`, changes });
     return { ok: true };
   });
@@ -257,7 +261,7 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
     const phones = rows.map((r) => r.phone).filter(Boolean);
     if (phones.length) for (const p of await ctx.db.query<any>(`SELECT phone, whatsapp_opt_in, sms_opt_out FROM contact_prefs WHERE phone = ANY($1::text[])`, [phones])) prefs.set(p.phone, p);
     return {
-      id: g.id, name: g.name, description: g.description, branch_id: g.branch_id,
+      id: g.id, name: g.name, description: g.description, branch_id: g.branch_id, joinPolicy: g.join_policy, posting: g.posting,
       members: rows.map((r) => ({
         membershipId: r.membership_id, name: r.full_name, memberNumber: r.member_number, category: r.category, role: r.role, branch: r.branch_name,
         // What each person can receive. Never the number itself.

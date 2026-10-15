@@ -206,6 +206,33 @@ export async function seed(ctx: Ctx) {
     [JSON.stringify({ scope: { type: 'org' }, who: 'all', allowedBranchIds: ['br_grc001', 'br_grc002'] }), new Date(ctx.clock.now().getTime() + 48 * 3600_000).toISOString(), now],
   );
 
+  // Notice board, events and group walls (L133 to L139). Dates are relative to the clock so the demo always has something coming up.
+  const at = (days: number, hour = 0) => new Date(ctx.clock.now().getTime() + days * 86400_000 + hour * 3600_000).toISOString();
+  await db.query(`INSERT INTO groups (id, org_id, branch_id, name, description, created_by, created_at, join_policy, posting) VALUES ('grp_prayer','org_grace','br_grc001','Prayer Warriors','Wednesday prayer, open to everyone who wants to join','u_admin',$1,'request','members') ON CONFLICT DO NOTHING`, [now]);
+  await db.query(`INSERT INTO group_members (group_id, membership_id, org_id, role, added_at) VALUES ('grp_prayer','m_jane','org_grace','leader',$1), ('grp_prayer','m_david','org_grace','member',$1) ON CONFLICT DO NOTHING`, [now]);
+  await db.query(
+    `INSERT INTO notices (id, org_id, branch_id, title, body, audience, pinned, publish_at, expires_at, notify, notified, created_by, created_at, updated_at) VALUES
+      ('ntc_welcome','org_grace',NULL,'Welcome to Grace Community Church','We are glad you are here. Services are at 8am and 10am every Sunday. Tea and fellowship follow the second service.','{"type":"org"}',true,$1,NULL,false,false,'u_owner',$1,$1),
+      ('ntc_harvest','org_grace',NULL,'Harvest Sunday is coming','Bring your first fruits to the second service on the last Sunday of the month. Every gift goes to the roof project.','{"type":"org"}',false,$1,$2,false,false,'u_owner',$1,$1),
+      ('ntc_nbo','org_grace','br_grc001','Parking at Nairobi','Please use the side gate on Kiambu Road while the main car park is repaired.','{"type":"branch","id":"br_grc001"}',false,$1,$2,false,false,'u_admin',$1,$1) ON CONFLICT DO NOTHING`,
+    [now, at(21)],
+  );
+  await db.query(
+    `INSERT INTO events (id, org_id, branch_id, title, description, location, starts_at, ends_at, audience, rsvp, capacity, created_by, created_at, updated_at) VALUES
+      ('evt_carols','org_grace',NULL,'Christmas Carols Night','An evening of carols, a children''s choir and tea. Bring your family.','Main sanctuary, Nairobi',$2,$3,'{"type":"org"}',true,150,'u_owner',$1,$1),
+      ('evt_movie','org_grace','br_grc001','Youth Movie Night','Popcorn and a film for the youth.','Parish hall',$4,$5,'{"type":"group","id":"grp_youth"}',true,30,'u_admin',$1,$1),
+      ('evt_prayer','org_grace',NULL,'Day of prayer and fasting','Join us at any time between 6am and 6pm.','Main sanctuary, Nairobi',$6,$7,'{"type":"org"}',false,NULL,'u_owner',$1,$1) ON CONFLICT DO NOTHING`,
+    [now, at(9, 17), at(9, 20), at(3, 18), at(3, 21), at(5, 6), at(5, 18)],
+  );
+  await db.query(`INSERT INTO event_rsvps (event_id, user_id, org_id, name, response, guests, updated_at) VALUES ('evt_carols','u_david','org_grace','David Wanjiku','going',2,$1) ON CONFLICT DO NOTHING`, [now]);
+  await db.query(
+    `INSERT INTO group_posts (id, org_id, group_id, author_id, author_name, kind, body, pinned, created_at) VALUES
+      ('gpo_1','org_grace','grp_youth','u_peter','Peter Otieno','announcement','Welcome to Youth Fellowship. We meet Fridays at 6pm. Be kind to each other and be on time.',true,$1),
+      ('gpo_2','org_grace','grp_youth','u_amina','Amina Hassan','post','Who is bringing the speakers for the movie night?',false,$1) ON CONFLICT DO NOTHING`,
+    [now],
+  );
+  await db.query(`INSERT INTO group_comments (id, org_id, group_id, post_id, author_id, author_name, body, created_at) VALUES ('gco_1','org_grace','grp_youth','gpo_2','u_peter','Peter Otieno','I will. The hall has a projector as well.',$1) ON CONFLICT DO NOTHING`, [now]);
+
   // Adverts for the member app's home slider (L130 to L132). Daniel approves what Samuel creates. Artwork is generated so the slider has something to show.
   const art = (a: [number, number, number], b: [number, number, number]) => gradientPng(1280, 720, a, b);
   const inTwoWeeks = new Date(ctx.clock.now().getTime() + 14 * 86400_000).toISOString();
