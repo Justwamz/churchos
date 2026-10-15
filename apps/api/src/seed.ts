@@ -240,9 +240,9 @@ export async function seed(ctx: Ctx) {
   await db.query(
     `INSERT INTO resources (id, org_id, branch_id, kind, name, description, capacity, owner_user_id, slot_minutes, max_minutes, hours, min_notice_hours, max_advance_days, approval, price, price_per, created_by, created_at, updated_at) VALUES
       ('res_pastor','org_grace','br_grc001','person','Pastor Daniel','Talk to the pastor, pray together or plan a visit. Sessions are 30 minutes.',NULL,'u_owner',30,60,$1,12,60,'manual',NULL,'booking','u_owner',$5,$5),
-      ('res_hall','org_grace','br_grc001','place','Main hall, Nairobi','Seats 200. Chairs, tables and a kitchen are included.',200,NULL,60,480,$2,24,180,'manual',150000,'hour','u_owner',$5,$5),
-      ('res_sound','org_grace','br_grc001','thing','Sound system','Speakers, two microphones and a mixer.',NULL,NULL,60,240,$3,24,90,'auto',NULL,'booking','u_owner',$5,$5),
-      ('res_grounds','org_grace','br_grc002','place','Church grounds, Mombasa','Open grounds for weddings and picnics.',500,NULL,60,480,$4,48,180,'auto',NULL,'booking','u_owner',$5,$5) ON CONFLICT DO NOTHING`,
+      ('res_hall','org_grace','br_grc001','place','Main hall, Nairobi','Seats 200. Chairs, tables and a kitchen are included.',200,NULL,60,480,$2,12,180,'manual',150000,'hour','u_owner',$5,$5),
+      ('res_sound','org_grace','br_grc001','thing','Sound system','Speakers, two microphones and a mixer.',NULL,NULL,60,240,$3,6,90,'auto',NULL,'booking','u_owner',$5,$5),
+      ('res_grounds','org_grace','br_grc002','place','Church grounds, Mombasa','Open grounds for weddings and picnics.',500,NULL,60,480,$4,12,180,'auto',NULL,'booking','u_owner',$5,$5) ON CONFLICT DO NOTHING`,
     [
       JSON.stringify(week([['09:00', '12:00'], ['14:00', '17:00']])),
       JSON.stringify(week([['08:00', '21:00']], ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])),

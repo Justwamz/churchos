@@ -191,6 +191,15 @@ function BookForm({ r, all, onBooked, onSeeMine, onClose }: { r: any; all: any[]
   const av = useAsync<any>(() => api.get(`/me/resources/${encodeURIComponent(r.id)}/availability?date=${date}&minutes=${minutes}`), [date, minutes, tick]);
   useEffect(() => { setSlot(null); }, [date, minutes, tick]);
   const slots: { startsAt: string; endsAt: string }[] = av.data?.slots ?? [];
+  // The notice rule can leave the first days with nothing free (for example late in the evening for something that needs a day's notice).
+  // Until the member picks a day themselves, move on to the first day that has free times.
+  const [chosen, setChosen] = useState(false);
+  const nextWithDay = () => { const i = days.findIndex((d) => d.date === date); return days.slice(i + 1).find(open); };
+  useEffect(() => {
+    if (chosen || av.loading || !av.data || slots.length > 0) return;
+    const n = nextWithDay();
+    if (n) setDate(n.date);
+  }, [av.loading, av.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const others = all.filter((x) => x.id !== r.id && x.church === r.church);
   const toggle = (id: string) => setExtra((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length >= 4 ? c : [...c, id]));
@@ -241,7 +250,7 @@ function BookForm({ r, all, onBooked, onSeeMine, onClose }: { r: any; all: any[]
           <div className="field-label">Which day?</div>
           <div className="date-strip" role="listbox" aria-label="Choose a day">
             {days.map((d) => (
-              <button type="button" key={d.date} role="option" aria-selected={date === d.date} className={`date-chip ${date === d.date ? 'on' : ''} ${open(d) ? '' : 'closed'}`} onClick={() => setDate(d.date)}>
+              <button type="button" key={d.date} role="option" aria-selected={date === d.date} className={`date-chip ${date === d.date ? 'on' : ''} ${open(d) ? '' : 'closed'}`} onClick={() => { setChosen(true); setDate(d.date); }}>
                 <i>{d.wk}</i><b>{d.day}</b><i>{d.mon}</i>
               </button>
             ))}
@@ -261,7 +270,10 @@ function BookForm({ r, all, onBooked, onSeeMine, onClose }: { r: any; all: any[]
         <div>
           <div className="field-label">What time?</div>
           {av.loading ? <Skeleton lines={1} /> : av.error ? <p className="tiny">We could not load the times. <button type="button" className="link-btn tiny-link" onClick={av.reload}>Try again</button></p> : !slots.length ? (
-            <p className="mini-empty">No free times on this day</p>
+            <div className="stack">
+              <p className="mini-empty">No free times on this day</p>
+              {nextWithDay() && <Button kind="ghost" small onClick={() => { setChosen(true); setDate(nextWithDay()!.date); }}>Show the next day</Button>}
+            </div>
           ) : (
             <div className="chips bk-chips">
               {slots.map((s) => <button type="button" key={s.startsAt} className={`chip ${slot?.startsAt === s.startsAt ? 'on' : ''}`} aria-pressed={slot?.startsAt === s.startsAt} onClick={() => setSlot(s)}>{slotTime(s.startsAt)}</button>)}
