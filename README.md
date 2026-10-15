@@ -110,3 +110,10 @@ needs a float policy for this.
 - **Events and RSVP** (staff > Events; member Home "Coming up"): "Christmas Carols Night" is for the whole church (capacity 150, David is already coming with two guests). "Youth Movie Night" is for the Youth Fellowship only. Reply as Jane (`0711000001`) with guests, then watch the counts in staff. In Test tools advance the clock to see the 24-hour reminder.
 - **Group walls** (member Groups tab): Youth Fellowship has a pinned leader announcement and a conversation. Sign in as Peter (`0711000002`, leader) or Amina (`0711000003`). Jane is not in the group, so the wall does not exist for her, and neither does it for church admins.
 - **Joining groups:** "Prayer Warriors" is open to requests (Jane leads). Ask to join as Peter or Amina under **Find a group**, then approve as Jane.
+
+## Bookings and assets (Slice 8)
+
+- **Resources** (staff > Resources): a pastor's diary (Pastor Daniel, owned by Daniel, 30 minute sessions Monday to Friday), the Main hall in Nairobi (KES 1,500 per hour, approved by the branch), a Sound system (approved automatically, weekends) and the Mombasa grounds (automatic, daily). Hours, booking length, minimum notice, price and approval are all set per resource. Block out times for repairs or leave.
+- **Book as a member** (member app > Home > Book): sign in as Jane (`0711000001`), choose Pastor Daniel, pick a free time and send. Daniel (`0700000001`) sees it in **My diary** in the member app or under **Bookings** in the staff app and approves it. Try asking for the pastor and the hall together: both must say yes.
+- **Paid booking:** book the Main hall as Peter (`0711000002`). Samuel (`0700000003`, Nairobi branch admin) approves it, and Peter gets a **Pay** button (a giving page, `/?booking=CODE`). Pay and it is confirmed. Leave it unpaid and advance the clock 25 hours in the admin Test tools and the time is released.
+- **Calendar** (staff > Calendar): confirmed bookings and events together, filtered by resource. Notes members write are private to them and whoever answers the request.

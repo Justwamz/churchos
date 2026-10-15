@@ -230,5 +230,31 @@ step('The group leader sees the request', s7Req.status === 200 && s7Req.json.som
 const s7Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 7 activity', s7Rec.json.ok === true);
 
+// 16. Slice 8: resources, availability, bookings, approval and payment.
+const s8Day = (() => { const d = new Date(Date.now() + 3 * 3600_000 + 9 * 86400_000); while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); })();
+const s8Res = await call('GET', '/me/resources', undefined, janeTok);
+step('A member sees what the church lets them book', s8Res.status === 200 && ['Pastor Daniel', 'Main hall, Nairobi', 'Sound system'].every((n) => s8Res.json.some((r) => r.name === n)), s8Res.json.map((r) => r.name).join(', '));
+const s8Av = await call('GET', `/me/resources/res_pastor/availability?date=${s8Day}`, undefined, janeTok);
+step('Free times are listed inside the working hours', s8Av.status === 200 && s8Av.json.slots.length === 12, `${s8Av.json.slots?.length} slots`);
+const s8Slot = s8Av.json.slots[3];
+const s8Bk = await call('POST', '/me/bookings', { resourceIds: ['res_pastor'], startsAt: s8Slot.startsAt, endsAt: s8Slot.endsAt, title: 'Smoke visit', note: 'private note' }, janeTok);
+step('A booking request goes to the pastor', s8Bk.status === 200 && s8Bk.json.status === 'requested');
+const s8Dup = await call('POST', '/me/bookings', { resourceIds: ['res_pastor'], startsAt: s8Slot.startsAt, endsAt: s8Slot.endsAt, title: 'Same time' }, peter);
+step('The same time cannot be booked twice once it is confirmed', (await call('POST', `/me/diary/${s8Bk.json.id}/decide`, { approve: true }, daniel)).json.status === 'confirmed' && (await call('POST', '/me/bookings', { resourceIds: ['res_pastor'], startsAt: s8Slot.startsAt, endsAt: s8Slot.endsAt, title: 'Same time' }, peter)).status === 409);
+const s8Cal = await call('GET', '/calendar', undefined, daniel);
+step('Confirmed bookings and events share one staff calendar', s8Cal.status === 200 && s8Cal.json.some((c) => c.type === 'booking' && c.title === 'Smoke visit') && s8Cal.json.some((c) => c.type === 'event'));
+const s8Hall = await call('GET', `/me/resources/res_hall/availability?date=${s8Day}&minutes=120`, undefined, peter);
+const s8H = s8Hall.json.slots[4];
+const s8HB = await call('POST', '/me/bookings', { resourceIds: ['res_hall'], startsAt: s8H.startsAt, endsAt: s8H.endsAt, title: 'Smoke hall', attendees: 40 }, peter);
+const s8HA = await call('POST', `/bookings/${s8HB.json.id}/items/res_hall/decide`, { approve: true }, samuel);
+step('A priced booking is approved and then waits for payment', s8HB.json.price === 300000 && s8HA.json.status === 'awaiting_payment');
+const s8Code = (await call('GET', '/me/bookings', undefined, peter)).json.find((b) => b.id === s8HB.json.id).code;
+const s8Pay = await call('POST', '/public/give', { code: 'GRC001', phone: '0712000333', amount: 3000, purpose: 'BK-' + s8Code, method: 'mpesa' });
+let s8St = '';
+for (let i = 0; i < 30 && s8St !== 'confirmed'; i++) { await sleep(300); s8St = (await call('GET', '/me/bookings', undefined, peter)).json.find((b) => b.id === s8HB.json.id).status; }
+step('Paying through the giving flow confirms the booking', s8Pay.status === 200 && s8St === 'confirmed');
+const s8Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 8 activity', s8Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

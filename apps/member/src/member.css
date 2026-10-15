@@ -381,3 +381,57 @@ h3 { font-size: 17px; }
 .composer .check-row { display: flex; align-items: center; gap: 10px; min-height: 36px; }
 .composer .check-row input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; flex: none; padding: 0; }
 .app:has(.composer) > .help-fab.help-fab { display: none; } /* the wall composer needs that corner; Help is also under Me */
+
+/* ---------- slice 8: bookings ---------- */
+.bk-mini { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; background: none; border: 0; padding: 10px 0; min-height: 56px; cursor: pointer; color: var(--ink); min-width: 0; }
+.bk-mini-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.bk-mini .badge { flex: none; max-width: 45%; text-align: center; }
+.res-card { width: 100%; min-height: 44px; display: grid; gap: 6px; text-align: left; background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink); min-width: 0; }
+.res-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 17px; }
+.res-top strong { min-width: 0; overflow-wrap: anywhere; }
+.res-desc { color: var(--ink-2); font-size: 15px; }
+.res-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.bk-form { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.bk-fields { display: grid; gap: 16px; min-width: 0; }
+.bk-fields input, .bk-fields textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+.bk-submit { position: sticky; bottom: -24px; margin: 8px -20px -24px; padding: 12px 20px calc(16px + var(--safe-b)); background: linear-gradient(to top, var(--surface) 75%, transparent); z-index: 2; }
+.bk-submit .btn { width: 100%; }
+.date-strip { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 4px 2px 8px; margin: 0 -2px; max-width: 100%; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.date-chip { flex: 0 0 auto; width: 58px; min-height: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); cursor: pointer; scroll-snap-align: start; padding: 6px 2px; }
+.date-chip i { font-style: normal; font-size: 12px; color: var(--ink-3); }
+.date-chip b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.date-chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.date-chip.on i { color: rgba(255, 255, 255, 0.85); }
+.date-chip.closed:not(.on) { opacity: 0.4; }
+.bk-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.bk-chips .chip { min-width: 0; padding: 10px 14px; }
+.bk-when { margin: 8px 0 0; }
+.bk-price { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.bk-price strong { font-family: var(--serif); font-size: 20px; color: var(--brand); }
+.bk-extra { display: grid; gap: 8px; min-width: 0; }
+.bk-extra .link-btn { justify-self: start; padding-left: 0; }
+.bk-extra-name { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.bk-result { text-align: center; justify-items: center; padding-top: 8px; }
+.bk-result-ico { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-tint); color: var(--brand); }
+.bk-result-ico.good { background: var(--good-tint); color: var(--good); }
+.bk-result .btn { width: 100%; }
+.bk-sum { display: grid; gap: 2px; width: 100%; padding: 12px 14px; border-radius: var(--r-md); background: var(--brand-tint); text-align: left; overflow-wrap: anywhere; }
+.bk-sum span { font-size: 14px; color: var(--ink-2); }
+.bk-card { display: grid; gap: 8px; }
+.bk-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.bk-title { min-width: 0; overflow-wrap: anywhere; font-size: 17px; }
+.bk-card-top .badge { flex: none; max-width: 50%; text-align: center; }
+.bk-items { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.bk-items li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 14px; color: var(--ink-2); }
+.bk-items .badge { flex: none; }
+.bk-note { margin: 0; padding: 8px 12px; border-radius: 12px; background: var(--paper); font-size: 14px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.bk-pay { display: grid; gap: 6px; }
+.bk-pay-btn { display: flex; align-items: center; justify-content: center; min-height: 52px; font-size: 18px; text-decoration: none; text-align: center; }
+.bk-cancel, .bk-actions .btn { min-height: 44px; }
+.bk-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+/* Found in screenshots: a grid column sized to its content let the date strip and time chips push the sheet wider than the screen. */
+.bk-fields { grid-template-columns: minmax(0, 1fr); }
+.bk-fields > * { min-width: 0; }
+.date-strip { min-width: 0; }
+.sheet-body > * { min-width: 0; max-width: 100%; }

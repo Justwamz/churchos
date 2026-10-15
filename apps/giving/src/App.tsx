@@ -37,6 +37,10 @@ interface Church {
 }
 interface CertInfo { serial: string; kind: string; price: number; churchCode: string; church: string; purpose: string }
 interface AdInfo { code: string; title: string; advertiser: string; price: number; startsAt: string; endsAt: string | null; churchCode: string; church: string; purpose: string }
+interface BookingInfo { code: string; title: string; price: number; startsAt: string; endsAt: string; holdUntil: string; resources: string[]; churchCode: string; church: string; purpose: string }
+const eat = (d: string, o: Intl.DateTimeFormatOptions) => new Date(d).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', ...o });
+const eatDay = (d: string) => eat(d, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
+const eatTime = (d: string) => eat(d, { hour: '2-digit', minute: '2-digit', hour12: false });
 interface Intent { status: string; church: string; purpose: string; amountPaid: number | string; receipt: string | null }
 
 function PhoneField({ method, phone, setPhone, error }: { method: string; phone: string; setPhone: (v: string) => void; error?: string }) {
@@ -137,10 +141,49 @@ function AdPage() {
   );
 }
 
+function BookingPage() {
+  const [search] = useSearchParams();
+  const code = search.get('booking') ?? '';
+  const [booking, setBooking] = useState<BookingInfo | null | undefined>(undefined);
+  const [church, setChurch] = useState<Church | null | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    setBooking(undefined); setChurch(undefined);
+    api.get<BookingInfo>(`/public/booking/${encodeURIComponent(code)}`)
+      .then((b) => {
+        if (!alive) return;
+        setBooking(b);
+        return api.get<Church>(`/public/church/${encodeURIComponent(b.churchCode)}`)
+          .then((c) => alive && setChurch(c))
+          .catch(() => alive && setChurch(null));
+      })
+      .catch(() => alive && setBooking(null));
+    return () => { alive = false; };
+  }, [code]);
+
+  if (booking === undefined || (booking && church === undefined)) return <Shell title="One moment"><Spinner /></Shell>;
+  if (!booking || !church) {
+    return (
+      <Shell title="Booking payment">
+        <Card>
+          <Note tone="warn">There is no booking waiting for payment under this link. It may already be paid, or the time may have been released because payment did not arrive within 24 hours. Please book again in the app.</Note>
+        </Card>
+      </Shell>
+    );
+  }
+  return (
+    <Shell title={church.name} sub={church.organisation}>
+      <GiveForm church={church} booking={booking} />
+    </Shell>
+  );
+}
+
 function Home() {
   const nav = useNavigate();
   const [homeSearch] = useSearchParams();
   if (homeSearch.get('ad')) return <AdPage />;
+  if (homeSearch.get('booking')) return <BookingPage />;
   const saved = store.get(CHURCH_KEY);
   if (saved) return <Navigate to={`/${encodeURIComponent(saved)}`} replace />;
   return (
@@ -217,10 +260,10 @@ type Phase =
   | { t: 'done'; intent: Intent; at: Date }
   | { t: 'failed' };
 
-function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: AdInfo }) {
-  const [purpose, setPurpose] = useState(cert ? cert.purpose : ad ? ad.purpose : 'OFFERING');
+function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertInfo; ad?: AdInfo; booking?: BookingInfo }) {
+  const [purpose, setPurpose] = useState(cert ? cert.purpose : ad ? ad.purpose : booking ? booking.purpose : 'OFFERING');
   const [phone, setPhone] = useState(() => store.get(PHONE_KEY) ?? '');
-  const [amountText, setAmountText] = useState(cert ? String(cert.price / 100) : ad ? String(ad.price / 100) : '');
+  const [amountText, setAmountText] = useState(cert ? String(cert.price / 100) : ad ? String(ad.price / 100) : booking ? String(booking.price / 100) : '');
   const [method, setMethod] = useState('mpesa');
   const [phase, setPhase] = useState<Phase>({ t: 'form' });
   const [busy, setBusy] = useState(false);
@@ -290,8 +333,8 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
     setBusy(false);
   };
 
-  const reset = () => { setPhase({ t: 'form' }); if (!cert && !ad) setAmountText(''); setApiError(undefined); setTouched(false); setBusy(false); };
-  const purposeLabel = (k: string) => k.startsWith('CERT-') ? 'Certificate copy' : k.startsWith('AD-') ? 'Advert payment' : church.purposes.find((p) => p.key === k)?.label ?? k;
+  const reset = () => { setPhase({ t: 'form' }); if (!cert && !ad && !booking) setAmountText(''); setApiError(undefined); setTouched(false); setBusy(false); };
+  const purposeLabel = (k: string) => k.startsWith('CERT-') ? 'Certificate copy' : k.startsWith('AD-') ? 'Advert payment' : k.startsWith('BK-') ? 'Booking payment' : church.purposes.find((p) => p.key === k)?.label ?? k;
 
   const reference = `${church.code}#${purpose}`;
   const copy = async (text: string, what: string) => {
@@ -330,8 +373,8 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
         <div aria-live="polite" className="stack">
           <div className="center">
             <div className="tick" aria-hidden="true">&#10003;</div>
-            <h2>{cert || ad ? 'Payment received' : 'Thank you, gift received'}</h2>
-            <p className="muted">{ad ? `Payment received. Your advert will appear on the member app of ${church.name} shortly.` : cert ? 'Payment received. Your certificate copy is ready: open the member app or ask your church office to print it.' : 'May it bless many.'}</p>
+            <h2>{cert || ad || booking ? 'Payment received' : 'Thank you, gift received'}</h2>
+            <p className="muted">{booking ? 'Payment received. Your booking is confirmed. We have also sent a message to the app.' : ad ? `Payment received. Your advert will appear on the member app of ${church.name} shortly.` : cert ? 'Payment received. Your certificate copy is ready: open the member app or ask your church office to print it.' : 'May it bless many.'}</p>
           </div>
           <dl className="rcpt">
             <dt>Church</dt><dd>{i.church}</dd>
@@ -340,9 +383,41 @@ function GiveForm({ church, cert, ad }: { church: Church; cert?: CertInfo; ad?: 
             <dt>Receipt</dt><dd className="mono">{i.receipt}</dd>
             <dt>Time</dt><dd>{phase.at.toLocaleString('en-KE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</dd>
           </dl>
-          {!cert && !ad && <Button onClick={reset}>Give again</Button>}
+          {!cert && !ad && !booking && <Button onClick={reset}>Give again</Button>}
         </div>
       </Card>
+    );
+  }
+
+  if (booking) {
+    return (
+      <form onSubmit={submit} noValidate className="stack" aria-label="Pay to confirm your booking">
+        {phase.t === 'failed' && <ErrorNote>The payment did not go through. No money was taken. Please check your details and try again.</ErrorNote>}
+        <Card>
+          <h2>Pay to confirm your booking</h2>
+          <dl className="rcpt">
+            <dt>Booked</dt><dd>{booking.title}{booking.resources.length ? `, ${booking.resources.join(', ')}` : ''}</dd>
+            <dt>Church</dt><dd>{church.name}</dd>
+            <dt>When</dt><dd>{eatDay(booking.startsAt)}, {eatTime(booking.startsAt)} to {eatTime(booking.endsAt)}</dd>
+          </dl>
+          <div className="big-amount" aria-label="Amount">{kes(booking.price)}</div>
+          <p className="tiny">The price is fixed and cannot be changed.</p>
+          <p className="tiny">Your time is held until {eatDay(booking.holdUntil)}, {eatTime(booking.holdUntil)}</p>
+          <div aria-live="polite">{fee && <Note tone="info">Fee {kes(fee.memberFee)}, you pay {kes(fee.amountPaid)}</Note>}</div>
+        </Card>
+        <Card>
+          <div className="field-label g-label" id="lbl-method-b">Pay with</div>
+          <div className="chips" role="group" aria-labelledby="lbl-method-b">
+            {methods.map((m) => (
+              <button key={m} type="button" className={`chip ${method === m ? 'on' : ''}`} aria-pressed={method === m} onClick={() => setMethod(m)}>{METHOD_LABEL[m] ?? m}</button>
+            ))}
+          </div>
+          <div className="g-gap" />
+          <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
+        </Card>
+        <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+        <Button type="submit" disabled={busy || (touched && (!phoneOk || !!mismatch))}>{busy ? 'Sending request...' : `Pay ${kes(booking.price)}`}</Button>
+      </form>
     );
   }
 

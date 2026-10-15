@@ -6,6 +6,9 @@ import { EmailGate } from './EmailGate';
 import { Adverts } from './Adverts';
 import { Notices } from './Notices';
 import { Events } from './Events';
+import { Resources } from './Resources';
+import { Bookings } from './Bookings';
+import { CalendarPage } from './CalendarPage';
 import { Dashboard } from './Dashboard';
 import { Collections } from './Collections';
 import { Settlements } from './Settlements';
@@ -29,7 +32,7 @@ import { AuditPage } from './Audit';
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -45,6 +48,9 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'integrations', label: 'Messaging settings', any: ['integrations.manage', 'wallets.view'], el: Integrations },
   { id: 'notices', label: 'Notices', any: ['notices.view', 'notices.manage'], el: Notices },
   { id: 'events', label: 'Events', any: ['events.view', 'events.manage'], el: Events },
+  { id: 'bookings', label: 'Bookings', any: ['bookings.view'], el: Bookings },
+  { id: 'calendar', label: 'Calendar', any: ['bookings.view'], el: CalendarPage },
+  { id: 'resources', label: 'Resources', any: ['bookings.view', 'resources.manage'], el: Resources },
   { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: Adverts },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
