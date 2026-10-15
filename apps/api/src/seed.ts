@@ -277,6 +277,13 @@ export async function seed(ctx: Ctx) {
       await db.query(`INSERT INTO shop_movements (id, org_id, branch_id, item_id, kind, qty, sale_id, created_by, created_at) VALUES ($1,'org_grace','br_grc001',$2,'sold',$3,$4,'u_treas',$5) ON CONFLICT DO NOTHING`, [`mov_${sid}_${iid}`, iid, -q, sid, at]);
     }
   };
+  const tint: Record<string, [[number, number, number], [number, number, number]]> = {
+    Bibles: [[60, 40, 110], [25, 15, 60]], Rosaries: [[14, 90, 82], [8, 45, 52]], Books: [[154, 82, 20], [90, 40, 10]], Candles: [[200, 140, 20], [120, 70, 10]], Clothing: [[40, 90, 160], [15, 40, 90]],
+  };
+  for (const [id, , , category] of shopItems) {
+    const [a, b] = tint[category] ?? tint.Books;
+    await db.query(`UPDATE shop_items SET image_mime='image/png', image_data=$2 WHERE id=$1 AND image_data IS NULL`, [id, gradientPng(400, 400, a, b)]);
+  }
   await pastSale(1, 3, 'cash', [['itm_bible_kjv', 2], ['itm_rosary_wood', 3]], 'Walk-in');
   await pastSale(2, 2, 'mpesa', [['itm_prayerbook', 1], ['itm_candles', 4]], 'Jane Wanjiku');
   await pastSale(3, 1, 'cash', [['itm_rosary_crystal', 2], ['itm_bible_sw', 1]], null);
@@ -291,6 +298,16 @@ export async function seed(ctx: Ctx) {
       ('adv_wedding','WED001','org_grace',NULL,'Mary and John are getting married','Join us on 14 February. Congratulations from all of us.',NULL,'image/png',$3,1280,720,'{"type":"org"}',$5,NULL,'Mary and John Kamau','0712 000 111',500000,'awaiting_payment','u_admin','u_admin','u_owner',$5,$5,$5),
       ('adv_bake','BAKE01','org_grace','br_grc001','Mothers Union Bake Sale','After the second service this Sunday.',NULL,'image/png',$4,1280,720,'{"type":"branch","id":"br_grc001"}',$5,$6,NULL,NULL,NULL,'pending','u_admin','u_admin',NULL,NULL,$5,$5) ON CONFLICT DO NOTHING`,
     [art([14, 90, 82], [8, 40, 52]), art([76, 29, 149], [30, 27, 75]), art([190, 24, 93], [76, 5, 25]), art([194, 120, 3], [120, 53, 15]), now, inTwoWeeks],
+  );
+
+  // Two adverts that lead to the shop (L168): one shows an item, the other goes straight to checkout with it in the basket.
+  await db.query(
+    `INSERT INTO adverts (id, code, org_id, branch_id, title, body, link_url, image_mime, image_data, width, height, audience, starts_at, ends_at, status, created_by, submitted_by, decided_by, decided_at, created_at, updated_at, action) VALUES
+      ('adv_shop_bible','BIBLE1','org_grace',NULL,'Get your own Bible','KJV hardcover, KES 1,800. Collect it at the Nairobi shop.',NULL,'image/png',$1,1280,720,'{"type":"org"}',$3,NULL,'approved','u_admin','u_admin','u_owner',$3,$3,$3,$4),
+      ('adv_shop_rosary','ROSARY','org_grace',NULL,'Rosary week','Wooden rosaries, KES 250. Tap to order now.',NULL,'image/png',$2,1280,720,'{"type":"org"}',$3,NULL,'approved','u_admin','u_admin','u_owner',$3,$3,$3,$5) ON CONFLICT DO NOTHING`,
+    [art([60, 40, 110], [25, 15, 60]), art([14, 90, 82], [8, 45, 52]), now,
+      JSON.stringify({ kind: 'item', itemId: 'itm_bible_kjv', itemName: 'Bible, KJV hardcover' }),
+      JSON.stringify({ kind: 'checkout', itemId: 'itm_rosary_wood', qty: 1, itemName: 'Rosary, wooden' })],
   );
 
   await give('GRC001#TITHE', 250000, '254711000001');

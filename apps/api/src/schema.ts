@@ -612,6 +612,17 @@ CREATE TABLE IF NOT EXISTS shop_tills (
   UNIQUE (branch_id, day)
 );
 
+-- Buying from the shop in the member app (L164 to L169).
+ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS image_mime text;
+ALTER TABLE shop_items ADD COLUMN IF NOT EXISTS image_data text;
+ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'till';
+ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS fulfilment text;
+ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS advert_id text;
+ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS buyer_user_id text;
+ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS ready_at text;
+ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS collected_at text;
+ALTER TABLE adverts ADD COLUMN IF NOT EXISTS action jsonb;
+
 -- One pending confirmation code per person (L123).
 CREATE TABLE IF NOT EXISTS email_codes (
   user_id text PRIMARY KEY,

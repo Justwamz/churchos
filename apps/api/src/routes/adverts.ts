@@ -10,6 +10,7 @@ const ADVERT_SPECS: FieldSpec[] = [
   { field: 'title', label: 'Headline' },
   { field: 'body', label: 'Text' },
   { field: 'link', label: 'Link' },
+  { field: 'action', label: 'When tapped' },
   { field: 'artwork', label: 'Artwork' },
   { field: 'audience', label: 'Who sees it' },
   { field: 'startsAt', label: 'Starts' },
@@ -124,8 +125,28 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
     return s;
   }
 
+  /**
+   * Where a tap leads besides a link (L168): the shop, one item, or straight to checkout with an item. The item must belong to this church and be for sale.
+   * The item's name is kept on the advert so the history reads well.
+   */
+  async function actionOf(raw: any, orgId: string): Promise<{ kind: 'shop' | 'item' | 'checkout'; itemId?: string; qty?: number; itemName?: string } | null> {
+    if (raw === null || raw === undefined || raw === '' || raw.kind === 'link' || raw.kind === 'none') return null;
+    if (raw.kind === 'shop') return { kind: 'shop' };
+    if (raw.kind !== 'item' && raw.kind !== 'checkout') throw new HttpError(400, 'Choose where the advert leads: a link, the shop, one item or checkout', 'bad_action');
+    const it = (await ctx.db.query<any>(`SELECT id, name, active FROM shop_items WHERE id=$1 AND org_id=$2`, [String(raw.itemId ?? ''), orgId]))[0];
+    if (!it) throw new HttpError(404, 'That shop item was not found', 'not_found');
+    if (!it.active) throw new HttpError(409, `"${it.name}" is not for sale at the moment`, 'inactive');
+    const qty = raw.kind === 'checkout' ? Math.floor(Number(raw.qty ?? 1)) : undefined;
+    if (qty !== undefined && (!Number.isFinite(qty) || qty < 1 || qty > 10)) throw new HttpError(400, 'Choose a quantity from 1 to 10', 'bad_number');
+    return { kind: raw.kind, itemId: it.id, ...(qty ? { qty } : {}), itemName: it.name };
+  }
+  const actionText = (a: any) => {
+    const x = a.action as { kind: string; itemName?: string; qty?: number } | null;
+    return !x ? null : x.kind === 'shop' ? 'Opens the shop' : x.kind === 'item' ? `Shows ${x.itemName}` : `Checkout with ${x.qty} x ${x.itemName}`;
+  };
+
   const flat = (a: any, label: string) => ({
-    title: a.title, body: a.body, link: a.link_url,
+    title: a.title, body: a.body, link: a.link_url, action: actionText(a),
     artwork: `${a.width}x${a.height} ${sha(a.image_data)}`,
     audience: label, startsAt: a.starts_at, endsAt: a.ends_at ?? 'No end date',
     advertiser: a.advertiser_name ?? null, price: a.price == null ? null : Number(a.price), status: a.status,
@@ -133,13 +154,14 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function stats(id: string) {
     const r = (await ctx.db.query<any>(`SELECT count(*) FILTER (WHERE kind='view')::int AS views, count(*) FILTER (WHERE kind='tap')::int AS taps, count(DISTINCT user_id)::int AS viewers FROM advert_seen WHERE advert_id=$1`, [id]))[0];
-    return { views: r.views, taps: r.taps, viewers: r.viewers };
+    const o = (await ctx.db.query<any>(`SELECT count(*)::int AS n, COALESCE(SUM(total),0) AS money FROM shop_sales WHERE advert_id=$1 AND status='completed'`, [id]))[0];
+    return { views: r.views, taps: r.taps, viewers: r.viewers, orders: o.n, orderTotal: Number(o.money) };
   }
 
   async function view(a: any, uid: string | null, canApprove: boolean, imageBase: string) {
     const now = ctx.clock.now().toISOString();
     return {
-      id: a.id, orgId: a.org_id, branchId: a.branch_id, title: a.title, body: a.body, link: a.link_url, audience: a.audience, audienceLabel: await audienceLabel(a),
+      id: a.id, orgId: a.org_id, branchId: a.branch_id, title: a.title, body: a.body, link: a.link_url, action: a.action ?? null, actionText: actionText(a), audience: a.audience, audienceLabel: await audienceLabel(a),
       startsAt: a.starts_at, endsAt: a.ends_at, status: a.status, state: advertState(a, now), reason: a.reason,
       advertiser: a.advertiser_name ? { name: a.advertiser_name, contact: a.advertiser_contact, price: a.price == null ? null : Number(a.price) } : null,
       paid: !!a.payment_id, imageUrl: `${imageBase}/${a.id}/image`, width: a.width, height: a.height,
@@ -204,12 +226,13 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
     const art = validateArtwork(b.image);
     const when = window(b);
     const adv = advertiser(b);
+    const action = await actionOf(b.action, g.orgId);
     const id = ctx.newId('adv');
     const now = ctx.clock.now().toISOString();
     await ctx.db.query(
-      `INSERT INTO adverts (id, code, org_id, branch_id, title, body, link_url, image_mime, image_data, width, height, audience, starts_at, ends_at, advertiser_name, advertiser_contact, price, created_by, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19)`,
-      [id, newCode(), g.orgId, aud.branchId, text(b.title, 60, 'headline', true), text(b.body, 160, 'text'), link(b.link), art.mime, art.data, art.width, art.height, JSON.stringify(aud.audience), when.startsAt, when.endsAt, adv.name, adv.contact, adv.price, req.session!.uid, now],
+      `INSERT INTO adverts (id, code, org_id, branch_id, title, body, link_url, image_mime, image_data, width, height, audience, starts_at, ends_at, advertiser_name, advertiser_contact, price, created_by, created_at, updated_at, action)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19,$20)`,
+      [id, newCode(), g.orgId, aud.branchId, text(b.title, 60, 'headline', true), text(b.body, 160, 'text'), action ? null : link(b.link), art.mime, art.data, art.width, art.height, JSON.stringify(aud.audience), when.startsAt, when.endsAt, adv.name, adv.contact, adv.price, req.session!.uid, now, action ? JSON.stringify(action) : null],
     );
     const a = await reload(id);
     await record(a, req, 'advert.create', `Created the advert "${a.title}"`, null);
@@ -226,11 +249,12 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
     const art = b.image ? validateArtwork(b.image) : { mime: old.image_mime, data: old.image_data, width: old.width, height: old.height };
     const when = window(b, old);
     const adv = advertiser(b, old);
+    const action = 'action' in b ? await actionOf(b.action, old.org_id) : (old.action as any) ?? null;
     const before = flat(old, await audienceLabel(old));
     const status = old.status === 'draft' || old.status === 'rejected' ? old.status : 'draft';
     await ctx.db.query(
-      `UPDATE adverts SET title=$2, body=$3, link_url=$4, image_mime=$5, image_data=$6, width=$7, height=$8, audience=$9, branch_id=$10, starts_at=$11, ends_at=$12, advertiser_name=$13, advertiser_contact=$14, price=$15, status=$16, updated_at=$17 WHERE id=$1`,
-      [old.id, 'title' in b ? text(b.title, 60, 'headline', true) : old.title, 'body' in b ? text(b.body, 160, 'text') : old.body, 'link' in b ? link(b.link) : old.link_url, art.mime, art.data, art.width, art.height, JSON.stringify(aud.audience), aud.branchId, when.startsAt, when.endsAt, adv.name, adv.contact, adv.price, status, ctx.clock.now().toISOString()],
+      `UPDATE adverts SET title=$2, body=$3, link_url=$4, image_mime=$5, image_data=$6, width=$7, height=$8, audience=$9, branch_id=$10, starts_at=$11, ends_at=$12, advertiser_name=$13, advertiser_contact=$14, price=$15, status=$16, updated_at=$17, action=$18 WHERE id=$1`,
+      [old.id, 'title' in b ? text(b.title, 60, 'headline', true) : old.title, 'body' in b ? text(b.body, 160, 'text') : old.body, action ? null : 'link' in b ? link(b.link) : old.link_url, art.mime, art.data, art.width, art.height, JSON.stringify(aud.audience), aud.branchId, when.startsAt, when.endsAt, adv.name, adv.contact, adv.price, status, ctx.clock.now().toISOString(), action ? JSON.stringify(action) : null],
     );
     const a = await reload(old.id);
     const changes = diff(ADVERT_SPECS, before, flat(a, await audienceLabel(a)));
@@ -331,10 +355,21 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get('/me/adverts', auth, async (req) => {
     const rows = await ctx.db.query<any>(
-      `SELECT a.id, a.title, a.body, a.link_url, a.advertiser_name, a.width, a.height, o.name AS church FROM adverts a JOIN organisations o ON o.id=a.org_id WHERE ${VISIBLE} ORDER BY a.starts_at DESC, a.created_at DESC LIMIT 10`,
+      `SELECT a.id, a.title, a.body, a.link_url, a.action, a.advertiser_name, a.width, a.height, o.name AS church FROM adverts a JOIN organisations o ON o.id=a.org_id WHERE ${VISIBLE} ORDER BY a.starts_at DESC, a.created_at DESC LIMIT 10`,
       [req.session!.uid, ctx.clock.now().toISOString()],
     );
-    return rows.map((a) => ({ id: a.id, title: a.title, body: a.body, link: a.link_url, sponsor: a.advertiser_name, church: a.church, imageUrl: `/me/adverts/${a.id}/image`, width: a.width, height: a.height }));
+    const out = [];
+    for (const a of rows) {
+      let action: any = null;
+      const x = a.action as { kind: string; itemId?: string; qty?: number } | null;
+      if (x?.kind === 'shop') action = { kind: 'shop' };
+      else if (x?.itemId) {
+        const it = (await ctx.db.query<any>(`SELECT i.id, i.branch_id, i.name, i.price, i.active, i.low_stock, i.image_data IS NOT NULL AS has_image, COALESCE((SELECT SUM(qty) FROM shop_movements m WHERE m.item_id=i.id),0)::int AS stock FROM shop_items i WHERE i.id=$1`, [x.itemId]))[0];
+        action = { kind: x.kind, itemId: x.itemId, qty: x.qty ?? 1, item: it ? { id: it.id, branchId: it.branch_id, name: it.name, price: Number(it.price), available: it.active && it.stock > 0, left: it.stock > 0 && it.stock <= it.low_stock ? it.stock : null, imageUrl: it.has_image ? `/me/shop/items/${it.id}/image` : null } : null };
+      }
+      out.push({ id: a.id, title: a.title, body: a.body, link: a.link_url, action, sponsor: a.advertiser_name, church: a.church, imageUrl: `/me/adverts/${a.id}/image`, width: a.width, height: a.height });
+    }
+    return out;
   });
 
   async function visible(req: FastifyRequest) {

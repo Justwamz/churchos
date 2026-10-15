@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { buildReference, computeFee, networkMismatch, toCents } from '@churchos/shared';
+import { maskPhone } from '@churchos/shared';
 import { normalizePhone, type Permission } from '../auth';
+import { imageSize } from '../artwork';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireSession, staffScope, type Ctx } from '../ctx';
 import { normalizeMethod } from './helpers';
@@ -87,14 +89,14 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     const term = String(qy.q ?? '').trim().slice(0, 60);
     if (term) { params.push(`%${term.replace(/[!%_]/g, (c) => `!${c}`)}%`); where += ` AND (i.name ILIKE $${params.length} ESCAPE '!' OR i.code ILIKE $${params.length} ESCAPE '!' OR i.category ILIKE $${params.length} ESCAPE '!')`; }
     if (qy.category) { params.push(String(qy.category)); where += ` AND i.category=$${params.length}`; }
-    const rows = await ctx.db.query<any>(`SELECT i.*, b.name AS branch_name FROM shop_items i JOIN branches b ON b.id=i.branch_id WHERE ${where} ORDER BY i.active DESC, i.name`, params);
+    const rows = await ctx.db.query<any>(`SELECT i.id, i.org_id, i.branch_id, i.code, i.name, i.category, i.price, i.cost, i.low_stock, i.active, (i.image_data IS NOT NULL) AS has_image, b.name AS branch_name FROM shop_items i JOIN branches b ON b.id=i.branch_id WHERE ${where} ORDER BY i.active DESC, i.name`, params);
     const stock = await stockOf(rows.map((r) => r.id));
     const out = rows.map((r) => {
       const n = stock.get(r.id) ?? 0;
       const mine = manage.includes(r.branch_id);
       return {
         id: r.id, branchId: r.branch_id, branchName: r.branch_name, code: r.code, name: r.name, category: r.category, price: Number(r.price), cost: mine && r.cost != null ? Number(r.cost) : null,
-        lowStock: r.low_stock, active: r.active, stock: n, low: n <= r.low_stock, out: n <= 0, value: mine && r.cost != null ? n * Number(r.cost) : null, canManage: mine,
+        lowStock: r.low_stock, active: r.active, hasImage: r.has_image, imageUrl: r.has_image ? `/shop/items/${r.id}/image` : null, stock: n, low: n <= r.low_stock, out: n <= 0, value: mine && r.cost != null ? n * Number(r.cost) : null, canManage: mine,
       };
     });
     return qy.low === '1' ? out.filter((r) => r.low && r.active) : out;
@@ -198,7 +200,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
   async function saleView(s: any, manage: boolean, withLines = true) {
     const lines = withLines ? await ctx.db.query<any>(`SELECT item_id, name, qty, unit_price, unit_cost FROM shop_sale_lines WHERE sale_id=$1 ORDER BY name`, [s.id]) : [];
     return {
-      id: s.id, code: s.code, receiptNo: s.receipt_no, branchId: s.branch_id, branchName: s.branch_name, status: s.status, method: s.method, total: Number(s.total),
+      id: s.id, code: s.code, channel: s.channel ?? 'till', fulfilment: s.fulfilment ?? null, receiptNo: s.receipt_no, branchId: s.branch_id, branchName: s.branch_name, status: s.status, method: s.method, total: Number(s.total),
       buyer: s.buyer_name ?? null, soldBy: s.sold_by_name ?? null, createdAt: s.created_at, completedAt: s.completed_at, holdUntil: s.hold_until, paid: !!s.payment_id,
       voidReason: s.void_reason, voidedAt: s.voided_at, items: s.items_text ?? undefined,
       lines: withLines ? lines.map((l) => ({ itemId: l.item_id, name: l.name, qty: l.qty, unitPrice: Number(l.unit_price), total: l.qty * Number(l.unit_price), unitCost: manage && l.unit_cost != null ? Number(l.unit_cost) : undefined })) : undefined,
@@ -381,6 +383,206 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     return { id, day, expected: fig.expected, counted, variance, cashEntryId: cashId, message: cashId ? 'The count was sent for a second person to sign off in Cash.' : 'Till closed.' };
   });
 
+  // ======================= pictures (L167) =======================
+
+  const MAX_PICTURE = 500 * 1024;
+  function validatePicture(raw: any): { mime: string; data: string } {
+    if (!raw || !['image/png', 'image/jpeg', 'image/webp'].includes(raw.mime)) throw new HttpError(400, 'Use a PNG, JPEG or WebP picture', 'bad_picture');
+    const bytes = Buffer.from(String(raw.data ?? ''), 'base64');
+    if (!bytes.length) throw new HttpError(400, 'That picture is empty', 'bad_picture');
+    if (bytes.length > MAX_PICTURE) throw new HttpError(413, 'The picture is larger than 500 KB. Use a smaller one.', 'picture_too_large');
+    const size = imageSize(bytes, raw.mime);
+    if (!size || size.width < 200 || size.height < 200) throw new HttpError(400, 'The picture must be a valid image at least 200 pixels wide and tall', 'bad_picture');
+    return { mime: raw.mime, data: String(raw.data) };
+  }
+
+  app.post('/shop/items/:id/image', auth, async (req) => {
+    const it = await itemRow(req, (req.params as any).id, 'shop.manage');
+    const p = validatePicture((req.body as any)?.image);
+    await ctx.db.query(`UPDATE shop_items SET image_mime=$2, image_data=$3, updated_at=$4 WHERE id=$1`, [it.id, p.mime, p.data, nowIso()]);
+    await ctx.ledger.audit({ orgId: it.org_id, branchId: it.branch_id, actor: req.session!.uid, action: 'shop.item_update', entity: 'shop_item', entityId: it.id, summary: `Changed the picture of "${it.name}"` });
+    return { ok: true };
+  });
+
+  app.post('/shop/items/:id/image/remove', auth, async (req) => {
+    const it = await itemRow(req, (req.params as any).id, 'shop.manage');
+    await ctx.db.query(`UPDATE shop_items SET image_mime=NULL, image_data=NULL, updated_at=$2 WHERE id=$1`, [it.id, nowIso()]);
+    await ctx.ledger.audit({ orgId: it.org_id, branchId: it.branch_id, actor: req.session!.uid, action: 'shop.item_update', entity: 'shop_item', entityId: it.id, summary: `Removed the picture of "${it.name}"` });
+    return { ok: true };
+  });
+
+  const sendPicture = (reply: any, it: any) => (it?.image_data ? reply.header('content-type', it.image_mime).header('cache-control', 'private, max-age=300').send(Buffer.from(it.image_data, 'base64')) : reply.status(404).send({ error: 'no picture', code: 'not_found' }));
+
+  app.get('/shop/items/:id/image', auth, async (req, reply) => {
+    const it = await itemRow(req, (req.params as any).id, 'shop.view');
+    return sendPicture(reply, it);
+  });
+
+  // ======================= buying from the member app (L164 to L166) =======================
+
+  const memberOrgs = async (uid: string) => (await ctx.db.query<any>(`SELECT DISTINCT org_id FROM memberships WHERE user_id=$1 AND status='active'`, [uid])).map((r) => r.org_id as string);
+
+  const orderState = (s: any) => (s.status === 'completed' ? s.fulfilment ?? 'to_prepare' : s.status);
+
+  async function orderView(s: any, forStaff = false) {
+    const lines = await ctx.db.query<any>(`SELECT item_id, name, qty, unit_price FROM shop_sale_lines WHERE sale_id=$1 ORDER BY name`, [s.id]);
+    const state = orderState(s);
+    const paid = ['to_prepare', 'ready', 'collected'].includes(state);
+    return {
+      id: s.id, receiptNo: s.receipt_no, state, method: s.method, total: Number(s.total), branchId: s.branch_id, branchName: s.branch_name, createdAt: s.created_at, holdUntil: s.hold_until,
+      readyAt: s.ready_at, collectedAt: s.collected_at,
+      collectionCode: paid || forStaff ? s.code : undefined,
+      payUrl: s.status === 'awaiting_payment' && s.method === 'card' && s.provider_tx_id ? `${ctx.givingUrl}/checkout/${s.provider_tx_id}` : null,
+      buyer: s.buyer_name ?? null, buyerPhone: forStaff ? maskPhone(s.buyer_phone) : undefined,
+      lines: lines.map((l) => ({ itemId: l.item_id, name: l.name, qty: l.qty, unitPrice: Number(l.unit_price), total: l.qty * Number(l.unit_price) })),
+      items: forStaff ? lines.map((l) => `${l.qty} x ${l.name}`).join(', ') : undefined,
+    };
+  }
+
+  app.get('/me/shop', auth, async (req) => {
+    const uid = req.session!.uid;
+    const orgs = await memberOrgs(uid);
+    if (!orgs.length) return { branches: [], branchId: null, categories: [], items: [] };
+    const branches = await ctx.db.query<any>(
+      `SELECT b.id, b.name, o.name AS church, count(*)::int AS items FROM shop_items i JOIN branches b ON b.id=i.branch_id JOIN organisations o ON o.id=i.org_id
+        WHERE i.org_id = ANY($1::text[]) AND i.active GROUP BY b.id, b.name, o.name ORDER BY b.name`,
+      [orgs],
+    );
+    if (!branches.length) return { branches: [], branchId: null, categories: [], items: [] };
+    const mine = (await ctx.db.query<any>(`SELECT branch_id FROM memberships WHERE user_id=$1 AND status='active' ORDER BY joined_at`, [uid])).map((r) => r.branch_id as string);
+    const want = String((req.query as any).branch ?? '');
+    const chosen = branches.find((b) => b.id === want) ?? branches.find((b) => mine.includes(b.id)) ?? branches[0];
+    const rows = await ctx.db.query<any>(`SELECT i.id, i.name, i.category, i.price, i.low_stock, (i.image_data IS NOT NULL) AS has_image FROM shop_items i WHERE i.branch_id=$1 AND i.active ORDER BY i.category NULLS LAST, i.name`, [chosen.id]);
+    const stock = await stockOf(rows.map((r) => r.id));
+    return {
+      branches: branches.map((b) => ({ id: b.id, name: b.name, church: b.church, items: b.items })),
+      branchId: chosen.id,
+      categories: [...new Set(rows.map((r) => r.category).filter(Boolean))],
+      items: rows.map((r) => {
+        const n = stock.get(r.id) ?? 0;
+        return { id: r.id, name: r.name, category: r.category, price: Number(r.price), available: n > 0, left: n > 0 && n <= r.low_stock ? n : null, maxQty: Math.min(n, 10), imageUrl: r.has_image ? `/me/shop/items/${r.id}/image` : null };
+      }),
+    };
+  });
+
+  app.get('/me/shop/items/:id/image', auth, async (req, reply) => {
+    const it = (await ctx.db.query<any>(`SELECT image_mime, image_data, org_id FROM shop_items WHERE id=$1 AND active`, [(req.params as any).id]))[0];
+    if (!it || !(await memberOrgs(req.session!.uid)).includes(it.org_id)) throw new HttpError(404, 'not found', 'not_found');
+    return sendPicture(reply, it);
+  });
+
+  app.post('/me/shop/orders', auth, async (req) => {
+    const b = (req.body ?? {}) as any;
+    const uid = req.session!.uid;
+    const branch = (await ctx.db.query<any>(`SELECT id, org_id, code, name FROM branches WHERE id=$1`, [String(b.branchId ?? '')]))[0];
+    const m = branch ? (await ctx.db.query<any>(`SELECT id, full_name FROM memberships WHERE user_id=$1 AND org_id=$2 AND status='active' ORDER BY joined_at LIMIT 1`, [uid, branch.org_id]))[0] : null;
+    if (!branch || !m) throw new HttpError(404, 'That shop was not found', 'not_found');
+    const method = normalizeMethod(b.method);
+    if (method === 'cash') throw new HttpError(400, 'Choose M-Pesa, Airtel Money, T-Kash or card. Cash is paid at the shop counter.', 'bad_method');
+    const lines = await loadLines(branch.org_id, branch.id, b.lines);
+    if (lines.some((l) => l.qty > 10)) throw new HttpError(400, 'You can order up to 10 of one item', 'bad_number');
+    const total = lines.reduce((s, l) => s + l.qty * Number(l.item.price), 0);
+    if (total > 15_000_000) throw new HttpError(400, 'An order can be at most KES 150,000. Please split it into two orders.', 'too_large');
+    const open = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM shop_sales WHERE buyer_user_id=$1 AND status='awaiting_payment'`, [uid]))[0].n);
+    if (open >= 3) throw new HttpError(429, 'You have 3 orders waiting for payment. Pay for them or cancel them first.', 'too_many');
+    let phone = normalizePhone(String(b.phone ?? req.session!.phone ?? ''));
+    if (!phone && method !== 'card') throw new HttpError(400, 'Enter the phone number to send the payment prompt to', 'bad_phone');
+    const mismatch = phone ? networkMismatch(method, phone) : null;
+    if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
+    const stockNow = await stockOf(lines.map((l) => l.itemId));
+    for (const l of lines) if ((stockNow.get(l.itemId) ?? 0) < l.qty) throw new HttpError(409, (stockNow.get(l.itemId) ?? 0) === 0 ? `"${l.item.name}" is sold out` : `Only ${stockNow.get(l.itemId)} of "${l.item.name}" left`, 'out_of_stock');
+    const advert = b.advertId ? (await ctx.db.query<any>(`SELECT id FROM adverts WHERE id=$1 AND org_id=$2`, [String(b.advertId), branch.org_id]))[0] : null;
+    const org = (await ctx.db.query<any>(`SELECT fee_schedule FROM organisations WHERE id=$1`, [branch.org_id]))[0];
+    const fee = computeFee(org.fee_schedule, method, total, 'church');
+    const code = newCode();
+    const reference = buildReference(branch.code, `SHOP-${code}`);
+    let providerTxId: string;
+    if (method === 'card') providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId;
+    else providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
+    const id = ctx.newId('sal');
+    const now = nowIso();
+    let receiptNo = '';
+    await ctx.db.tx(async (q) => {
+      for (const l of lines) {
+        const n = Number((await q.query<any>(`SELECT COALESCE(SUM(qty),0) AS n FROM shop_movements WHERE item_id=$1`, [l.itemId]))[0].n);
+        if (n < l.qty) throw new HttpError(409, `Only ${n} of "${l.item.name}" left`, 'out_of_stock');
+      }
+      const count = Number((await q.query<any>(`SELECT count(*) AS n FROM shop_sales WHERE branch_id=$1`, [branch.id]))[0].n);
+      receiptNo = `${branch.code}-${String(count + 1).padStart(5, '0')}`;
+      await q.query(
+        `INSERT INTO shop_sales (id, code, receipt_no, org_id, branch_id, buyer_name, buyer_membership_id, buyer_phone, method, status, total, provider_tx_id, hold_until, sold_by, created_at, channel, advert_id, buyer_user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_payment',$10,$11,$12,$13,$14,'app',$15,$16)`,
+        [id, code, receiptNo, branch.org_id, branch.id, m.full_name, m.id, phone, method, total, providerTxId, new Date(ctx.clock.now().getTime() + HOLD_MINUTES * 60_000).toISOString(), uid, now, advert?.id ?? null, uid],
+      );
+      for (const l of lines) {
+        await q.query(`INSERT INTO shop_sale_lines (sale_id, item_id, name, qty, unit_price, unit_cost) VALUES ($1,$2,$3,$4,$5,$6)`, [id, l.itemId, l.item.name, l.qty, l.item.price, l.item.cost]);
+        await move(q, { orgId: branch.org_id, branchId: branch.id, itemId: l.itemId, kind: 'sold', qty: -l.qty, saleId: id, by: uid });
+      }
+      await q.query(`INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11)`,
+        [ctx.newId('int'), providerTxId, branch.org_id, branch.id, `SHOP-${code}`, phone ?? '', method, total, fee.amountPaid, JSON.stringify(fee), now]);
+    });
+    await ctx.ledger.audit({ orgId: branch.org_id, branchId: branch.id, actor: uid, action: 'shop.order', entity: 'shop_sale', entityId: id, summary: `A member ordered ${lines.map((l) => `${l.qty} x ${l.item.name}`).join(', ')} for ${kesText(total)} from the app, receipt ${receiptNo}`, meta: { total, method, receipt: receiptNo, advert: advert?.id ?? null } });
+    const sale = (await ctx.db.query<any>(`${SALE_SELECT} WHERE s.id=$1`, [id]))[0];
+    return { ...(await orderView(sale)), message: method === 'card' ? 'Open the card page to pay. Your items are held for 30 minutes.' : 'Check your phone and enter your PIN. Your items are held for 30 minutes.' };
+  });
+
+  app.get('/me/shop/orders', auth, async (req) => {
+    const rows = await ctx.db.query<any>(`${SALE_SELECT} WHERE s.buyer_user_id=$1 AND s.channel='app' ORDER BY s.created_at DESC LIMIT 50`, [req.session!.uid]);
+    const out = [];
+    for (const s of rows) out.push(await orderView(s));
+    return out;
+  });
+
+  app.post('/me/shop/orders/:id/cancel', auth, async (req) => {
+    const s = (await ctx.db.query<any>(`${SALE_SELECT} WHERE s.id=$1 AND s.buyer_user_id=$2`, [(req.params as any).id, req.session!.uid]))[0];
+    if (!s) throw new HttpError(404, 'order not found', 'not_found');
+    if (s.status !== 'awaiting_payment') throw new HttpError(409, 'Only an order that is waiting for payment can be cancelled', 'wrong_state');
+    await ctx.db.tx(async (q) => {
+      await q.query(`UPDATE shop_sales SET status='lapsed', void_reason='Cancelled by the buyer', voided_by=$2, voided_at=$3 WHERE id=$1`, [s.id, req.session!.uid, nowIso()]);
+      await releaseStock(q, s, 'released', req.session!.uid, 'Order cancelled before payment');
+    });
+    await ctx.ledger.audit({ orgId: s.org_id, branchId: s.branch_id, actor: req.session!.uid, action: 'shop.cancel', entity: 'shop_sale', entityId: s.id, summary: `The buyer cancelled the unpaid order ${s.receipt_no}` });
+    return { id: s.id, state: 'lapsed' };
+  });
+
+  // ---------- the branch fulfils orders ----------
+
+  app.get('/shop/orders', auth, async (req) => {
+    const q = req.query as any;
+    const sc = await scope(req, 'shop.sell', q.branch);
+    const params: unknown[] = [sc.orgId, sc.branchIds];
+    let where = `s.org_id=$1 AND s.branch_id = ANY($2::text[]) AND s.channel='app'`;
+    const state = String(q.state ?? 'open');
+    if (state === 'open') where += ` AND s.status='completed' AND s.fulfilment IN ('to_prepare','ready')`;
+    else if (['to_prepare', 'ready', 'collected'].includes(state)) { params.push(state); where += ` AND s.status='completed' AND s.fulfilment=$${params.length}`; }
+    else if (state === 'waiting') where += ` AND s.status='awaiting_payment'`;
+    const term = String(q.q ?? '').trim().slice(0, 60);
+    if (term) { params.push(`%${term.replace(/[!%_]/g, (c) => `!${c}`)}%`); where += ` AND (s.receipt_no ILIKE $${params.length} ESCAPE '!' OR s.code ILIKE $${params.length} ESCAPE '!' OR s.buyer_name ILIKE $${params.length} ESCAPE '!')`; }
+    const rows = await ctx.db.query<any>(`${SALE_SELECT} WHERE ${where} ORDER BY s.created_at DESC LIMIT 200`, params);
+    const out = [];
+    for (const s of rows) out.push(await orderView(s, true));
+    return out;
+  });
+
+  app.post('/shop/orders/:id/ready', auth, async (req) => {
+    const s = await saleRow(req, (req.params as any).id, 'shop.sell');
+    if (s.channel !== 'app' || s.status !== 'completed' || s.fulfilment !== 'to_prepare') throw new HttpError(409, 'This order is not waiting to be prepared', 'wrong_state');
+    await ctx.db.query(`UPDATE shop_sales SET fulfilment='ready', ready_at=$2 WHERE id=$1`, [s.id, nowIso()]);
+    await ctx.ledger.audit({ orgId: s.org_id, branchId: s.branch_id, actor: req.session!.uid, action: 'shop.order_ready', entity: 'shop_sale', entityId: s.id, summary: `Order ${s.receipt_no} is ready for collection` });
+    if (s.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Your order is ready',$4,$5)`, [ctx.newId('ntf'), s.org_id, s.buyer_user_id, `Order ${s.receipt_no} is ready to collect at ${s.branch_name}. Show your collection code ${s.code}.`, nowIso()]);
+    return { id: s.id, state: 'ready' };
+  });
+
+  app.post('/shop/orders/:id/collected', auth, async (req) => {
+    const s = await saleRow(req, (req.params as any).id, 'shop.sell');
+    if (s.channel !== 'app' || s.status !== 'completed' || !['to_prepare', 'ready'].includes(s.fulfilment)) throw new HttpError(409, 'This order is not waiting for collection', 'wrong_state');
+    const code = String((req.body as any)?.code ?? '').trim();
+    if (code && code.toUpperCase() !== s.code) throw new HttpError(409, 'That collection code does not match this order', 'wrong_code');
+    await ctx.db.query(`UPDATE shop_sales SET fulfilment='collected', collected_at=$2 WHERE id=$1`, [s.id, nowIso()]);
+    await ctx.ledger.audit({ orgId: s.org_id, branchId: s.branch_id, actor: req.session!.uid, action: 'shop.order_collected', entity: 'shop_sale', entityId: s.id, summary: `Order ${s.receipt_no} was collected` });
+    return { id: s.id, state: 'collected' };
+  });
+
   // ======================= reports (L161) =======================
 
   app.get('/shop/reports', auth, async (req) => {
@@ -443,6 +645,17 @@ export async function shopPaid(ctx: Ctx, code: string, paymentId: string): Promi
       for (const l of lines) await q.query(`INSERT INTO shop_movements (id, org_id, branch_id, item_id, kind, qty, sale_id, reason, created_by, created_at) VALUES ($1,$2,$3,$4,'sold',$5,$6,'Paid after the hold ended',$7,$8)`, [ctx.newId('mov'), s.org_id, s.branch_id, l.item_id, -Number(l.qty), s.id, s.sold_by, now]);
     });
     await ctx.ledger.audit({ orgId: s.org_id, branchId: s.branch_id, actorType: 'psp', action: 'shop.sale_paid', entity: 'shop_sale', entityId: s.id, summary: `Payment received for the sale ${s.receipt_no} after its hold ended. The stock was still there, so it is complete.`, links: { paymentId } });
+  }
+  if (s.channel === 'app') {
+    await ctx.db.query(`UPDATE shop_sales SET fulfilment='to_prepare' WHERE id=$1 AND fulfilment IS NULL`, [s.id]);
+    const branch = (await ctx.db.query<any>(`SELECT name FROM branches WHERE id=$1`, [s.branch_id]))[0];
+    // Tell the people at the branch there is an order to prepare.
+    const rows = await ctx.db.query<any>(`SELECT ra.user_id, ra.scope_type, ra.scope_id, r.permissions FROM role_assignments ra JOIN roles r ON r.id=ra.role_id WHERE ra.org_id=$1`, [s.org_id]);
+    const region = (await ctx.db.query<any>(`SELECT region FROM branches WHERE id=$1`, [s.branch_id]))[0]?.region;
+    const staff = [...new Set(rows.filter((r) => (r.permissions as string[]).includes('shop.sell') && (r.scope_type === 'org' || (r.scope_type === 'branch' && r.scope_id === s.branch_id) || (r.scope_type === 'region' && r.scope_id === region))).map((r) => r.user_id as string))];
+    for (const u of staff) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','New shop order',$4,$5)`, [ctx.newId('ntf'), s.org_id, u, `${s.buyer_name ?? 'A member'} paid ${kesText(Number(s.total))} for order ${s.receipt_no}. Prepare it for collection.`, now]);
+    if (s.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'receipt','Shop order paid',$4,$5)`, [ctx.newId('ntf'), s.org_id, s.buyer_user_id, `Thank you. Receipt ${s.receipt_no}, ${kesText(Number(s.total))}. Collect it at ${branch?.name ?? 'the shop'} with your code ${s.code}. We will tell you when it is ready.`, now]);
+    return;
   }
   if (s.buyer_membership_id) {
     const u = (await ctx.db.query<any>(`SELECT user_id FROM memberships WHERE id=$1`, [s.buyer_membership_id]))[0]?.user_id;

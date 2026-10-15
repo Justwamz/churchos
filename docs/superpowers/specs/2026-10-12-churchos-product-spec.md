@@ -295,6 +295,14 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L162. Permissions.** See the shop, sell at the till, and manage the shop (items, prices, stock, voids, margin). Every item change, price change, stock movement, sale, void and till count is audited.
 - **L163. Later.** A catalogue and pre-orders in the member app, barcode scanning, suppliers and purchase orders.
 
+### 4.30 Buying from the shop in the member app, and adverts that lead to it
+- **L164. Members buy from the app.** A member sees the shop of their church's branches, with a picture, a price and whether it is in stock, builds a basket, and pays by M-Pesa, Airtel Money, T-Kash or card. There is no cash and no delivery in the first version: the order is collected at the branch shop.
+- **L165. Orders reserve stock like a till sale.** The items are held for 30 minutes, the order completes when the payment arrives through the normal payment flow with the platform fee, and an unpaid order lapses and releases the stock. A member can have at most three unpaid orders, up to 10 of one item, and an order cannot be more than the single-payment limit.
+- **L166. Collection.** Once paid, the member gets a collection code and the branch sees the order under Orders in the shop. Staff mark it ready (the member is told in the app) and then collected, checking the code. Orders can be searched by receipt or code.
+- **L167. Pictures.** An item can have one picture (PNG, JPEG or WebP, up to 500 KB). Without one, the app shows a coloured tile with the item's initial.
+- **L168. Adverts can lead to the shop.** When an advert is tapped it can open a link (as before), open the shop, show one item, or go straight to checkout with an item and quantity already in the basket. The item must belong to the church and be for sale. If it is sold out when tapped, the member is told and nothing is charged. Changing where an advert leads takes it back to approval like any other change.
+- **L169. Orders are traced to the advert** that led to them, so the church sees how many orders and how much money each advert brought.
+
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).
 - **P1. Order of work:** bookings and assets first, then prayer and pastoral requests, then live sessions with video and chat.
