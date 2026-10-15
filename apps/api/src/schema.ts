@@ -623,6 +623,80 @@ ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS ready_at text;
 ALTER TABLE shop_sales ADD COLUMN IF NOT EXISTS collected_at text;
 ALTER TABLE adverts ADD COLUMN IF NOT EXISTS action jsonb;
 
+-- Event tickets (L170 to L178).
+ALTER TABLE events ADD COLUMN IF NOT EXISTS code text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS ticketed boolean NOT NULL DEFAULT false;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS poster_mime text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS poster_data text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS poster_w int;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS poster_h int;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS ticket_reminder_sent boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS ticket_types (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  event_id text NOT NULL,
+  name text NOT NULL,
+  description text,
+  price bigint NOT NULL DEFAULT 0,
+  quantity int NOT NULL,
+  per_order_max int NOT NULL DEFAULT 10,
+  sales_start text,
+  sales_end text,
+  active boolean NOT NULL DEFAULT true,
+  sort int NOT NULL DEFAULT 0,
+  created_at text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ticket_orders (
+  id text PRIMARY KEY,
+  secret text NOT NULL UNIQUE,
+  code text NOT NULL UNIQUE,
+  org_id text NOT NULL,
+  branch_id text,
+  event_id text NOT NULL,
+  buyer_name text NOT NULL,
+  buyer_email text,
+  buyer_phone text,
+  buyer_user_id text,
+  buyer_membership_id text,
+  method text,
+  status text NOT NULL CHECK (status IN ('awaiting_payment','paid','lapsed','cancelled')),
+  subtotal bigint NOT NULL,
+  service_fee bigint NOT NULL DEFAULT 0,
+  total bigint NOT NULL,
+  provider_tx_id text,
+  payment_id text,
+  hold_until text,
+  advert_id text,
+  created_at text NOT NULL,
+  paid_at text
+);
+CREATE TABLE IF NOT EXISTS ticket_order_lines (
+  order_id text NOT NULL,
+  type_id text NOT NULL,
+  type_name text NOT NULL,
+  qty int NOT NULL,
+  unit_price bigint NOT NULL,
+  PRIMARY KEY (order_id, type_id)
+);
+CREATE TABLE IF NOT EXISTS tickets (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  event_id text NOT NULL,
+  order_id text NOT NULL,
+  type_id text NOT NULL,
+  type_name text NOT NULL,
+  serial text NOT NULL UNIQUE,
+  token text NOT NULL UNIQUE,
+  holder_name text NOT NULL,
+  status text NOT NULL DEFAULT 'valid' CHECK (status IN ('valid','used','cancelled')),
+  checked_in_at text,
+  checked_in_by text,
+  cancelled_by text,
+  cancel_reason text,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tickets_event_idx ON tickets(event_id);
+
 -- One pending confirmation code per person (L123).
 CREATE TABLE IF NOT EXISTS email_codes (
   user_id text PRIMARY KEY,
@@ -643,6 +717,7 @@ CREATE TABLE IF NOT EXISTS email_outbox (
   error text,
   created_at timestamptz NOT NULL
 );
+ALTER TABLE email_outbox ADD COLUMN IF NOT EXISTS html text;
 
 CREATE TABLE IF NOT EXISTS sms_messages (
   id text PRIMARY KEY,
@@ -779,7 +854,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

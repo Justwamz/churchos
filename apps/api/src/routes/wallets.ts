@@ -387,7 +387,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // The development email outbox. Real email goes through a provider.
   app.get('/admin/outbox', adm, async () => {
-    const rows = await ctx.db.query<any>(`SELECT id, org_id, to_email, subject, body, status, error, created_at FROM email_outbox ORDER BY created_at DESC LIMIT 100`);
+    const rows = await ctx.db.query<any>(`SELECT id, org_id, to_email, subject, body, html, status, error, created_at FROM email_outbox ORDER BY created_at DESC LIMIT 100`);
     return rows.map((r) => ({ ...r, to_email: maskEmail(r.to_email) }));
   });
 

@@ -1,6 +1,7 @@
 import { advertPaid } from './adverts';
 import { bookingPaid } from './bookings';
 import { shopPaid } from './shop';
+import { ticketsPaid } from './tickets';
 import type { FastifyInstance } from 'fastify';
 import { maskPhone } from '@churchos/shared';
 import { normalizePhone, signToken } from '../auth';
@@ -61,6 +62,7 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
         ]);
       }
     }
+    if (String(p.purpose ?? '').startsWith('TKT-')) await ticketsPaid(ctx, String(p.purpose).slice(4), result.paymentId);
     if (String(p.purpose ?? '').startsWith('SHOP-')) await shopPaid(ctx, String(p.purpose).slice(5), result.paymentId);
     if (String(p.purpose ?? '').startsWith('BK-')) await bookingPaid(ctx, String(p.purpose).slice(3), result.paymentId);
     if (String(p.purpose ?? '').startsWith('AD-')) await advertPaid(ctx, String(p.purpose).slice(3), result.paymentId);

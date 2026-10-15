@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { notifyTicketBuyersOfCancel } from './tickets';
 import { audienceLabel, audienceMatchSql, audienceOf, audienceUserIds, grantsFor, inStaffScope, type Audience } from '../scope';
 import type { Permission } from '../auth';
 
@@ -171,6 +172,8 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
       id: e.id, title: e.title, description: e.description, location: e.location, startsAt: e.starts_at, endsAt: e.ends_at, audience: e.audience, audienceLabel: await audienceLabel(ctx, e.audience),
       rsvp: e.rsvp, capacity: e.capacity, status: e.status, cancelReason: e.cancel_reason, createdBy: e.created_by_name ?? null,
       goingReplies: t.going, peopleComing: t.people, notComing: t.declined, spotsLeft: e.capacity == null ? null : Math.max(0, e.capacity - t.people),
+      ticketed: !!e.ticketed, code: e.code ?? null, hasPoster: !!e.poster_data,
+      ticketsSold: e.ticketed ? Number((await ctx.db.query<any>(`SELECT count(*) AS n FROM tickets WHERE event_id=$1 AND status IN ('valid','used')`, [e.id]))[0].n) : 0,
     };
   }
   const EVENT_SELECT = `SELECT e.*, u.name AS created_by_name FROM events e LEFT JOIN users u ON u.id=e.created_by`;
@@ -257,7 +260,8 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     await recordVersion(ctx, { orgId: old.org_id, branchId: old.branch_id, entity: 'event', entityId: old.id, snapshot: maskedSnapshot(EVENT_SPECS, flat), summary: 'Cancelled', eventId: evt });
     const going = (await ctx.db.query<any>(`SELECT user_id FROM event_rsvps WHERE event_id=$1 AND response='going'`, [old.id])).map((r) => r.user_id);
     await notify(old.org_id, going, 'An event was cancelled', `"${old.title}" was cancelled.${reason ? ` ${reason}` : ''}`);
-    return { id: old.id, status: 'cancelled', told: going.length };
+    const tk = await notifyTicketBuyersOfCancel(ctx, old, reason);
+    return { id: old.id, status: 'cancelled', told: going.length, ticketOrdersTold: tk.orders, ordersToRefund: tk.ordersToRefund, ticketsToRefund: tk.ticketsToRefund };
   });
 
   /** Who is coming: names and guest counts, never phone numbers (L135). */
@@ -268,6 +272,14 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   // ======================= events, member side =======================
+
+  /** What a member needs to know to buy a ticket: whether there are tickets, from what price, and whether they sold out (L170). */
+  async function ticketFacts(e: any) {
+    if (!e.ticketed) return { ticketed: false };
+    const r = (await ctx.db.query<any>(`SELECT COALESCE(MIN(price),0) AS from_price, COALESCE(SUM(quantity),0)::int AS cap FROM ticket_types WHERE event_id=$1 AND active`, [e.id]))[0];
+    const sold = Number((await ctx.db.query<any>(`SELECT count(*) AS n FROM tickets WHERE event_id=$1 AND status IN ('valid','used')`, [e.id]))[0].n);
+    return { ticketed: true, code: e.code, ticketFrom: Number(r.from_price), soldOut: r.cap > 0 && sold >= r.cap, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null };
+  }
 
   app.get('/me/events', auth, async (req) => {
     const rows = await ctx.db.query<any>(
@@ -283,6 +295,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
       out.push({
         id: e.id, title: e.title, description: e.description, location: e.location, startsAt: e.starts_at, endsAt: e.ends_at, church: e.church, status: e.status, cancelReason: e.cancel_reason,
         rsvp: e.rsvp, capacity: e.capacity, peopleComing: t.people, spotsLeft, full: spotsLeft === 0, myResponse: e.my_response ?? null, myGuests: e.my_guests ?? 0,
+        ...(await ticketFacts(e)),
       });
     }
     return out;

@@ -129,9 +129,16 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
    * Where a tap leads besides a link (L168): the shop, one item, or straight to checkout with an item. The item must belong to this church and be for sale.
    * The item's name is kept on the advert so the history reads well.
    */
-  async function actionOf(raw: any, orgId: string): Promise<{ kind: 'shop' | 'item' | 'checkout'; itemId?: string; qty?: number; itemName?: string } | null> {
+  async function actionOf(raw: any, orgId: string): Promise<{ kind: 'shop' | 'item' | 'checkout' | 'event'; itemId?: string; qty?: number; itemName?: string; eventId?: string } | null> {
     if (raw === null || raw === undefined || raw === '' || raw.kind === 'link' || raw.kind === 'none') return null;
     if (raw.kind === 'shop') return { kind: 'shop' };
+    if (raw.kind === 'event') {
+      const ev = (await ctx.db.query<any>(`SELECT id, title, status, ticketed, COALESCE(ends_at, starts_at) AS ends FROM events WHERE id=$1 AND org_id=$2`, [String(raw.eventId ?? ''), orgId]))[0];
+      if (!ev) throw new HttpError(404, 'That event was not found', 'not_found');
+      if (!ev.ticketed) throw new HttpError(409, `"${ev.title}" does not sell tickets. Set up its tickets first.`, 'no_tickets');
+      if (ev.status === 'cancelled' || ev.ends < ctx.clock.now().toISOString()) throw new HttpError(409, `"${ev.title}" is not open for tickets`, 'event_over');
+      return { kind: 'event', eventId: ev.id, itemName: ev.title };
+    }
     if (raw.kind !== 'item' && raw.kind !== 'checkout') throw new HttpError(400, 'Choose where the advert leads: a link, the shop, one item or checkout', 'bad_action');
     const it = (await ctx.db.query<any>(`SELECT id, name, active FROM shop_items WHERE id=$1 AND org_id=$2`, [String(raw.itemId ?? ''), orgId]))[0];
     if (!it) throw new HttpError(404, 'That shop item was not found', 'not_found');
@@ -142,7 +149,7 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
   }
   const actionText = (a: any) => {
     const x = a.action as { kind: string; itemName?: string; qty?: number } | null;
-    return !x ? null : x.kind === 'shop' ? 'Opens the shop' : x.kind === 'item' ? `Shows ${x.itemName}` : `Checkout with ${x.qty} x ${x.itemName}`;
+    return !x ? null : x.kind === 'shop' ? 'Opens the shop' : x.kind === 'event' ? `Sells tickets for ${x.itemName}` : x.kind === 'item' ? `Shows ${x.itemName}` : `Checkout with ${x.qty} x ${x.itemName}`;
   };
 
   const flat = (a: any, label: string) => ({
@@ -363,6 +370,10 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
       let action: any = null;
       const x = a.action as { kind: string; itemId?: string; qty?: number } | null;
       if (x?.kind === 'shop') action = { kind: 'shop' };
+      else if (x?.kind === 'event' && (x as any).eventId) {
+        const ev = (await ctx.db.query<any>(`SELECT e.id, e.title, e.code, e.starts_at, e.status, e.ticketed, e.poster_data IS NOT NULL AS has_poster, COALESCE((SELECT MIN(price) FROM ticket_types t WHERE t.event_id=e.id AND t.active),0) AS from_price, COALESCE((SELECT SUM(quantity) FROM ticket_types t WHERE t.event_id=e.id AND t.active),0)::int AS cap, (SELECT count(*) FROM tickets k WHERE k.event_id=e.id AND k.status IN ('valid','used'))::int AS sold FROM events e WHERE e.id=$1`, [(x as any).eventId]))[0];
+        action = { kind: 'event', eventId: (x as any).eventId, event: ev && ev.ticketed ? { id: ev.id, code: ev.code, title: ev.title, startsAt: ev.starts_at, from: Number(ev.from_price), available: ev.status === 'scheduled' && ev.cap > ev.sold, posterUrl: ev.has_poster ? `/public/event/${ev.code}/poster` : null } : null };
+      }
       else if (x?.itemId) {
         const it = (await ctx.db.query<any>(`SELECT i.id, i.branch_id, i.name, i.price, i.active, i.low_stock, i.image_data IS NOT NULL AS has_image, COALESCE((SELECT SUM(qty) FROM shop_movements m WHERE m.item_id=i.id),0)::int AS stock FROM shop_items i WHERE i.id=$1`, [x.itemId]))[0];
         action = { kind: x.kind, itemId: x.itemId, qty: x.qty ?? 1, item: it ? { id: it.id, branchId: it.branch_id, name: it.name, price: Number(it.price), available: it.active && it.stock > 0, left: it.stock > 0 && it.stock <= it.low_stock ? it.stock : null, imageUrl: it.has_image ? `/me/shop/items/${it.id}/image` : null } : null };

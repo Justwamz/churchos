@@ -25,7 +25,10 @@ export interface MessagingProvider {
 export interface OutboundEmail {
   to: string;
   subject: string;
+  /** Plain text, always present. */
   body: string;
+  /** The same message as a web page, with pictures such as QR codes. */
+  html?: string;
 }
 
 export interface EmailProvider {

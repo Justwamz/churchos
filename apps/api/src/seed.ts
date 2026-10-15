@@ -4,6 +4,7 @@ import { todayEat } from './members';
 import { ensureWallets } from './wallets';
 import { startOfDayEat } from './ctx';
 import { gradientPng } from './artwork';
+import { issueTicketsFor } from './routes/tickets';
 
 export const SEED_LOGINS = [
   { app: 'Staff dashboard', who: 'Grace Community owner (all branches, HQ view)', phone: '0700000001' },
@@ -299,6 +300,30 @@ export async function seed(ctx: Ctx) {
       ('adv_bake','BAKE01','org_grace','br_grc001','Mothers Union Bake Sale','After the second service this Sunday.',NULL,'image/png',$4,1280,720,'{"type":"branch","id":"br_grc001"}',$5,$6,NULL,NULL,NULL,'pending','u_admin','u_admin',NULL,NULL,$5,$5) ON CONFLICT DO NOTHING`,
     [art([14, 90, 82], [8, 40, 52]), art([76, 29, 149], [30, 27, 75]), art([190, 24, 93], [76, 5, 25]), art([194, 120, 3], [120, 53, 15]), now, inTwoWeeks],
   );
+
+  // Ticketed events (L170 to L178): a paid gala with three ticket types and a poster, a free concert with QR entry tickets, and an order Jane already paid for.
+  const gAt = (days: number, hour: number) => new Date(Date.parse(startOfDayEat(ctx.clock.now())) + days * 86400_000 + hour * 3600_000).toISOString();
+  await db.query(
+    `INSERT INTO events (id, org_id, branch_id, title, description, location, starts_at, ends_at, audience, rsvp, capacity, created_by, created_at, updated_at, code, ticketed, poster_mime, poster_data, poster_w, poster_h) VALUES
+      ('evt_gala','org_grace',NULL,'Christmas Gala Dinner','A three course dinner, live music and a raffle in aid of the roof project.','Grace Hall, Nairobi',$2,$3,'{"type":"org"}',false,NULL,'u_owner',$1,$1,'GALA01',true,'image/png',$4,1280,720),
+      ('evt_concert','org_grace',NULL,'Youth Praise Concert','An evening of music by the youth. Entry is free but you need a ticket.','Main sanctuary, Nairobi',$5,$6,'{"type":"org"}',false,NULL,'u_owner',$1,$1,'PRAISE',true,'image/png',$7,1280,720) ON CONFLICT DO NOTHING`,
+    [now, gAt(14, 18), gAt(14, 22), gradientPng(1280, 720, [120, 30, 70], [50, 10, 40]), gAt(6, 17), gAt(6, 20), gradientPng(1280, 720, [30, 70, 140], [10, 25, 70])],
+  );
+  await db.query(
+    `INSERT INTO ticket_types (id, org_id, event_id, name, description, price, quantity, per_order_max, active, sort, created_at) VALUES
+      ('tkt_reg','org_grace','evt_gala','Regular','Dinner and entertainment',150000,120,10,true,0,$1),
+      ('tkt_couple','org_grace','evt_gala','Couple','Dinner for two, with a raffle ticket each',250000,40,5,true,1,$1),
+      ('tkt_child','org_grace','evt_gala','Child under 12','Children''s meal',50000,30,10,true,2,$1),
+      ('tkt_entry','org_grace','evt_concert','Entry','Free, one ticket for each person',0,200,10,true,0,$1) ON CONFLICT DO NOTHING`,
+    [now],
+  );
+  await db.query(
+    `INSERT INTO ticket_orders (id, secret, code, org_id, branch_id, event_id, buyer_name, buyer_email, buyer_phone, buyer_user_id, buyer_membership_id, method, status, subtotal, service_fee, total, paid_at, created_at) VALUES
+      ('tko_demo','demosecret00000000000000000000aa','DEMO01','org_grace',NULL,'evt_gala','Jane Wanjiku',NULL,'254711000001','u_jane','m_jane','mpesa','paid',300000,3000,303000,$1,$1) ON CONFLICT DO NOTHING`,
+    [now],
+  );
+  await db.query(`INSERT INTO ticket_order_lines (order_id, type_id, type_name, qty, unit_price) VALUES ('tko_demo','tkt_reg','Regular',2,150000) ON CONFLICT DO NOTHING`);
+  await issueTicketsFor(ctx, 'tko_demo');
 
   // Two adverts that lead to the shop (L168): one shows an item, the other goes straight to checkout with it in the basket.
   await db.query(

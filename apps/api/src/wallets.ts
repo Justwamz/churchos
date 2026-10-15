@@ -127,10 +127,10 @@ export async function requireVerifiedEmail(ctx: Ctx, uid: string, isAdmin: boole
   if (!u?.email || !u.email_verified) throw new HttpError(428, 'Add your email address and confirm it with the code we send you, so you receive messaging alerts.', 'email_required');
 }
 
-export async function sendEmail(ctx: Ctx, orgId: string | null, to: string, subject: string, body: string) {
-  const res = await ctx.email.send({ to, subject, body });
-  await ctx.db.query(`INSERT INTO email_outbox (id, org_id, to_email, subject, body, status, error, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
-    ctx.newId('eml'), orgId, to, subject, body, res.status, res.error ?? null, ctx.clock.now().toISOString(),
+export async function sendEmail(ctx: Ctx, orgId: string | null, to: string, subject: string, body: string, html?: string) {
+  const res = await ctx.email.send({ to, subject, body, html });
+  await ctx.db.query(`INSERT INTO email_outbox (id, org_id, to_email, subject, body, html, status, error, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [
+    ctx.newId('eml'), orgId, to, subject, body, html ?? null, res.status, res.error ?? null, ctx.clock.now().toISOString(),
   ]);
   return res.status === 'sent';
 }
