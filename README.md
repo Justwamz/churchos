@@ -131,3 +131,10 @@ needs a float policy for this.
 - **Voids:** a manager can void a cash sale within 24 hours and put the items back.
 - **Close till:** count the cash against what the sales say. The count goes to **Cash** for a second person (Samuel, `0700000003`) to sign off.
 - **Reports:** takings by day, best sellers, categories, payment methods, low stock and stock value, with cost and margin for managers.
+
+## Buying from the shop in the member app, and adverts that lead to it (Slice 11)
+
+- **Member shop:** sign in to the member app (http://localhost:3002) as Jane (`0711000001`), tap **Shop** on Home, add a Bible or rosary to the basket and check out with M-Pesa or card (card test number `4242 4242 4242 4242`). Items are held for 30 minutes. When paid, Jane gets a **collection code** and sees the order under **My orders**.
+- **Branch side:** in the staff app (Daniel `0700000001` or Esther `0700000002`) open **Shop > Orders**. Paid orders appear to prepare. Mark one ready (Jane is told in the app), then hand it over against her code.
+- **Adverts that lead to the shop:** Jane's Home slider has "Get your own Bible" (opens that item) and "Rosary week" (goes straight to a checkout with a rosary in the basket). Staff choose this in the advert form under **When someone taps it**, and each advert shows how many orders it brought.
+- **Item pictures:** upload them under **Shop > Items and stock**. The demo items have generated pictures.

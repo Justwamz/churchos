@@ -42,3 +42,10 @@
   .sp-receipt { position: absolute; left: 0; top: 0; width: 100%; max-width: none; }
   .sp-noprint { display: none !important; }
 }
+.sp-thumb { display: block; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); flex: none; background: var(--brand-tint); }
+.sp-thumb.tile { display: grid; place-items: center; font-weight: 700; color: var(--brand); font-family: var(--serif); }
+.sp-badge { display: inline-block; margin-left: 8px; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--brand); color: #fff; font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; }
+.chip.on .sp-badge { background: #fff; color: var(--brand); }
+.sp-item-pick { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+.sp-item-pick label { display: flex; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.sp-item-pick label.on { border-color: var(--brand); background: var(--brand-tint); }

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { Icon, Sheet } from './ui';
+import type { ShopIntent, ShopItem } from './Shop';
 
-type Advert = { id: string; title: string; body?: string; link?: string | null; sponsor?: string | null; church?: string | null; imageUrl?: string | null; width?: number; height?: number };
+type Advert = { id: string; title: string; body?: string; link?: string | null; sponsor?: string | null; church?: string | null; imageUrl?: string | null; width?: number; height?: number; action?: null | { kind: 'shop' } | { kind: 'item'; itemId: string; qty?: number; item: ShopItem } | { kind: 'checkout'; itemId: string; qty?: number; item: ShopItem } };
 
 const viewed = new Set<string>(); // one view per advert per session
 const img = (a: Advert) => (a.imageUrl ? api.url(a.imageUrl) : '');
 const safeLink = (l?: string | null) => (l && /^https?:\/\//i.test(l) ? l : null);
 
-export function AdvertSlider() {
+export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
   const [ads, setAds] = useState<Advert[]>([]);
   const [idx, setIdx] = useState(0);
   const [open, setOpen] = useState<Advert | null>(null);
@@ -54,7 +55,17 @@ export function AdvertSlider() {
   }, [ads.length]);
 
   if (!ads.length) return null;
-  const tap = (a: Advert) => { api.post(`/me/adverts/${encodeURIComponent(a.id)}/tap`).catch(() => {}); setOpen(a); };
+  const tap = (a: Advert) => {
+    api.post(`/me/adverts/${encodeURIComponent(a.id)}/tap`).catch(() => {});
+    const act = a.action;
+    if (act && onShop) {
+      if (act.kind === 'shop') return onShop({ kind: 'shop' });
+      const item = act.item;
+      if (!item || !item.available) return onShop({ kind: 'shop', notice: `Sorry, ${item?.name ?? 'that item'} is sold out right now. Have a look at what else is in the shop.` });
+      return onShop(act.kind === 'item' ? { kind: 'item', item, advertId: a.id } : { kind: 'checkout', item, qty: act.qty ?? 1, advertId: a.id });
+    }
+    setOpen(a);
+  };
   const goTo = (i: number) => { const s = track.current?.querySelectorAll<HTMLElement>('.ad-slide')[i]; if (s && track.current) track.current.scrollTo({ left: s.offsetLeft - track.current.offsetLeft, behavior: 'smooth' }); };
   const link = safeLink(open?.link);
 
@@ -66,6 +77,7 @@ export function AdvertSlider() {
         {ads.map((a, i) => (
           <button type="button" key={a.id} data-i={i} data-id={a.id} className="ad-slide" aria-label={`${a.title}. Tap for details`} onClick={() => tap(a)}>
             {a.imageUrl ? <img src={img(a)} alt="" loading="lazy" draggable={false} /> : <span className="ad-fallback" aria-hidden="true" />}
+            {(a.action?.kind === 'item' || a.action?.kind === 'checkout') && <span className="ad-buy">Buy</span>}
             <span className="ad-pill">{a.sponsor ? `Sponsored by ${a.sponsor}` : 'From your church'}</span>
             <span className="ad-scrim">
               <strong>{a.title}</strong>

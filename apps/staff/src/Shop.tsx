@@ -5,8 +5,9 @@ import { api, friendly, methodLabel as baseMethodLabel, useSession } from './ses
 const methodLabel = (m: string) => (m === 'cash' ? 'Cash' : baseMethodLabel(m));
 import { Load, PageHead } from './bits';
 import { useDebounced } from './MemberForm';
-import { ItemsAndStock, stockError, useItems } from './ShopItems';
+import { ItemsAndStock, ItemThumb, stockError, useItems } from './ShopItems';
 import { ShopReports, ShopSales } from './ShopSales';
+import { ShopOrders, useOrderCount } from './ShopOrders';
 import './shop.css';
 
 const METHODS: [string, string][] = [['cash', 'Cash'], ['mpesa', 'M-Pesa'], ['airtel', 'Airtel Money'], ['tkash', 'T-Kash'], ['card', 'Card']];
@@ -179,6 +180,7 @@ function Till({ branch }: { branch: string }) {
             <div className="sp-grid">
               {shown.map((i) => (
                 <button type="button" key={i.id} className="sp-tile" disabled={i.out || (basket[i.id] ?? 0) >= i.stock} onClick={() => add(i)}>
+                  <ItemThumb item={i} size={56} />
                   <b>{i.name}</b>
                   <span className="sp-price">{kes(i.price)}</span>
                   {i.out ? <span className="sp-tag out">Out of stock</span> : i.low ? <span className="sp-tag">Only {i.stock} left</span> : <span className="tiny">{i.stock} in stock</span>}
@@ -295,12 +297,12 @@ function CloseTill({ branch }: { branch: string }) {
   );
 }
 
-type Seg = 'till' | 'items' | 'sales' | 'reports' | 'close';
+type Seg = 'till' | 'items' | 'sales' | 'orders' | 'reports' | 'close';
 
 export function Shop() {
   const s = useSession();
   const sell = s.can('shop.sell');
-  const segs: [Seg, string][] = [...(sell ? [['till', 'Till'] as [Seg, string]] : []), ['items', 'Items and stock'], ['sales', 'Sales'], ['reports', 'Reports'], ...(sell ? [['close', 'Close till'] as [Seg, string]] : [])];
+  const segs: [Seg, string][] = [...(sell ? [['till', 'Till'] as [Seg, string]] : []), ['items', 'Items and stock'], ['sales', 'Sales'], ...(sell ? [['orders', 'Orders'] as [Seg, string]] : []), ['reports', 'Reports'], ...(sell ? [['close', 'Close till'] as [Seg, string]] : [])];
   const [seg, setSeg] = useState<Seg>(segs[0][0]);
   const [branch, setBranch] = useState(() => (s.scope !== 'all' && s.branches.some((b) => b.id === s.scope) ? s.scope : s.branches[0]?.id ?? ''));
   // When no branch was chosen in the top bar, open on the branch that actually has a shop rather than the first one alphabetically.
@@ -313,13 +315,14 @@ export function Shop() {
   const view = s.can('shop.view') || s.can('shop.manage');
   const shownSegs = segs.filter(([k]) => view || k === 'till' || k === 'close');
   const cur = shownSegs.some(([k]) => k === seg) ? seg : shownSegs[0][0];
+  const [toPrepare, setToPrepare] = useOrderCount(branch, sell);
   if (!branch) return <ErrorNote>You do not have access to a branch yet.</ErrorNote>;
   return (
     <div>
       <PageHead title="Shop" sub="Sell Bibles, rosaries, books and more, and keep track of stock." />
       <div className="sp-bar">
         <div className="chips sp-tabs" role="group" aria-label="Shop sections">
-          {shownSegs.map(([k, l]) => <button type="button" key={k} className={`chip ${cur === k ? 'on' : ''}`} aria-pressed={cur === k} onClick={() => setSeg(k)}>{l}</button>)}
+          {shownSegs.map(([k, l]) => <button type="button" key={k} className={`chip ${cur === k ? 'on' : ''}`} aria-pressed={cur === k} onClick={() => setSeg(k)}>{l}{k === 'orders' && toPrepare > 0 && <span className="sp-badge">{toPrepare}</span>}</button>)}
         </div>
         {s.branches.length > 1 && (
           <select aria-label="Shop branch" style={{ width: 'auto', minWidth: 200 }} value={branch} onChange={(e) => setBranch(e.target.value)}>
@@ -330,6 +333,7 @@ export function Shop() {
       {cur === 'till' && <Till key={branch} branch={branch} />}
       {cur === 'items' && <ItemsAndStock key={branch} branch={branch} />}
       {cur === 'sales' && <ShopSales key={branch} branch={branch} />}
+      {cur === 'orders' && <ShopOrders key={branch} branch={branch} onCount={setToPrepare} />}
       {cur === 'reports' && <ShopReports key={branch} branch={branch} />}
       {cur === 'close' && <CloseTill key={branch} branch={branch} />}
     </div>

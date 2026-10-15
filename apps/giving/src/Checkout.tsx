@@ -83,6 +83,11 @@ export function Checkout() {
               {receipt?.receipt && <p className="tiny">Receipt reference <b className="mono">{receipt.receipt}</b></p>}
               <a className="btn primary" href={back}>Back to ChurchOS</a>
             </>
+          ) : search.get('return') ? (
+            <>
+              <p className="muted">Payment received. Thank you.</p>
+              <a className="btn primary" href={back}>Back to ChurchOS</a>
+            </>
           ) : <p className="muted">Payment received. You can close this tab and return to ChurchOS.</p>}
         </div>
       )}

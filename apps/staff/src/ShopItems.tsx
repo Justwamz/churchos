@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Badge, Button, Empty, ErrorNote, Field, Table, kes, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load } from './bits';
@@ -9,6 +9,8 @@ export const stockError = (e: any) => {
   const c = e?.code;
   if (c === 'below_zero') return friendly(e.message);
   if (c === 'duplicate') return friendly(e.message) || 'That name or code is already used.';
+  if (c === 'picture_too_large') return 'The picture is larger than 500 KB. Use a smaller one.';
+  if (c === 'bad_picture') return friendly(e.message) || 'Use a PNG, JPEG or WebP picture, at least 200 pixels wide and tall.';
   if (c === 'bad_code') return 'A code can use letters, numbers, dots, dashes and underscores only.';
   if (c === 'bad_amount' || c === 'bad_number') return 'Check the numbers. Prices need to be a positive amount and stock a whole number.';
   return friendly(e?.message);
@@ -20,6 +22,34 @@ export function useItems(branch: string) {
 }
 
 const MOVE: Record<string, string> = { received: 'Received', adjusted: 'Adjusted', written_off: 'Written off', sold: 'Sold', voided: 'Put back (sale voided)', restocked: 'Put back' };
+export function ItemThumb({ item, size = 40 }: { item: any; size?: number }) {
+  const st = { width: size, height: size, fontSize: Math.round(size * 0.45) };
+  return item.hasImage && item.imageUrl
+    ? <img className="sp-thumb" style={st} src={api.url(item.imageUrl)} alt="" loading="lazy" />
+    : <span className="sp-thumb tile" style={st} aria-hidden="true">{(item.name?.trim()?.[0] ?? '?').toUpperCase()}</span>;
+}
+
+type Pic = { mime: string; data: string; preview: string };
+const PIC_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+function readPicture(file: File): Promise<Pic> {
+  return new Promise((resolve, reject) => {
+    if (!PIC_TYPES.includes(file.type)) return reject(new Error('Use a PNG, JPEG or WebP picture.'));
+    if (file.size > 500 * 1024) return reject(new Error('This picture is larger than 500 KB. Use a smaller one.'));
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('We could not read that file.'));
+    fr.onload = () => {
+      const url = String(fr.result);
+      const img = new Image();
+      img.onerror = () => reject(new Error('We could not open that picture.'));
+      img.onload = () => {
+        if (img.naturalWidth < 200 || img.naturalHeight < 200) return reject(new Error(`This picture is ${img.naturalWidth} x ${img.naturalHeight} pixels. It must be at least 200 pixels wide and tall.`));
+        resolve({ mime: file.type, data: url.slice(url.indexOf(',') + 1), preview: url });
+      };
+      img.src = url;
+    };
+    fr.readAsDataURL(file);
+  });
+}
 const shillings = (v: string) => v.replace(/[^\d.]/g, '');
 
 function ItemForm({ branch, item, categories, onClose, onSaved }: { branch: string; item?: any; categories: string[]; onClose: () => void; onSaved: (m: string) => void }) {
@@ -33,17 +63,32 @@ function ItemForm({ branch, item, categories, onClose, onSaved }: { branch: stri
   const [open, setOpen] = useState('0');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [pic, setPic] = useState<Pic | null>(null);
+  const [removePic, setRemovePic] = useState(false);
+  const [picErr, setPicErr] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const pickPic = async (f?: File | null) => {
+    if (!f) return;
+    setPicErr('');
+    try { setPic(await readPicture(f)); setRemovePic(false); } catch (e: any) { setPicErr(e.message); }
+  };
+  const shownPic = pic?.preview ?? (item?.hasImage && !removePic ? api.url(item.imageUrl) : undefined);
   const save = async () => {
     setErr('');
     if (!name.trim()) return setErr('Write a name.');
     if (!(Number(price) > 0)) return setErr('Enter the selling price in shillings.');
     const body: any = { name: name.trim(), code: code.trim() || undefined, category: category.trim() || undefined, price: Number(price), cost: cost.trim() ? Number(cost) : undefined, lowStock: Number(low) || 0 };
     setBusy(true);
+    let saved: any = item;
     try {
       if (item) await api.put(`/shop/items/${item.id}` + s.qs({ branch: undefined }), { ...body, code: code.trim() || null, category: category.trim() || null });
-      else await api.post('/shop/items' + s.qs({ branch: undefined }), { ...body, branchId: branch, openingStock: Number(open) || 0 });
-      onSaved(item ? 'Changes saved' : 'Item added');
-    } catch (e: any) { setErr(stockError(e)); setBusy(false); }
+      else saved = await api.post('/shop/items' + s.qs({ branch: undefined }), { ...body, branchId: branch, openingStock: Number(open) || 0 });
+    } catch (e: any) { setErr(stockError(e)); setBusy(false); return; }
+    try {
+      if (pic && saved?.id) await api.post(`/shop/items/${saved.id}/image` + s.qs({ branch: undefined }), { image: { mime: pic.mime, data: pic.data } });
+      else if (removePic && item?.hasImage) await api.post(`/shop/items/${item.id}/image/remove` + s.qs({ branch: undefined }), {});
+    } catch (e: any) { setErr(`The item was saved, but the picture was not. ${stockError(e)} Try again with Edit.`); setBusy(false); return; }
+    onSaved(item ? 'Changes saved' : 'Item added');
   };
   return (
     <Modal title={item ? `Edit ${item.name}` : 'Add an item'} onClose={onClose}>
@@ -60,6 +105,19 @@ function ItemForm({ branch, item, categories, onClose, onSaved }: { branch: stri
           <Field label="Low stock level" hint="You are warned when stock falls to this number."><input inputMode="numeric" value={low} onChange={(e) => setLow(e.target.value.replace(/\D/g, ''))} /></Field>
           {!item && <Field label="Opening stock" hint="How many you have now."><input inputMode="numeric" value={open} onChange={(e) => setOpen(e.target.value.replace(/\D/g, ''))} /></Field>}
         </div>
+        <Field label="Picture" hint="Optional. PNG, JPEG or WebP, at least 200 x 200 pixels, up to 500 KB. Members see it in the shop.">
+          <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+            {shownPic ? <img className="sp-thumb" style={{ width: 88, height: 88 }} src={shownPic} alt="Picture preview" /> : <span className="sp-thumb tile" style={{ width: 88, height: 88, fontSize: 38 }} aria-hidden="true">{(name.trim()[0] ?? '?').toUpperCase()}</span>}
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="row">
+                <Button small kind="ghost" onClick={() => fileRef.current?.click()}>{shownPic ? 'Change picture' : 'Choose a picture'}</Button>
+                {shownPic && <Button small kind="ghost" onClick={() => { setPic(null); setRemovePic(true); setPicErr(''); }}>Remove picture</Button>}
+              </div>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { pickPic(e.target.files?.[0]); e.target.value = ''; }} />
+            </div>
+          </div>
+        </Field>
+        {picErr && <ErrorNote>{picErr}</ErrorNote>}
         {err && <ErrorNote>{err}</ErrorNote>}
         <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : item ? 'Save changes' : 'Add item'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
@@ -170,7 +228,7 @@ export function ItemsAndStock({ branch }: { branch: string }) {
           <Table head={['Name', 'Category', 'Price', ...(showCost ? ['Cost'] : []), 'In stock', ...(showValue ? ['Stock value'] : []), 'Status', '']}>
             {rows.map((i) => (
               <tr key={i.id} className={i.active ? '' : 'sp-off'}>
-                <td style={{ minWidth: 140 }}><b>{i.name}</b>{i.code && <div className="tiny">{i.code}</div>}</td>
+                <td style={{ minWidth: 140 }}><div className="row" style={{ flexWrap: 'nowrap', gap: 10, alignItems: 'center' }}><ItemThumb item={i} /><div><b>{i.name}</b>{i.code && <div className="tiny">{i.code}</div>}</div></div></td>
                 <td>{i.category || '-'}</td>
                 <td className="sp-num">{kes(i.price)}</td>
                 {showCost && <td className="sp-num">{i.cost !== null ? kes(i.cost) : '-'}</td>}

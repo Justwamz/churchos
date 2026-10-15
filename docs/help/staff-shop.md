@@ -5,7 +5,7 @@ audience: staff
 area: shop
 tags: [shop, till, sales, stock, inventory, bible, rosary, receipt, void, close till, report, low stock]
 screens: [staff.shop]
-version: 1
+version: 2
 ---
 
 # Running the church shop
@@ -33,6 +33,17 @@ Under **Items and stock** you add items with a selling price, an optional cost p
 - **History** shows every movement for an item: who, when, how many and why. Movements are never edited or deleted.
 
 Stock cannot go below zero. Items below their low stock level are marked **Low**, and an empty one **Out**.
+
+## Orders from the member app
+Members can order from the shop in the app and pay by M-Pesa, Airtel Money, T-Kash or card. When an order is paid it appears under **Orders**, and you get a message.
+
+1. Prepare the items and choose **Mark ready**. The member is told in the app.
+2. When they come, ask for their **collection code** and choose **Hand over**. If you type the code, it must match.
+
+Orders are held for 30 minutes while unpaid, and then released. Paid orders appear in **Sales** and **Reports** like any other sale. They cannot be voided like cash. If you need to refund one, ask for the payment to be reversed in **Payment help**.
+
+## Pictures
+Give an item a picture when you add or edit it (PNG, JPEG or WebP, at least 200 pixels wide and tall, up to 500 KB). Members see it in the app. Without one they see a coloured tile with the first letter.
 
 ## Mistakes
 A manager can **void** a cash sale within 24 hours, with a reason, and put the items back. A sale paid by mobile money or card cannot be voided here. Ask for the payment to be reversed in **Payment help**.

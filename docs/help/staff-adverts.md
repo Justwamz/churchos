@@ -5,7 +5,7 @@ audience: staff
 area: adverts
 tags: [adverts, banner, slider, carousel, events, sponsor, advertiser, approval, payment link, artwork, audience]
 screens: [staff.adverts]
-version: 1
+version: 2
 ---
 
 # Adverts on the member app
@@ -18,6 +18,15 @@ Adverts appear in a slider at the top of the member app's home screen. Use them 
 3. Upload the artwork. It must be **widescreen 16:9**, at least 800 pixels wide (1280 x 720 is ideal), a PNG, JPG or WebP file, and no larger than 1 MB. The preview shows how it will look on a phone.
 4. Choose who sees it: the **whole church**, **one branch** or **one group**. You can only choose what you manage.
 5. Choose **Run until I stop it**, or pick a start and end date.
+
+## What happens when someone taps it
+Choose one:
+- **Show the details**, with an optional link.
+- **Open the shop.**
+- **Show one shop item**, so the member can add it to their basket.
+- **Go straight to checkout** with an item and quantity already in the basket. This suits offers such as "Rosary week".
+
+The item must belong to your church and be for sale. If it sells out, members are told and nothing is charged. Orders are traced back to the advert, so each advert card shows how many orders and how much money it brought. Changing where a live advert leads takes it offline until it is approved again.
 
 ## Approval
 Someone else must approve every advert. You cannot approve one you created or sent. Choose **Send for approval**. The approver sees it under **Needs my approval** and either approves it or says why not. If it needs changes, edit it and send it again. Changing an advert that is already live takes it offline until it is approved again.

@@ -3,6 +3,7 @@ import { Badge, Button, Card, Empty, ErrorNote, Field, Note, kes, shortDate, use
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
+import { ItemThumb } from './ShopItems';
 import './adverts.css';
 
 const STATE: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' | 'info' | 'muted' }> = {
@@ -13,6 +14,10 @@ const STATE: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' | 'inf
 };
 
 const ERR: Record<string, string> = {
+  not_found: 'That shop item was not found. Choose another one.',
+  inactive: 'That item is switched off in the shop. Choose another item, or switch it on first.',
+  bad_number: 'Choose a quantity from 1 to 10.',
+  bad_action: 'Choose where the advert should lead when someone taps it.',
   same_person: 'Someone else must approve this advert, because you created or sent it. Ask a colleague to approve it.',
 };
 const explain = (e: any) => ERR[e?.code] ?? friendly(e?.message);
@@ -77,6 +82,10 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
   const [advName, setAdvName] = useState<string>(advert?.advertiser?.name ?? '');
   const [advContact, setAdvContact] = useState<string>(advert?.advertiser?.contact ?? '');
   const [advPrice, setAdvPrice] = useState<string>(advert?.advertiser?.price != null ? String(advert.advertiser.price / 100) : '');
+  const [act, setAct] = useState<'details' | 'shop' | 'item' | 'checkout'>(advert?.action?.kind ?? 'details');
+  const [itemId, setItemId] = useState<string>(advert?.action?.itemId ?? '');
+  const [qty, setQty] = useState<number>(advert?.action?.qty ?? 1);
+  const shopItems = useAsync<any[]>(() => api.get('/shop/items' + s.qs({ branch: kind === 'branch' ? branch : undefined })), [kind === 'branch' ? branch : '', s.grant.org.id]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const file = useRef<HTMLInputElement>(null);
@@ -99,10 +108,12 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
     if (kind === 'group' && !group) return setErr('Choose a group.');
     if (period === 'dates' && (!start || !end)) return setErr('Choose when it starts and when it ends.');
     if (period === 'dates' && Date.parse(`${end}:00+03:00`) <= Date.parse(`${start}:00+03:00`)) return setErr('The end must be after the start.');
+    if ((act === 'item' || act === 'checkout') && !itemId) return setErr('Choose the shop item.');
     if (paid && (!advName.trim() || !(Number(advPrice) > 0))) return setErr('Add the advertiser name and the price they will pay.');
     const audience = kind === 'org' ? { type: 'org' } : kind === 'branch' ? { type: 'branch', id: branch } : { type: 'group', id: group };
     const payload: any = {
-      title: title.trim(), body: body.trim(), link: link.trim(), audience,
+      title: title.trim(), body: body.trim(), link: act === 'details' ? link.trim() : '', audience,
+      action: act === 'details' ? null : act === 'shop' ? { kind: 'shop' } : act === 'item' ? { kind: 'item', itemId } : { kind: 'checkout', itemId, qty },
       ...(art ? { image: { mime: art.mime, data: art.data } } : {}),
       ...(period === 'dates' ? { startsAt: toIso(start), endsAt: toIso(end) } : advert ? { endsAt: null } : {}),
     };
@@ -140,11 +151,52 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
           {artErr && <ErrorNote>{artErr}</ErrorNote>}
           <Field label="Headline" hint={`${title.length} of 60 characters`}><input maxLength={60} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
           <Field label="Text" hint={`Optional. ${body.length} of 160 characters`}><textarea rows={3} maxLength={160} value={body} onChange={(e) => setBody(e.target.value)} /></Field>
-          <Field label="Link" hint="Optional. Where people go when they tap the advert. Must start with http:// or https://"><input inputMode="url" placeholder="https://" value={link} onChange={(e) => setLink(e.target.value)} /></Field>
         </div>
       </Card>
 
-      <Card title="2. Who should see it?">
+      <Card title="2. When someone taps it">
+        <div className="stack" style={{ gap: 10 }}>
+          {([['details', 'Show the details (and an optional link)'], ['shop', 'Open the shop'], ['item', 'Show one shop item'], ['checkout', 'Go straight to checkout with an item']] as const).map(([k, t]) => (
+            <label key={k} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="adact" checked={act === k} onChange={() => setAct(k)} /> <b>{t}</b></label>
+          ))}
+          {act === 'details' && <Field label="Link" hint="Optional. Where people go from the details. Must start with http:// or https://"><input inputMode="url" placeholder="https://" value={link} onChange={(e) => setLink(e.target.value)} /></Field>}
+          {(act === 'item' || act === 'checkout') && (
+            <>
+              {act === 'checkout' && <Note>The member lands on a checkout with this item already in the basket. Orders are traced back to the advert.</Note>}
+              <Load loading={shopItems.loading} error={shopItems.error} hasData={!!shopItems.data}>
+                {shopItems.data && (() => {
+                  const list = shopItems.data.filter((i) => i.active || i.id === itemId);
+                  return list.length === 0 ? <Empty>No shop items yet. Add some under Shop, Items and stock.</Empty> : (
+                    <div className="sp-item-pick" role="radiogroup" aria-label="Shop item">
+                      {list.map((i) => (
+                        <label key={i.id} className={itemId === i.id ? 'on' : ''}>
+                          <input type="radio" name="aditem" checked={itemId === i.id} onChange={() => setItemId(i.id)} />
+                          <ItemThumb item={i} size={36} />
+                          <span style={{ minWidth: 0, flex: 1 }}><b>{i.name}</b>{!i.active && <span className="tiny"> (switched off)</span>}<span className="tiny" style={{ display: 'block' }}>{kes(i.price)} · {i.out ? 'Out of stock' : `${i.stock} in stock`}</span></span>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </Load>
+              {itemId && shopItems.data?.find((i) => i.id === itemId)?.out && <Note tone="warn">This item is out of stock. Members will see it as sold out until you receive more.</Note>}
+            </>
+          )}
+          {act === 'checkout' && (
+            <div className="row" style={{ alignItems: 'center' }}>
+              <span className="field-label" style={{ margin: 0 }}>How many in the basket</span>
+              <div className="sp-step">
+                <button type="button" aria-label="One less" disabled={qty <= 1} onClick={() => setQty(qty - 1)}>-</button>
+                <span>{qty}</span>
+                <button type="button" aria-label="One more" disabled={qty >= 10} onClick={() => setQty(qty + 1)}>+</button>
+              </div>
+            </div>
+          )}
+          {advert && <div className="tiny">If this advert is live, changing where it leads takes it offline until someone approves it again.</div>}
+        </div>
+      </Card>
+
+      <Card title="3. Who should see it?">
         <div className="stack" style={{ gap: 10 }}>
           {radio('org', 'Whole church')}
           {radio('branch', 'A branch')}
@@ -156,7 +208,7 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
         </div>
       </Card>
 
-      <Card title="3. For how long?">
+      <Card title="4. For how long?">
         <div className="stack" style={{ gap: 10 }}>
           <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="adper" checked={period === 'open'} onChange={() => setPeriod('open')} /> <b>Run until I stop it</b></label>
           <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="adper" checked={period === 'dates'} onChange={() => setPeriod('dates')} /> <b>Choose dates</b></label>
@@ -169,7 +221,7 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
         </div>
       </Card>
 
-      <Card title="4. Is someone paying for it?">
+      <Card title="5. Is someone paying for it?">
         <div className="stack">
           <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} /> <b>This is a paid advert from someone else</b></label>
           {paid && (
@@ -253,6 +305,8 @@ function AdvertCard({ a, canManage, onEdit, onDecide, reload, toast }: { a: any;
         </div>
         <div className="tiny">Shown to: {a.audienceLabel}. {when}.{a.advertiser && <> Paid advert from {a.advertiser.name}{a.advertiser.price != null && <> for {kes(a.advertiser.price)}</>}.</>}</div>
         <div className="adv-stats"><span><b>{a.stats.views.toLocaleString()}</b> views</span><span><b>{a.stats.taps.toLocaleString()}</b> taps</span><span><b>{a.stats.viewers.toLocaleString()}</b> people</span></div>
+        {a.actionText && <div className="tiny">When tapped: {a.actionText}.</div>}
+        {a.stats.orders > 0 && <div className="adv-stats"><span><b>{a.stats.orders.toLocaleString()}</b> {a.stats.orders === 1 ? 'order' : 'orders'}, {kes(a.stats.orderTotal)}</span></div>}
         {a.status === 'rejected' && a.reason && <Note tone="warn">Not approved: {a.reason}</Note>}
         {a.status === 'taken_down' && <Note tone="warn">ChurchOS took this advert down{a.reason ? `: ${a.reason}` : '.'}</Note>}
         {a.status === 'pending' && !a.canApprove && <div className="tiny">Waiting for someone else to approve it.</div>}

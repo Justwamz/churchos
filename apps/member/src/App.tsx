@@ -9,9 +9,12 @@ import { Groups } from './Groups';
 import { EventsPage, HomeEvents, HomeNotices, NoticesPage } from './Community';
 import { BookPage, HomeBookings } from './Booking';
 import { AdvertSlider } from './Adverts';
+import { HomeShop, ShopPage } from './Shop';
+import type { ShopIntent } from './Shop';
 import { Icon, Sheet, Skeleton } from './ui';
 
 type Tab = 'home' | 'give' | 'inbox' | 'groups' | 'me';
+type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop';
 type GiveSub = 'give' | 'pledges' | 'history';
 type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
 type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
@@ -73,7 +76,10 @@ function parseHash(): Nav {
 function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const [nav, setNav] = useState<Nav>(parseHash);
   const tab = nav.tab;
-  const [homeSub, setHomeSub] = useState<'notices' | 'events' | 'book' | 'bookings' | null>(null);
+  const [homeSub, setHomeSub] = useState<HomeSub | null>(() => { try { return localStorage.getItem('churchos:shop-pending') ? 'shop' : null; } catch { return null; } });
+  const [shopIntent, setShopIntent] = useState<ShopIntent | undefined>();
+  const [shopK, setShopK] = useState(0);
+  const openShop = (i?: ShopIntent) => { setShopIntent(i); setShopK((k) => k + 1); setHomeSub('shop'); if (mainRef.current) mainRef.current.scrollTop = 0; };
   const me = useAsync<any>(() => api.get('/me'));
   const online = useOnline();
   const notif = useAsync<any>(() => api.get('/me/notifications'));
@@ -125,7 +131,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
       <header className="appbar">
         {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
         <div className="appbar-title">
-          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{TITLES[tab]}</strong>}
+          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
@@ -139,7 +145,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
-              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <EventsPage /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} notif={notif} openSub={setHomeSub} />)}
+              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <EventsPage /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
               {tab === 'groups' && <Groups />}
@@ -172,7 +178,7 @@ function greeting() {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
-function Home({ me, user, go, notif, openSub }: { me: any; user: any; go: Go; notif: any; openSub: (s: 'notices' | 'events' | 'book' | 'bookings') => void }) {
+function Home({ me, user, go, notif, openSub, openShop }: { me: any; user: any; go: Go; notif: any; openSub: (s: HomeSub) => void; openShop: (i?: ShopIntent) => void }) {
   const m = me?.memberships?.[0];
   const giving = useAsync<any>(() => api.get('/me/giving'));
   const first = String(m?.full_name ?? user?.name ?? '').split(' ')[0];
@@ -189,6 +195,7 @@ function Home({ me, user, go, notif, openSub }: { me: any; user: any; go: Go; no
     { ico: 'swap', label: 'Transfer church', on: () => go('me') },
     { ico: 'pledge', label: 'My pledges', on: () => go('give', { sub: 'pledges' }) },
     { ico: 'calendar', label: 'Book', on: () => openSub('book') },
+    { ico: 'bag', label: 'Shop', on: () => openShop() },
   ];
   return (
     <div className="stack home">
@@ -197,11 +204,12 @@ function Home({ me, user, go, notif, openSub }: { me: any; user: any; go: Go; no
         {m ? <p>{m.branch_name} · {m.org_name}</p> : <p>You are not linked to a church yet. Ask your church to add you, or request a move in the Me tab.</p>}
       </div>
 
-      <AdvertSlider />
+      <AdvertSlider onShop={openShop} />
 
       <HomeNotices onAll={() => openSub('notices')} />
       <HomeEvents onAll={() => openSub('events')} />
       <HomeBookings onAll={() => openSub('bookings')} />
+      <HomeShop onAll={() => openShop()} />
 
       <div className="quick" role="group" aria-label="Quick actions">
         {actions.map((a) => (

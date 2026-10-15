@@ -275,5 +275,25 @@ step('The shop report shows takings, low stock and margin to a manager', s10Rep.
 const s10Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 10 activity', s10Rec.json.ok === true);
 
+// 18. Slice 11: buying from the shop in the member app, and adverts that lead to it.
+const s11Cat = await call('GET', '/me/shop', undefined, janeTok);
+const s11Rosary = s11Cat.json.items?.find((i) => i.name === 'Rosary, wooden');
+step('A member sees the church shop with pictures and prices', s11Cat.status === 200 && s11Cat.json.items.length >= 6 && !!s11Rosary.imageUrl, s11Cat.json.items.length + ' items');
+const s11Ads = await call('GET', '/me/adverts', undefined, janeTok);
+const s11Buy = s11Ads.json.find((a) => a.title === 'Get your own Bible');
+const s11Go = s11Ads.json.find((a) => a.title === 'Rosary week');
+step('Adverts can lead to an item or straight to checkout', s11Buy?.action?.kind === 'item' && s11Go?.action?.kind === 'checkout' && s11Go.action.item.available === true);
+const s11Order = await call('POST', '/me/shop/orders', { branchId: 'br_grc001', method: 'mpesa', lines: [{ itemId: s11Rosary.id, qty: 1 }], advertId: s11Go.id }, janeTok);
+let s11State = '';
+for (let i = 0; i < 30 && s11State !== 'to_prepare'; i++) { await sleep(300); s11State = (await call('GET', '/me/shop/orders', undefined, janeTok)).json.find((o) => o.id === s11Order.json.id)?.state; }
+const s11Mine = (await call('GET', '/me/shop/orders', undefined, janeTok)).json.find((o) => o.id === s11Order.json.id);
+step('An app order is paid by mobile money and the member gets a collection code', s11Order.status === 200 && s11State === 'to_prepare' && /^[A-F0-9]{6}$/.test(s11Mine.collectionCode), s11Mine?.collectionCode);
+const s11Staff = await call('GET', '/shop/orders', undefined, esther);
+step('The branch sees the order to prepare, and marks it ready and collected', s11Staff.json.some((o) => o.id === s11Order.json.id) && (await call('POST', `/shop/orders/${s11Order.json.id}/ready`, {}, esther)).json.state === 'ready' && (await call('POST', `/shop/orders/${s11Order.json.id}/collected`, { code: s11Mine.collectionCode }, esther)).json.state === 'collected');
+const s11AdStats = (await call('GET', '/adverts', undefined, daniel)).json.find((a) => a.id === s11Go.id);
+step('The advert shows the order it brought', s11AdStats.stats.orders === 1 && s11AdStats.stats.orderTotal === 25000);
+const s11Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 11 activity', s11Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);
