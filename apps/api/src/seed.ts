@@ -2,6 +2,7 @@ import { ROLE_TEMPLATES } from './auth';
 import type { Ctx } from './ctx';
 import { todayEat } from './members';
 import { ensureWallets } from './wallets';
+import { gradientPng } from './artwork';
 
 export const SEED_LOGINS = [
   { app: 'Staff dashboard', who: 'Grace Community owner (all branches, HQ view)', phone: '0700000001' },
@@ -159,6 +160,20 @@ export async function seed(ctx: Ctx) {
   // Grace has SMS credit (KES 500) so receipts go out by SMS. Hope's wallet is empty, so it falls back to in-app only (L59).
   // ---------- messaging: wallets, integrations, consent, groups, a scheduled message (L111 to L122) ----------
   // Grace runs each branch as its own cost centre. Hope Chapel shares one wallet. New Hope has not set anything up yet.
+  // Tariffs (L124): the default is flat KES 1.00 per SMS and KES 3.00 per WhatsApp message. "Volume bands" is the example from the brief
+  // (first 3,500 SMS at 0.95, up to 15,000 at 0.85, above that 0.70) and is assigned to New Hope Fellowship.
+  await db.query(`INSERT INTO tariffs (id, name, is_default, created_at) VALUES ('tar_standard','Standard',true,$1), ('tar_volume','Volume bands',false,$1) ON CONFLICT DO NOTHING`, [now]);
+  await db.query(
+    `INSERT INTO tariff_versions (id, tariff_id, version, effective_from, bands, note, created_by, created_at) VALUES
+       ('tvr_standard_1','tar_standard',1,'1970-01-01T00:00:00.000Z',$1,'Launch prices','u_pa1',$3),
+       ('tvr_volume_1','tar_volume',1,'1970-01-01T00:00:00.000Z',$2,'Volume example','u_pa1',$3) ON CONFLICT DO NOTHING`,
+    [
+      JSON.stringify({ sms: [{ upTo: null, price: 100 }], whatsapp: [{ upTo: null, price: 300 }] }),
+      JSON.stringify({ sms: [{ upTo: 3500, price: 95 }, { upTo: 15000, price: 85 }, { upTo: null, price: 70 }], whatsapp: [{ upTo: 2000, price: 300 }, { upTo: 10000, price: 270 }, { upTo: null, price: 240 }] }),
+      now,
+    ],
+  );
+  await db.query(`INSERT INTO org_tariffs (org_id, tariff_id) VALUES ('org_newhope','tar_volume') ON CONFLICT DO NOTHING`);
   await db.query(
     `INSERT INTO integration_settings (org_id, wallet_mode, sms_sender_id, whatsapp_display_name, whatsapp_number, alert_emails) VALUES
        ('org_grace','per_branch','GRACECHURCH','Grace Community Church','254700123456','["finance@grace.example"]'),
@@ -167,7 +182,7 @@ export async function seed(ctx: Ctx) {
   for (const org of ['org_grace', 'org_hope', 'org_newhope']) await ensureWallets(ctx, org);
   // Staff emails, so low-balance alerts reach people by email as well as in the app (L115).
   for (const [id, email] of [['u_owner', 'daniel@grace.example'], ['u_admin', 'samuel@grace.example'], ['u_treas', 'esther@grace.example'], ['u_hope', 'grace@hope.example']]) {
-    await db.query('UPDATE users SET email=$2 WHERE id=$1', [id, email]);
+    await db.query('UPDATE users SET email=$2, email_verified=true WHERE id=$1', [id, email]);
   }
   // Opening balances go through the real top-up path. GRC002 and Hope start empty, to show the empty-wallet behaviour.
   await give('SMS#GRACE', 50000, '254700000001');
@@ -189,6 +204,18 @@ export async function seed(ctx: Ctx) {
     `INSERT INTO messages (id, org_id, branch_id, sender_id, sender_name, source, audience, channels, title, body, status, scheduled_at, summary, created_at)
      VALUES ('msg_demo','org_grace',NULL,'u_owner','Daniel Mwangi','staff',$1,'["inapp","sms"]','Sunday service reminder','Hello {name}, we meet this Sunday at 9am. Bring a friend. God bless you.','scheduled',$2,'{"estimated":4}',$3) ON CONFLICT DO NOTHING`,
     [JSON.stringify({ scope: { type: 'org' }, who: 'all', allowedBranchIds: ['br_grc001', 'br_grc002'] }), new Date(ctx.clock.now().getTime() + 48 * 3600_000).toISOString(), now],
+  );
+
+  // Adverts for the member app's home slider (L130 to L132). Daniel approves what Samuel creates. Artwork is generated so the slider has something to show.
+  const art = (a: [number, number, number], b: [number, number, number]) => gradientPng(1280, 720, a, b);
+  const inTwoWeeks = new Date(ctx.clock.now().getTime() + 14 * 86400_000).toISOString();
+  await db.query(
+    `INSERT INTO adverts (id, code, org_id, branch_id, title, body, link_url, image_mime, image_data, width, height, audience, starts_at, ends_at, advertiser_name, advertiser_contact, price, status, created_by, submitted_by, decided_by, decided_at, created_at, updated_at) VALUES
+      ('adv_carols','CAROLS','org_grace',NULL,'Christmas Carols Night','Saturday 5pm at the main sanctuary. Bring the whole family.',NULL,'image/png',$1,1280,720,'{"type":"org"}',$5,NULL,NULL,NULL,NULL,'approved','u_admin','u_admin','u_owner',$5,$5,$5),
+      ('adv_movie','MOVIE1','org_grace','br_grc001','Youth Movie Night','Friday 7pm in the hall. Popcorn is on us.',NULL,'image/png',$2,1280,720,'{"type":"group","id":"grp_youth"}',$5,$6,NULL,NULL,NULL,'approved','u_admin','u_admin','u_owner',$5,$5,$5),
+      ('adv_wedding','WED001','org_grace',NULL,'Mary and John are getting married','Join us on 14 February. Congratulations from all of us.',NULL,'image/png',$3,1280,720,'{"type":"org"}',$5,NULL,'Mary and John Kamau','0712 000 111',500000,'awaiting_payment','u_admin','u_admin','u_owner',$5,$5,$5),
+      ('adv_bake','BAKE01','org_grace','br_grc001','Mothers Union Bake Sale','After the second service this Sunday.',NULL,'image/png',$4,1280,720,'{"type":"branch","id":"br_grc001"}',$5,$6,NULL,NULL,NULL,'pending','u_admin','u_admin',NULL,NULL,$5,$5) ON CONFLICT DO NOTHING`,
+    [art([14, 90, 82], [8, 40, 52]), art([76, 29, 149], [30, 27, 75]), art([190, 24, 93], [76, 5, 25]), art([194, 120, 3], [120, 53, 15]), now, inTwoWeeks],
   );
 
   await give('GRC001#TITHE', 250000, '254711000001');

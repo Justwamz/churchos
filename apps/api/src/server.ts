@@ -14,6 +14,9 @@ import { kycRoutes } from './routes/kyc';
 import { smsRoutes } from './routes/sms';
 import { messageRoutes } from './routes/messages';
 import { walletRoutes } from './routes/wallets';
+import { tariffRoutes } from './routes/tariffs';
+import { providerRoutes } from './routes/providers';
+import { advertRoutes } from './routes/adverts';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -48,7 +51,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   });
 
   ledger.auditContext = auditContext;
-  const app = Fastify({ logger: opts.logger ?? false });
+  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 6 * 1024 * 1024 });
   // Every event written while handling a request carries where it came from (L104).
   app.addHook('onRequest', (req, _reply, done) => {
     const app = req.headers['x-churchos-app'];
@@ -81,6 +84,9 @@ export async function buildApp(opts: BuildOptions = {}) {
   kycRoutes(app, ctx);
   smsRoutes(app, ctx);
   walletRoutes(app, ctx);
+  tariffRoutes(app, ctx);
+  providerRoutes(app, ctx);
+  advertRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

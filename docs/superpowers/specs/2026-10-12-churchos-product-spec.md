@@ -242,6 +242,18 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L121. The member app is an installable PWA** with an offline shell, proper app icons and an inbox for messages. Push notifications to the installed app come later.
 - **L122. Groups (first version):** staff create groups, choose members and leaders. A leader sees their groups in the member app and can message the whole group or chosen people in it, by in-app, SMS or WhatsApp, charged to the group's wallet. Private group walls come later.
 
+### 4.24 Messaging pricing, children's messages, integrations ownership and adverts
+- **L123. Staff who receive alerts must have a verified email.** Anyone whose role can view messaging wallets (and so receives low-balance alerts) must add an email and confirm it with a code before using wallets or the Integrations settings. Staff who receive no email alerts are never asked. Alerts are emailed only to verified addresses.
+- **L124. Message prices come from a tariff set by ChurchOS, in volume bands per channel.** The price per message falls as a church's volume in the calendar month rises, automatically, with marginal bands (for example the first 3,500 SMS at KES 0.95, the next 11,500 at 0.85, then 0.70). Platform admin edits the bands, sets a default tariff, and can give one church its own. A tariff change creates a new version with an effective date, and every change is audited. Wallets stay in money.
+- **L125. Volume is counted for the whole church,** across its branches, per channel. Failed deliveries do not count and are refunded.
+- **L126. Children receive only in-app messages.** A message addressed to a child, or that includes children, appears in the child's family inbox, visible to the guardians in their app under the child's name. Each guardian also gets a copy on their own channels (SMS, WhatsApp, in-app), once, even if they have several children in the audience. A child never receives SMS, WhatsApp or email.
+- **L127. A child can never exist without an active guardian.** A guardian cannot leave the church (transfer out) while they are a child's only guardian.
+- **L128. Integrations are split.** Platform admin owns the messaging providers and their credentials, tariffs, limits, and the approval of SMS sender names and WhatsApp numbers. Churches keep a slim Messaging settings page: who pays (shared or per branch), the sender name and WhatsApp number they request (used only once approved), alert emails, and a test message. Churches never see provider names or credentials.
+- **L129. Gift confirmations.** A gift made from the member app is confirmed on screen with a thank-you, and by an in-app message in the Inbox.
+- **L130. Adverts on the member Home.** A slider shows live adverts, each with artwork, a short text and an optional link. A church creates adverts for itself or for a third party (for example a couple's marriage banns). Each advert has an audience (the whole church, a branch, or a group) and runs for a period or indefinitely.
+- **L131. Adverts need a second person's approval.** The person who created or last changed an advert cannot approve it. A third-party advert records the advertiser and a price. Its payment link uses the normal giving flow with the normal platform fee, and the advert goes live when paid. Church adverts can be free. Platform admin can take any advert down. Churches see how many members saw and tapped each advert.
+- **L132. The member app looks and behaves like a mobile app:** bottom tab bar, app bar, card layout, a Home with quick actions and the advert slider, and bottom sheets.
+
 ---
 
 ## 5. Money engine

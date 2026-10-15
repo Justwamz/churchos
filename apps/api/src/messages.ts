@@ -1,6 +1,7 @@
 import { HttpError, type Ctx } from './ctx';
 import { ageBand, ageOn } from './members';
-import { CHANNEL_LABEL, checkLowBalance, integrationSettings, RATES, walletFor, walletLabel, type Channel } from './wallets';
+import { CHANNEL_LABEL, checkLowBalance, integrationSettings, walletFor, walletLabel, type Channel } from './wallets';
+import { activeBands, allocate, costOf, recordUnits, unitsUsed } from './pricing';
 import { WHATSAPP_TEMPLATE } from '@churchos/messaging';
 
 export type SendChannel = 'inapp' | Channel;
@@ -28,6 +29,8 @@ export interface Recipient {
   phone: string | null;
   firstName: string;
   name: string;
+  /** Children this person is being messaged about, as their guardian. A child never receives anything directly (L125). */
+  forChildren?: { id: string; firstName: string }[];
 }
 
 const MAX_RECIPIENTS = 20_000;
@@ -35,7 +38,16 @@ const NAME_CAP = 15;
 
 /** Everyone sees the same body with {name} filled in. Names are capped so every message costs the same. */
 export const renderBody = (body: string, firstName: string) => body.replace(/\{name\}/gi, firstName.slice(0, NAME_CAP));
-export const smsSegments = (body: string) => Math.max(1, Math.ceil(renderBody(body, 'X'.repeat(NAME_CAP)).length / 160));
+/** "For Ruth: " when a guardian is being told about their child. At most two names are shown so the length stays predictable. */
+export const forPrefix = (r: Pick<Recipient, 'forChildren'>) => {
+  const k = r.forChildren ?? [];
+  if (!k.length) return '';
+  const n = k.map((c) => c.firstName.slice(0, NAME_CAP));
+  return `For ${n.length > 2 ? `${n[0]}, ${n[1]} and ${n.length - 2} more` : n.join(' and ')}: `;
+};
+export const renderFor = (body: string, r: Recipient) => forPrefix(r) + renderBody(body, r.firstName);
+const PREFIX_RESERVE = 'For '.length + NAME_CAP * 2 + ' and 99 more: '.length;
+export const smsSegments = (body: string, withChildren = false) => Math.max(1, Math.ceil((renderBody(body, 'X'.repeat(NAME_CAP)).length + (withChildren ? PREFIX_RESERVE : 0)) / 160));
 
 export function validateAudience(raw: any): AudienceSpec {
   const s = raw?.scope;
@@ -88,17 +100,25 @@ export async function resolveAudience(ctx: Ctx, orgId: string, spec: AudienceSpe
 
   const chosen = new Map<string, any>();
   const who = spec.who ?? 'all';
-  if (who !== 'children') for (const a of adults) chosen.set(a.id, a);
+  const adultIds = new Set<string>();
+  if (who !== 'children') for (const a of adults) { chosen.set(a.id, a); adultIds.add(a.id); }
   if (who !== 'adults' && children.length) {
-    const guardians = await ctx.db.query<any>(
-      `SELECT DISTINCT g.guardian_id AS id, mm.full_name, mm.phone, mm.user_id, mm.branch_id FROM guardians g JOIN memberships mm ON mm.id=g.guardian_id
-        WHERE g.child_id = ANY($1::text[]) AND mm.status='active'`,
+    const kids = new Map(children.map((c) => [c.id, String(c.full_name).split(' ')[0]]));
+    const links = await ctx.db.query<any>(
+      `SELECT g.guardian_id AS id, g.child_id, mm.full_name, mm.phone, mm.user_id, mm.branch_id FROM guardians g JOIN memberships mm ON mm.id=g.guardian_id
+        WHERE g.child_id = ANY($1::text[]) AND mm.status='active' ORDER BY g.child_id`,
       [children.map((c) => c.id)],
     );
-    for (const g of guardians) if (!chosen.has(g.id)) chosen.set(g.id, g);
+    // One copy per guardian however many children they have, with the children named (L125).
+    for (const g of links) {
+      if (adultIds.has(g.id)) continue; // already told as an adult, so the same message is not repeated
+      const row = chosen.get(g.id) ?? { ...g };
+      row.forChildren = [...(row.forChildren ?? []), { id: g.child_id, firstName: kids.get(g.child_id)! }];
+      chosen.set(g.id, row);
+    }
   }
   return [...chosen.values()]
-    .map((r) => ({ membershipId: r.id, branchId: r.branch_id, userId: r.user_id ?? null, phone: r.phone ?? null, firstName: String(r.full_name).split(' ')[0], name: r.full_name }))
+    .map((r) => ({ membershipId: r.id, branchId: r.branch_id, userId: r.user_id ?? null, phone: r.phone ?? null, firstName: String(r.full_name).split(' ')[0], name: r.full_name, forChildren: r.forChildren as Recipient['forChildren'] }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -121,7 +141,8 @@ async function eligibility(ctx: Ctx, recipients: Recipient[], channel: Channel) 
   return { ok, skipped };
 }
 
-const costPer = (channel: Channel, body: string) => RATES[channel] * (channel === 'sms' ? smsSegments(body) : 1);
+/** Units each recipient uses: one per 160-character part for SMS, one for WhatsApp. */
+const unitsEach = (channel: Channel, body: string, recipients: Recipient[]) => (channel === 'sms' ? smsSegments(body, recipients.some((r) => r.forChildren?.length)) : 1);
 
 async function walletGroups(ctx: Ctx, orgId: string, recipients: Recipient[], channel: Channel, chargeTo?: { branchId: string | null }) {
   const groups = new Map<string, { wallet: any; people: Recipient[] }>();
@@ -141,7 +162,7 @@ async function names(ctx: Ctx, orgId: string) {
   return { org, branches };
 }
 
-/** How many people a message would reach, what each wallet would pay, and where a wallet would run short (L118, L120). */
+/** How many people a message would reach, what each wallet would pay, and where a wallet would run short (L118, L120, L124). */
 export async function estimate(ctx: Ctx, orgId: string, spec: AudienceSpec, channels: SendChannel[], body: string) {
   const recipients = await resolveAudience(ctx, orgId, spec);
   const n = await names(ctx, orgId);
@@ -155,17 +176,20 @@ export async function estimate(ctx: Ctx, orgId: string, spec: AudienceSpec, chan
       else if (s.status === 'skipped_opted_out') reasons.optedOut++;
       else reasons.notOptedIn++;
     }
-    out[ch] = { eligible: el.ok.length, ...reasons, perMessage: costPer(ch, body), segments: ch === 'sms' ? smsSegments(body) : 1 };
+    const units = unitsEach(ch, body, recipients);
+    const bands = await activeBands(ctx, orgId, ch);
+    let used = await unitsUsed(ctx, orgId, ch);
+    out[ch] = { eligible: el.ok.length, ...reasons, perMessage: costOf(bands, used, units), segments: ch === 'sms' ? smsSegments(body, recipients.some((r) => r.forChildren?.length)) : 1 };
     const groups = await walletGroups(ctx, orgId, el.ok, ch, spec.chargeTo);
     for (const g of groups.values()) {
       const balance = await ctx.ledger.walletBalance(g.wallet.id);
-      const per = costPer(ch, body);
-      const needed = g.people.length * per;
-      const affordable = Math.min(g.people.length, Math.floor(balance / per));
+      const a = allocate(bands, used, balance, g.people.length, units);
+      const needed = costOf(bands, used, g.people.length * units);
       const label = walletLabel(g.wallet, n.org, g.wallet.branch_id ? n.branches.get(g.wallet.branch_id) ?? null : null);
-      out.wallets.push({ walletId: g.wallet.id, label, channel: ch, recipients: g.people.length, needed, balance, affordable, short: g.people.length - affordable });
-      out.totalCost += Math.min(needed, affordable * per);
-      if (affordable < g.people.length) out.shortBranches.push(label);
+      out.wallets.push({ walletId: g.wallet.id, label, channel: ch, recipients: g.people.length, needed, balance, affordable: a.costs.length, short: g.people.length - a.costs.length });
+      out.totalCost += a.spent;
+      used = a.usedAfter;
+      if (a.costs.length < g.people.length) out.shortBranches.push(label);
     }
   }
   return out;
@@ -210,11 +234,11 @@ export async function sendMessage(ctx: Ctx, messageId: string): Promise<any> {
         const chunk = withUser.slice(i, i + 200);
         const params: unknown[] = [];
         const values = chunk.map((r, k) => {
-          params.push(ctx.newId('ntf'), m.org_id, r.userId, m.title, renderBody(m.body, r.firstName), m.id, now);
-          const o = k * 7;
-          return `($${o + 1},$${o + 2},$${o + 3},'message',$${o + 4},$${o + 5},$${o + 6},$${o + 7})`;
+          params.push(ctx.newId('ntf'), m.org_id, r.userId, m.title, renderFor(m.body, r), m.id, now, r.forChildren?.length === 1 ? r.forChildren[0].id : null, r.forChildren?.length ? r.forChildren.map((c) => c.firstName).join(', ') : null);
+          const o = k * 9;
+          return `($${o + 1},$${o + 2},$${o + 3},'message',$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9})`;
         });
-        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, message_id, created_at) VALUES ${values.join(',')}`, params);
+        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, message_id, created_at, member_id, for_name) VALUES ${values.join(',')}`, params);
       }
       for (const r of recipients) rows.push({ m: m.id, membership: r.membershipId, channel: 'inapp', status: r.userId ? 'sent' : 'skipped_no_account', cost: 0, wallet: null });
       summary.channels.inapp = { sent: withUser.length, noAccount: recipients.length - withUser.length };
@@ -231,31 +255,42 @@ export async function sendMessage(ctx: Ctx, messageId: string): Promise<any> {
         else if (s.status === 'skipped_opted_out') stat.optedOut++;
         else stat.notOptedIn++;
       }
-      const per = costPer(ch, m.body);
+      const units = unitsEach(ch, m.body, recipients);
+      const bands = await activeBands(ctx, m.org_id, ch);
+      let used = await unitsUsed(ctx, m.org_id, ch);
+      let deliveredUnits = 0;
       const from = ch === 'sms' ? branchOverride?.sms_sender_id ?? settings.smsSenderId : branchOverride?.whatsapp_number ?? settings.whatsappNumber;
       for (const g of (await walletGroups(ctx, m.org_id, el.ok, ch, spec.chargeTo)).values()) {
         const balance = await ctx.ledger.walletBalance(g.wallet.id);
-        let take = Math.min(g.people.length, Math.floor(balance / per));
-        if (take > 0 && !(await ctx.ledger.chargeWallet(g.wallet.id, take * per, `${m.id}:${ch}:${g.wallet.id}`, ch))) take = 0;
+        const alloc = allocate(bands, used, balance, g.people.length, units);
+        let costs = alloc.costs;
+        // Each wallet is charged once for its batch, at marginal band prices (L124).
+        if (costs.length > 0 && !(await ctx.ledger.chargeWallet(g.wallet.id, alloc.spent, `${m.id}:${ch}:${g.wallet.id}`, ch))) costs = [];
         touched.add(g.wallet.id);
-        const paid = g.people.slice(0, take);
-        for (const r of g.people.slice(take)) { rows.push({ m: m.id, membership: r.membershipId, channel: ch, status: 'skipped_no_balance', cost: 0, wallet: g.wallet.id }); stat.noBalance++; }
+        const paid = g.people.slice(0, costs.length);
+        for (const r of g.people.slice(costs.length)) { rows.push({ m: m.id, membership: r.membershipId, channel: ch, status: 'skipped_no_balance', cost: 0, wallet: g.wallet.id }); stat.noBalance++; }
+        let failedCost = 0;
         let failed = 0;
         for (let i = 0; i < paid.length; i += 200) {
           const chunk = paid.slice(i, i + 200);
-          const results = await ctx.messaging.send(ch, chunk.map((r) => ({ to: r.phone!, body: renderBody(m.body, r.firstName), from, ...(ch === 'whatsapp' ? { template: WHATSAPP_TEMPLATE } : {}) })));
+          const results = await ctx.messaging.send(ch, chunk.map((r) => ({ to: r.phone!, body: renderFor(m.body, r), from, ...(ch === 'whatsapp' ? { template: WHATSAPP_TEMPLATE } : {}) })));
           chunk.forEach((r, k) => {
             const ok = results[k]?.status === 'sent';
-            if (!ok) failed++;
-            rows.push({ m: m.id, membership: r.membershipId, channel: ch, status: ok ? 'sent' : 'failed', cost: ok ? per : 0, wallet: g.wallet.id });
+            const cost = costs[i + k];
+            if (!ok) { failed++; failedCost += cost; }
+            rows.push({ m: m.id, membership: r.membershipId, channel: ch, status: ok ? 'sent' : 'failed', cost: ok ? cost : 0, wallet: g.wallet.id });
           });
         }
-        if (failed) await ctx.ledger.refundWallet(g.wallet.id, failed * per, `${m.id}:${ch}:${g.wallet.id}`, ch);
-        stat.sent += paid.length - failed;
+        if (failedCost) await ctx.ledger.refundWallet(g.wallet.id, failedCost, `${m.id}:${ch}:${g.wallet.id}`, ch);
+        const okCount = paid.length - failed;
+        deliveredUnits += okCount * units;
+        used += okCount * units; // only delivered messages count towards the month's volume (L125)
+        stat.sent += okCount;
         stat.failed += failed;
-        stat.cost += (paid.length - failed) * per;
-        if (take < g.people.length) summary.shortWallets.push({ label: walletLabel(g.wallet, n.org, g.wallet.branch_id ? n.branches.get(g.wallet.branch_id) ?? null : null), channel: ch, short: g.people.length - take });
+        stat.cost += alloc.spent - failedCost;
+        if (costs.length < g.people.length) summary.shortWallets.push({ label: walletLabel(g.wallet, n.org, g.wallet.branch_id ? n.branches.get(g.wallet.branch_id) ?? null : null), channel: ch, short: g.people.length - costs.length });
       }
+      await recordUnits(ctx, m.org_id, ch, deliveredUnits);
       summary.channels[ch] = stat;
       summary.cost += stat.cost;
     }

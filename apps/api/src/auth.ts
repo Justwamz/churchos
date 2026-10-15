@@ -31,6 +31,9 @@ export const PERMISSIONS = [
   'integrations.manage',
   'groups.manage',
   'reversals.request',
+  'adverts.view',
+  'adverts.manage',
+  'adverts.approve',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -40,10 +43,10 @@ export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   // Only the organisation owner sees or changes payout destinations (L35).
   'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
   Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup'],
-  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage'],
+  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
-  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage'],
+  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage'],
 };
 
 export interface Session {

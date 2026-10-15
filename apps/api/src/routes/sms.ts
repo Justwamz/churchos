@@ -31,7 +31,7 @@ export function smsRoutes(app: FastifyInstance, ctx: Ctx) {
   // ---------- member notifications (in-app inbox, L56, L121) ----------
 
   app.get('/me/notifications', auth, async (req) => {
-    const rows = await ctx.db.query<any>(`SELECT id, kind, title, body, message_id, read, created_at FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.session!.uid]);
+    const rows = await ctx.db.query<any>(`SELECT id, kind, title, body, message_id, member_id, for_name, read, created_at FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.session!.uid]);
     return { unread: rows.filter((r) => !r.read).length, rows };
   });
 

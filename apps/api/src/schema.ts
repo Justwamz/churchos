@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone text NOT NULL UNIQUE,
   name text NOT NULL,
   email text,
+  email_verified boolean NOT NULL DEFAULT false,
   is_platform_admin boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL
 );
@@ -291,6 +292,104 @@ CREATE TABLE IF NOT EXISTS message_recipients (
   PRIMARY KEY (message_id, membership_id, channel)
 );
 
+-- Tariffs: volume bands per channel, versioned, assigned per church (L124, L125).
+CREATE TABLE IF NOT EXISTS tariffs (
+  id text PRIMARY KEY,
+  name text NOT NULL UNIQUE,
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS tariffs_one_default ON tariffs (is_default) WHERE is_default;
+CREATE TABLE IF NOT EXISTS tariff_versions (
+  id text PRIMARY KEY,
+  tariff_id text NOT NULL,
+  version int NOT NULL,
+  effective_from text NOT NULL,
+  bands jsonb NOT NULL,
+  note text,
+  created_by text,
+  created_at timestamptz NOT NULL,
+  UNIQUE (tariff_id, version)
+);
+DROP TRIGGER IF EXISTS tariff_versions_no_change ON tariff_versions;
+CREATE TRIGGER tariff_versions_no_change BEFORE UPDATE OR DELETE ON tariff_versions FOR EACH ROW EXECUTE FUNCTION audit_events_immutable();
+CREATE TABLE IF NOT EXISTS org_tariffs (
+  org_id text PRIMARY KEY,
+  tariff_id text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS message_usage (
+  org_id text NOT NULL,
+  channel text NOT NULL,
+  month text NOT NULL,
+  units bigint NOT NULL DEFAULT 0,
+  PRIMARY KEY (org_id, channel, month)
+);
+
+-- Sender names and WhatsApp numbers a church asks for. They are used only once a platform admin approves (L128).
+CREATE TABLE IF NOT EXISTS sender_requests (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  kind text NOT NULL CHECK (kind IN ('sms_sender','whatsapp_number','whatsapp_display')),
+  value text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','withdrawn')),
+  reason text,
+  requested_by text NOT NULL,
+  decided_by text,
+  decided_at text,
+  created_at text NOT NULL
+);
+
+-- Adverts for the member app's home slider (L130 to L132). Times are ISO text so they compare directly.
+CREATE TABLE IF NOT EXISTS adverts (
+  id text PRIMARY KEY,
+  code text NOT NULL UNIQUE,
+  org_id text NOT NULL,
+  branch_id text,
+  title text NOT NULL,
+  body text,
+  link_url text,
+  image_mime text NOT NULL,
+  image_data text NOT NULL,
+  width int NOT NULL,
+  height int NOT NULL,
+  audience jsonb NOT NULL,
+  starts_at text NOT NULL,
+  ends_at text,
+  advertiser_name text,
+  advertiser_contact text,
+  price bigint,
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','pending','awaiting_payment','approved','paused','ended','rejected','taken_down')),
+  payment_id text,
+  created_by text NOT NULL,
+  submitted_by text,
+  decided_by text,
+  decided_at text,
+  reason text,
+  taken_down_by text,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+-- One row per member, advert, day and kind, so a member opening the app ten times counts once (L132).
+CREATE TABLE IF NOT EXISTS advert_seen (
+  advert_id text NOT NULL,
+  org_id text NOT NULL,
+  user_id text NOT NULL,
+  day text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('view','tap')),
+  PRIMARY KEY (advert_id, user_id, day, kind)
+);
+
+-- One pending confirmation code per person (L123).
+CREATE TABLE IF NOT EXISTS email_codes (
+  user_id text PRIMARY KEY,
+  email text NOT NULL,
+  code text NOT NULL,
+  attempts int NOT NULL DEFAULT 0,
+  expires_at text NOT NULL,
+  sent_at text NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS email_outbox (
   id text PRIMARY KEY,
   org_id text,
@@ -324,6 +423,9 @@ CREATE TABLE IF NOT EXISTS notifications (
   read boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL
 );
+-- A child has no sign-in of their own: their in-app messages sit in a guardian's inbox, marked "For <child>" (L125).
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS member_id text;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS for_name text;
 
 -- Certificates and sacramental records (L98 to L103).
 CREATE TABLE IF NOT EXISTS certificate_templates (
@@ -434,7 +536,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

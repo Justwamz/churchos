@@ -216,6 +216,11 @@ describe('members and transfers', () => {
     expect(me.memberships[0].branch_code).toBe('GRC002');
 
     const x = await call(PETER, 'POST', '/me/transfer-request', { toChurchCode: 'HPC001' });
+    // Peter is the only guardian of Brian, so he cannot leave the organisation until Brian has another one (L125).
+    const blocked = await call(HOPE, 'POST', `/transfers/${x.json().id}/decide`, { approve: true });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().code).toBe('sole_guardian');
+    await ctx.db.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ('m_brian','m_amina','org_grace')`);
     expect((await call(HOPE, 'POST', `/transfers/${x.json().id}/decide`, { approve: true })).statusCode).toBe(200);
     const after = (await call(PETER, 'GET', '/me')).json();
     expect(after.memberships).toHaveLength(1);

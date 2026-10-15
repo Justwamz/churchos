@@ -39,7 +39,7 @@ const CATEGORY_BY_PREFIX: Record<string, AuditCategory> = {
   payment: 'money', payout: 'money', cash: 'money', reversal: 'money', suspense: 'money', settlement: 'money', fees: 'money', sms: 'money',
   member: 'member', members: 'member', transfer: 'member', household: 'member',
   record: 'record', template: 'record', kyc: 'record', project: 'config', payout_destination: 'config',
-  access: 'access', security: 'security', message: 'messaging', broadcast: 'messaging',
+  access: 'access', security: 'security', message: 'messaging', broadcast: 'messaging', advert: 'config',
 };
 
 export function categoryFor(action: string): AuditCategory {

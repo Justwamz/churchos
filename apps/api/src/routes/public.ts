@@ -78,6 +78,11 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
       const open = rec ? (await ctx.db.query<any>(`SELECT fee FROM record_issues WHERE record_id=$1 AND status='awaiting_payment' ORDER BY created_at DESC LIMIT 1`, [rec.id]))[0] : null;
       if (!open) throw new HttpError(400, 'That certificate copy is not waiting for payment', 'unknown_purpose');
       if (base !== Number(open.fee)) throw new HttpError(400, `A copy costs KES ${(Number(open.fee) / 100).toLocaleString('en-KE')}. Enter exactly that amount.`, 'amount_must_be_exact');
+    } else if (purpose.startsWith('AD-')) {
+      // An advertiser paying for a slot: the price is fixed by the church and only an approved advert can be paid for (L131).
+      const ad = (await ctx.db.query<any>(`SELECT price FROM adverts WHERE code=$1 AND org_id=$2 AND status='awaiting_payment'`, [purpose.slice(3), b.org_id]))[0];
+      if (!ad) throw new HttpError(400, 'That advert is not waiting for payment', 'unknown_purpose');
+      if (base !== Number(ad.price)) throw new HttpError(400, `The advert costs KES ${(Number(ad.price) / 100).toLocaleString('en-KE')}. Enter exactly that amount.`, 'amount_must_be_exact');
     } else if (purpose !== 'TITHE' && purpose !== 'OFFERING') {
       throw new HttpError(400, 'Unknown giving purpose', 'unknown_purpose');
     }

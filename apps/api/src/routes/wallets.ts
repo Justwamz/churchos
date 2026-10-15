@@ -3,7 +3,8 @@ import { maskEmail, maskPhone, toCents } from '@churchos/shared';
 import { branchesFor, normalizePhone } from '../auth';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
-import { checkLowBalance, CHANNELS, DEFAULT_THRESHOLD, ensureWallets, integrationSettings, PAYBILL_PREFIX, RATES, walletFor, walletView, type Channel, type WalletRow } from '../wallets';
+import { activeBands, costOf, priceInfo, unitsUsed } from '../pricing';
+import { checkLowBalance, emailRequired, requireVerifiedEmail, sendEmail, CHANNELS, DEFAULT_THRESHOLD, ensureWallets, integrationSettings, PAYBILL_PREFIX, RATES, walletFor, walletView, type Channel, type WalletRow } from '../wallets';
 import { csv } from './helpers';
 
 const INTEGRATION_SPECS: FieldSpec[] = [
@@ -23,6 +24,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
 
   /** Org and branches the signed-in person can see wallets for. A wallet at organisation level is visible to anyone with wallets.view in that church. */
   async function walletScope(req: FastifyRequest, perm: 'wallets.view' | 'wallets.topup' | 'wallets.manage' | 'integrations.manage') {
+    await requireVerifiedEmail(ctx, req.session!.uid, req.session!.isAdmin);
     const s = await staffScope(ctx, req, perm);
     return s;
   }
@@ -34,6 +36,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   }
 
   async function loadWallet(req: FastifyRequest, perm: 'wallets.view' | 'wallets.topup' | 'wallets.manage', id: string): Promise<WalletRow> {
+    await requireVerifiedEmail(ctx, req.session!.uid, req.session!.isAdmin);
     const rows = await branchesFor(ctx.db, req.session!.uid, perm);
     if (rows.length === 0) throw new HttpError(403, `missing permission ${perm}`, 'forbidden');
     const w = (await ctx.db.query<any>(`SELECT * FROM wallets WHERE id=$1`, [id]))[0] as WalletRow | undefined;
@@ -59,7 +62,9 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
       wallets.push({ ...v, canTopUp: w.branch_id ? topup.has(w.branch_id) : topup.size > 0, canManage: w.branch_id ? manage.has(w.branch_id) : manage.size > 0 });
     }
     const settings = await integrationSettings(ctx.db, s.orgId);
-    return { organisation: { id: s.orgId, name: n.org }, mode: settings.walletMode, rates: RATES, wallets };
+    const prices: Record<string, any> = {};
+    for (const ch of CHANNELS) prices[ch] = await priceInfo(ctx, s.orgId, ch);
+    return { organisation: { id: s.orgId, name: n.org }, mode: settings.walletMode, rates: { sms: prices.sms.currentPrice, whatsapp: prices.whatsapp.currentPrice }, prices, wallets };
   });
 
   app.get('/wallets/:id/activity', auth, async (req) => {
@@ -100,6 +105,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.get('/wallets/topups/:id', auth, async (req) => {
+    await requireVerifiedEmail(ctx, req.session!.uid, req.session!.isAdmin);
     const rows = await branchesFor(ctx.db, req.session!.uid, 'wallets.topup');
     const t = (await ctx.db.query<any>(`SELECT id, wallet_id, org_id, amount, method, status FROM wallet_topups WHERE id=$1`, [(req.params as any).id]))[0];
     if (!t || !rows.some((r) => r.orgId === t.org_id)) throw new HttpError(404, 'top-up not found', 'not_found');
@@ -145,7 +151,9 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
       `SELECT b.id, b.code, b.name, i.sms_sender_id, i.whatsapp_number FROM branches b LEFT JOIN branch_integrations i ON i.branch_id=b.id WHERE b.org_id=$1 ORDER BY b.name`,
       [orgId],
     );
-    return { ...s, branches: branches.map((b) => ({ id: b.id, code: b.code, name: b.name, smsSenderId: b.sms_sender_id, whatsappNumber: b.whatsapp_number })) };
+    const reqs = await ctx.db.query<any>(`SELECT id, branch_id, kind, value, status, reason, created_at FROM sender_requests WHERE org_id=$1 AND status IN ('pending','approved','rejected') ORDER BY created_at DESC LIMIT 30`, [orgId]);
+    const requests = reqs.map((q) => ({ id: q.id, branchId: q.branch_id, kind: q.kind, value: q.kind === 'whatsapp_number' ? maskPhone(q.value) : q.value, status: q.status, reason: q.reason, createdAt: q.created_at }));
+    return { ...s, branches: branches.map((b) => ({ id: b.id, code: b.code, name: b.name, smsSenderId: b.sms_sender_id, whatsappNumber: b.whatsapp_number })), requests };
   }
 
   const flatIntegration = (s: any, branches: any[]) => ({
@@ -154,13 +162,16 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.get('/integrations', auth, async (req) => {
+    await requireVerifiedEmail(ctx, req.session!.uid, req.session!.isAdmin);
     const rows = [...(await branchesFor(ctx.db, req.session!.uid, 'integrations.manage')), ...(await branchesFor(ctx.db, req.session!.uid, 'wallets.view'))];
     if (rows.length === 0) throw new HttpError(403, 'missing permission integrations.manage', 'forbidden');
     const wanted = (req.query as any).org as string | undefined;
     const orgId = wanted && rows.some((r) => r.orgId === wanted) ? wanted : rows[0].orgId;
     const canEdit = (await branchesFor(ctx.db, req.session!.uid, 'integrations.manage')).some((r) => r.orgId === orgId);
     const n = await namesOf(orgId);
-    return { organisation: { id: orgId, name: n.org }, canEdit, rates: RATES, defaultThresholds: DEFAULT_THRESHOLD, ...(await integrationView(orgId)) };
+    const prices: Record<string, any> = {};
+    for (const ch of CHANNELS) prices[ch] = await priceInfo(ctx, orgId, ch);
+    return { organisation: { id: orgId, name: n.org }, canEdit, rates: { sms: prices.sms.currentPrice, whatsapp: prices.whatsapp.currentPrice }, prices, defaultThresholds: DEFAULT_THRESHOLD, ...(await integrationView(orgId)) };
   });
 
   app.put('/integrations', auth, async (req) => {
@@ -185,20 +196,48 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     if (emails.length > 5) throw new HttpError(400, 'You can add up to 5 extra alert emails', 'too_many');
     for (const e of emails) if (!EMAIL.test(e)) throw new HttpError(400, `"${e}" is not a valid email address`, 'bad_email');
     const display = String(b.whatsappDisplayName ?? '').trim().slice(0, 60) || null;
-    const next = { walletMode: b.walletMode, smsSenderId: sender(b.smsSenderId), whatsappDisplayName: display, whatsappNumber: waNumber(b.whatsappNumber), alertEmails: emails };
+    const wanted = { smsSenderId: sender(b.smsSenderId), whatsappDisplayName: display, whatsappNumber: waNumber(b.whatsappNumber) };
     const branchRows = (Array.isArray(b.branches) ? b.branches : []).map((x: any) => ({ branchId: String(x.branchId), smsSenderId: sender(x.smsSenderId), whatsappNumber: waNumber(x.whatsappNumber) }));
     const known = new Set(before.branches.map((x: any) => x.id));
     for (const r of branchRows) if (!known.has(r.branchId)) throw new HttpError(400, 'One of the branches is not part of this church', 'bad_branch');
+
+    // Sender names and numbers are not set here. A change becomes a request that ChurchOS approves, and the old value keeps being
+    // used until then. Clearing a value needs no approval (L128).
+    const asked: { kind: string; branchId: string | null; value: string; label: string }[] = [];
+    const apply = { smsSenderId: before.smsSenderId ?? null, whatsappDisplayName: before.whatsappDisplayName ?? null, whatsappNumber: before.whatsappNumber ?? null };
+    const handle = (kind: 'sms_sender' | 'whatsapp_number' | 'whatsapp_display', branchId: string | null, current: string | null, next: string | null, label: string, set: (v: string | null) => void) => {
+      if ((current ?? null) === (next ?? null)) return;
+      if (next === null) { set(null); return; }
+      asked.push({ kind, branchId, value: next, label });
+    };
+    handle('sms_sender', null, apply.smsSenderId, wanted.smsSenderId, 'SMS sender name', (v) => (apply.smsSenderId = v));
+    handle('whatsapp_display', null, apply.whatsappDisplayName, wanted.whatsappDisplayName, 'WhatsApp display name', (v) => (apply.whatsappDisplayName = v));
+    handle('whatsapp_number', null, apply.whatsappNumber, wanted.whatsappNumber, 'WhatsApp number', (v) => (apply.whatsappNumber = v));
+    const branchApply = new Map<string, { sms: string | null; wa: string | null }>();
+    for (const r of branchRows) {
+      const cur = before.branches.find((x: any) => x.id === r.branchId);
+      const st = { sms: cur?.smsSenderId ?? null, wa: cur?.whatsappNumber ?? null };
+      handle('sms_sender', r.branchId, st.sms, r.smsSenderId, `SMS sender name for ${cur?.name}`, (v) => (st.sms = v));
+      handle('whatsapp_number', r.branchId, st.wa, r.whatsappNumber, `WhatsApp number for ${cur?.name}`, (v) => (st.wa = v));
+      branchApply.set(r.branchId, st);
+    }
+    const next = { walletMode: b.walletMode, smsSenderId: apply.smsSenderId, whatsappDisplayName: apply.whatsappDisplayName, whatsappNumber: apply.whatsappNumber, alertEmails: emails };
 
     await ctx.db.query(
       `UPDATE integration_settings SET wallet_mode=$2, sms_sender_id=$3, whatsapp_display_name=$4, whatsapp_number=$5, alert_emails=$6 WHERE org_id=$1`,
       [orgId, next.walletMode, next.smsSenderId, next.whatsappDisplayName, next.whatsappNumber, JSON.stringify(next.alertEmails)],
     );
-    for (const r of branchRows) {
+    for (const [branchId, st] of branchApply) {
       await ctx.db.query(
         `INSERT INTO branch_integrations (branch_id, org_id, sms_sender_id, whatsapp_number) VALUES ($1,$2,$3,$4) ON CONFLICT (branch_id) DO UPDATE SET sms_sender_id=$3, whatsapp_number=$4`,
-        [r.branchId, orgId, r.smsSenderId, r.whatsappNumber],
+        [branchId, orgId, st.sms, st.wa],
       );
+    }
+    for (const q of asked) {
+      await ctx.db.query(`UPDATE sender_requests SET status='withdrawn' WHERE org_id=$1 AND kind=$2 AND COALESCE(branch_id,'')=$3 AND status='pending'`, [orgId, q.kind, q.branchId ?? '']);
+      const id = ctx.newId('snd');
+      await ctx.db.query(`INSERT INTO sender_requests (id, org_id, branch_id, kind, value, requested_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [id, orgId, q.branchId, q.kind, q.value, req.session!.uid, ctx.clock.now().toISOString()]);
+      await ctx.ledger.audit({ orgId, branchId: q.branchId, actor: req.session!.uid, action: 'integration.sender_request', category: 'config', entity: 'sender_request', entityId: id, summary: `Asked to use a new ${q.label.toLowerCase()}`, changes: [{ field: q.kind, label: q.label, before: null, after: q.kind === 'whatsapp_number' ? maskPhone(q.value) : q.value, ...(q.kind === 'whatsapp_number' ? { masked: true } : {}) }] });
     }
     await ensureWallets(ctx, orgId); // switching to per-branch creates each branch's own wallets. Nothing is ever removed.
     const after = await integrationView(orgId);
@@ -207,7 +246,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     const changes = diff(INTEGRATION_SPECS, beforeFlat, afterFlat);
     const evt = await ctx.ledger.audit({ orgId, actor: req.session!.uid, action: 'integration.update', category: 'config', entity: 'integration', entityId: orgId, summary: changes.length ? `Changed messaging settings: ${changes.map((c) => c.label).join(', ')}` : 'Saved messaging settings without changes', changes });
     if (changes.length) await recordVersion(ctx, { orgId, entity: 'integration', entityId: orgId, snapshot: maskedSnapshot(INTEGRATION_SPECS, afterFlat), summary: changes.map((c) => c.label).join(', '), eventId: evt });
-    return { ok: true, ...after };
+    return { ok: true, requested: asked.length, ...after };
   });
 
   /** Sends one test message to the signed-in person's own number, so they can see the channel works and what it costs. */
@@ -224,34 +263,88 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     const w = await walletFor(ctx, scope.orgId, branchId, channel);
     if (!w) throw new HttpError(409, 'There is no wallet for that channel yet', 'no_wallet');
     const key = `test:${ctx.newId('t')}`;
-    if (!(await ctx.ledger.chargeWallet(w.id, RATES[channel], key, channel))) throw new HttpError(409, 'The wallet is empty. Top it up first.', 'insufficient');
+    const cost = costOf(await activeBands(ctx, scope.orgId, channel), await unitsUsed(ctx, scope.orgId, channel), 1);
+    if (!(await ctx.ledger.chargeWallet(w.id, cost, key, channel))) throw new HttpError(409, 'The wallet is empty. Top it up first.', 'insufficient');
     const settings = await integrationSettings(ctx.db, scope.orgId);
     const [res] = await ctx.messaging.send(channel, [{ to: phone, body: 'This is a test message from ChurchOS. Your messaging connection is working.', from: channel === 'sms' ? settings.smsSenderId : settings.whatsappNumber }]);
     if (res?.status !== 'sent') {
-      await ctx.ledger.refundWallet(w.id, RATES[channel], key, channel);
+      await ctx.ledger.refundWallet(w.id, cost, key, channel);
       throw new HttpError(502, 'The test message could not be delivered', 'provider_failed');
     }
     await checkLowBalance(ctx, w.id);
     await ctx.ledger.audit({ orgId: scope.orgId, actor: req.session!.uid, action: 'integration.test', category: 'messaging', entity: 'integration', entityId: scope.orgId, summary: `Sent a test ${channel === 'sms' ? 'SMS' : 'WhatsApp message'} to themselves` });
-    return { ok: true, cost: RATES[channel] };
+    return { ok: true, cost };
   });
 
   // ---------- a person's own profile (alerts go to this email) ----------
 
-  app.get('/me/profile', auth, async (req) => {
-    const u = (await ctx.db.query<any>(`SELECT name, phone, email FROM users WHERE id=$1`, [req.session!.uid]))[0];
-    return { name: u.name, phone: u.phone, email: u.email ?? null };
-  });
+  // ---------- a person's own profile. Alerts go to this email once it is confirmed (L123) ----------
+
+  const CODE_TTL_MS = 30 * 60_000;
+  const RESEND_MS = 60_000;
+  const MAX_ATTEMPTS = 5;
+
+  async function profileOf(uid: string) {
+    const u = (await ctx.db.query<any>(`SELECT name, phone, email, email_verified FROM users WHERE id=$1`, [uid]))[0];
+    return { name: u.name, phone: u.phone, email: u.email ?? null, emailVerified: !!u.email_verified, emailRequired: await emailRequired(ctx, uid) };
+  }
+
+  async function sendCode(uid: string, name: string, email: string) {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const now = ctx.clock.now();
+    await ctx.db.query(
+      `INSERT INTO email_codes (user_id, email, code, attempts, expires_at, sent_at) VALUES ($1,$2,$3,0,$4,$5)
+       ON CONFLICT (user_id) DO UPDATE SET email=$2, code=$3, attempts=0, expires_at=$4, sent_at=$5`,
+      [uid, email, code, new Date(now.getTime() + CODE_TTL_MS).toISOString(), now.toISOString()],
+    );
+    await sendEmail(ctx, null, email, 'Your ChurchOS confirmation code', `Hello ${name.split(' ')[0]},\n\nYour confirmation code is ${code}. It works for 30 minutes.\n\nIf you did not ask for this, you can ignore this email.`);
+    return code;
+  }
+
+  app.get('/me/profile', auth, async (req) => profileOf(req.session!.uid));
 
   app.put('/me/profile', auth, async (req) => {
     const email = String((req.body as any)?.email ?? '').trim().toLowerCase() || null;
     if (email && !EMAIL.test(email)) throw new HttpError(400, 'Enter a valid email address', 'bad_email');
-    const cur = (await ctx.db.query<any>(`SELECT email FROM users WHERE id=$1`, [req.session!.uid]))[0];
-    await ctx.db.query(`UPDATE users SET email=$2 WHERE id=$1`, [req.session!.uid, email]);
-    if ((cur.email ?? null) !== email) {
-      await ctx.ledger.audit({ actor: req.session!.uid, action: 'member.profile_email', category: 'member', entity: 'user', entityId: req.session!.uid, summary: 'Changed their email address', changes: [{ field: 'email', label: 'Email', before: maskEmail(cur.email), after: maskEmail(email), masked: true }] });
+    const uid = req.session!.uid;
+    const cur = (await ctx.db.query<any>(`SELECT email, email_verified, name FROM users WHERE id=$1`, [uid]))[0];
+    if (!email && (await emailRequired(ctx, uid))) throw new HttpError(400, 'Your role receives email alerts, so it needs an email address', 'email_required');
+    if ((cur.email ?? null) === email) return { ok: true, ...(await profileOf(uid)) }; // unchanged
+    await ctx.db.query(`UPDATE users SET email=$2, email_verified=false WHERE id=$1`, [uid, email]);
+    await ctx.db.query(`DELETE FROM email_codes WHERE user_id=$1`, [uid]);
+    await ctx.ledger.audit({ actor: uid, action: 'member.profile_email', category: 'member', entity: 'user', entityId: uid, summary: email ? 'Changed their email address' : 'Removed their email address', changes: [{ field: 'email', label: 'Email', before: maskEmail(cur.email), after: maskEmail(email), masked: true }] });
+    let devCode: string | undefined;
+    if (email) devCode = await sendCode(uid, cur.name, email);
+    return { ok: true, ...(await profileOf(uid)), ...(process.env.NODE_ENV === 'production' ? {} : { devCode }) };
+  });
+
+  app.post('/me/profile/resend', auth, async (req) => {
+    const uid = req.session!.uid;
+    const u = (await ctx.db.query<any>(`SELECT email, email_verified, name FROM users WHERE id=$1`, [uid]))[0];
+    if (!u.email) throw new HttpError(400, 'Add an email address first', 'no_email');
+    if (u.email_verified) throw new HttpError(409, 'Your email is already confirmed', 'already_verified');
+    const prev = (await ctx.db.query<any>(`SELECT sent_at FROM email_codes WHERE user_id=$1`, [uid]))[0];
+    if (prev && ctx.clock.now().getTime() - new Date(prev.sent_at).getTime() < RESEND_MS) throw new HttpError(429, 'Please wait a minute before asking for another code', 'too_soon');
+    const devCode = await sendCode(uid, u.name, u.email);
+    return { ok: true, ...(process.env.NODE_ENV === 'production' ? {} : { devCode }) };
+  });
+
+  app.post('/me/profile/verify', auth, async (req) => {
+    const uid = req.session!.uid;
+    const code = String((req.body as any)?.code ?? '').trim();
+    const row = (await ctx.db.query<any>(`SELECT * FROM email_codes WHERE user_id=$1`, [uid]))[0];
+    const u = (await ctx.db.query<any>(`SELECT email FROM users WHERE id=$1`, [uid]))[0];
+    if (!row || !u.email || row.email !== u.email) throw new HttpError(400, 'Ask for a new code first', 'no_code');
+    if (new Date(row.expires_at).getTime() < ctx.clock.now().getTime()) throw new HttpError(400, 'That code has expired. Ask for a new one.', 'code_expired');
+    if (row.attempts >= MAX_ATTEMPTS) throw new HttpError(429, 'Too many wrong codes. Ask for a new one.', 'too_many_attempts');
+    if (code !== row.code) {
+      await ctx.db.query(`UPDATE email_codes SET attempts = attempts + 1 WHERE user_id=$1`, [uid]);
+      throw new HttpError(400, 'That code is not correct', 'bad_code');
     }
-    return { ok: true, email };
+    await ctx.db.query(`UPDATE users SET email_verified=true WHERE id=$1`, [uid]);
+    await ctx.db.query(`DELETE FROM email_codes WHERE user_id=$1`, [uid]);
+    await ctx.ledger.audit({ actor: uid, action: 'member.email_verified', category: 'member', entity: 'user', entityId: uid, summary: 'Confirmed their email address' });
+    return { ok: true, ...(await profileOf(uid)) };
   });
 
   // ---------- simulated hosted card page (development only) ----------
@@ -285,7 +378,8 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
       const sent = (await ctx.db.query<any>(`SELECT COUNT(*) AS n FROM messages WHERE org_id=$1 AND status='sent'`, [o.id]))[0].n;
       out.push({ id: o.id, name: o.name, mode, messagesSent: Number(sent), wallets });
     }
-    return { rates: RATES, revenue: { sms: await ctx.ledger.balance('sms_revenue'), whatsapp: await ctx.ledger.balance('whatsapp_revenue') }, organisations: out };
+    const def = (await ctx.db.query<any>(`SELECT v.bands FROM tariffs t JOIN tariff_versions v ON v.tariff_id=t.id WHERE t.is_default AND v.effective_from <= $1 ORDER BY v.effective_from DESC, v.version DESC LIMIT 1`, [ctx.clock.now().toISOString()]))[0];
+    return { rates: { sms: def?.bands?.sms?.[0]?.price ?? RATES.sms, whatsapp: def?.bands?.whatsapp?.[0]?.price ?? RATES.whatsapp }, revenue: { sms: await ctx.ledger.balance('sms_revenue'), whatsapp: await ctx.ledger.balance('whatsapp_revenue') }, organisations: out };
   });
 
   // The development email outbox. Real email goes through a provider.

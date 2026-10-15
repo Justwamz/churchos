@@ -29,6 +29,12 @@ const wait = async (fn: () => Promise<boolean>, ms = 4000) => {
   }
   return false;
 };
+// Anyone whose role receives alerts must confirm an email before using wallets (L123), so tests go through the real flow.
+const confirmEmail = async (who: string, email: string) => {
+  const r = await call(who, 'PUT', '/me/profile', { email });
+  const v = await call(who, 'POST', '/me/profile/verify', { code: r.json().devCode });
+  expect(v.statusCode).toBe(200);
+};
 const send = (who: string, extra: any = {}) =>
   call(who, 'POST', '/messages', { audience: { scope: { type: 'org' }, who: 'all' }, channels: ['sms'], title: 'Hello', body: 'Hello {name}, a note from church.', ...extra });
 const sentTo = (channel: 'sms' | 'whatsapp', phone: string) => ctx.messaging.sent.filter((s) => s.channel === channel && s.to === phone).length;
@@ -53,6 +59,8 @@ describe('wallets: balances people can see (L113, L116)', () => {
   });
 
   it('a branch person sees the headquarters wallet and their own branch, never another branch', async () => {
+    expect((await call(COAST, 'GET', '/wallets')).json().code).toBe('email_required'); // Fatuma has not confirmed an email yet
+    await confirmEmail(COAST, 'fatuma@grace.example');
     const ids = (await wallets(ADMIN)).wallets.map((x: any) => x.id);
     expect(ids).toContain(SMS_ORG);
     expect(ids).toContain(SMS_NBO);
@@ -191,7 +199,7 @@ describe('thresholds, transfers and low-balance alerts (L113, L115)', () => {
     expect(await count(COAST)).toBe(coast0 + 1); // the regional finance lead sees it in-app even without an email on file
     const mail = (await call(PA1, 'GET', '/admin/outbox')).json();
     const fresh = mail.slice(0, mail.length - mail0 > 0 ? mail.length - mail0 : 0).filter((e: any) => /Mombasa · SMS credit has run out/.test(e.subject));
-    expect(fresh.length).toBe(2); // Daniel, plus the extra finance address on the Integrations page
+    expect(fresh.length).toBe(3); // Daniel, Fatuma (now confirmed) and the extra finance address on the Integrations page
     expect(fresh.every((e: any) => !/@/.test(e.to_email.replace(/•+/, '')) || /•••/.test(e.to_email))).toBe(true); // addresses masked
   });
 
@@ -246,8 +254,31 @@ describe('integrations: one page per church (L113, L114)', () => {
     expect(ids).toEqual(expect.arrayContaining(['wal:org_hope:sms', 'wal:br_hpc001:sms', 'wal:br_hpc001:whatsapp']));
     const evt = (await call(HOPE, 'GET', '/audit/events?action=integration.update')).json().events[0];
     const fields = evt.changes.map((c: any) => c.field);
-    expect(fields).toEqual(expect.arrayContaining(['walletMode', 'smsSenderId', 'whatsappNumber', 'alertEmails']));
+    // Who pays and the alert emails apply at once. Sender names and numbers become requests until ChurchOS approves them (L128).
+    expect(fields).toEqual(expect.arrayContaining(['walletMode', 'alertEmails']));
+    expect(fields).not.toContain('smsSenderId');
+    expect(fields).not.toContain('whatsappNumber');
     expect(JSON.stringify(evt)).not.toMatch(/722000999|722111222|accounts@hope/); // numbers and emails masked in the log
+    const pending = (await call(HOPE, 'GET', '/integrations')).json();
+    expect(pending.smsSenderId).toBeNull();
+    expect(pending.requests.filter((q: any) => q.status === 'pending').map((q: any) => q.kind).sort()).toEqual(['sms_sender', 'sms_sender', 'whatsapp_display', 'whatsapp_number', 'whatsapp_number']);
+    expect(JSON.stringify(pending.requests)).not.toMatch(/254722000999|254722111222/);
+    // A platform admin approves the church-level sender name, and from then on it is the active one.
+    const queue = (await call(PA1, 'GET', '/admin/sender-requests?status=pending')).json();
+    const sms = queue.find((q: any) => q.kind === 'sms_sender' && q.value === 'HOPECHAPEL');
+    expect((await call(HOPE, 'POST', `/admin/sender-requests/${sms.id}/decide`, { approve: true })).statusCode).toBe(403);
+    expect((await call(PA1, 'POST', `/admin/sender-requests/${sms.id}/decide`, { approve: false })).json().code).toBe('reason_required');
+    expect((await call(PA1, 'POST', `/admin/sender-requests/${sms.id}/decide`, { approve: true })).json().status).toBe('approved');
+    expect((await call(PA1, 'POST', `/admin/sender-requests/${sms.id}/decide`, { approve: true })).statusCode).toBe(409);
+    expect((await call(HOPE, 'GET', '/integrations')).json().smsSenderId).toBe('HOPECHAPEL');
+    const wa = queue.find((q: any) => q.kind === 'whatsapp_number' && !q.branch_id);
+    expect(wa.value).toMatch(/•••/); // masked even for platform admins in the list
+    expect((await call(PA1, 'POST', `/admin/sender-requests/${wa.id}/decide`, { approve: false, reason: 'Number is not verified with the provider' })).json().status).toBe('rejected');
+    expect((await call(HOPE, 'GET', '/integrations')).json().whatsappNumber).toBeNull(); // a rejected number is never used
+    const note = (await call(HOPE, 'GET', '/me/notifications')).json().rows.map((r: any) => r.title);
+    expect(note).toEqual(expect.arrayContaining(['Your sms sender name was approved', 'Your whatsapp number was not approved']));
+    const audit = (await call(PA1, 'GET', '/admin/audit/events?action=integration.sender')).json().events.map((e: any) => e.action);
+    expect(audit).toEqual(expect.arrayContaining(['integration.sender_request', 'integration.sender_approved', 'integration.sender_rejected']));
     const h = (await call(HOPE, 'GET', '/audit/history?entity=integration&entityId=org_hope')).json();
     expect(h.versions).toHaveLength(1);
     // Switching back keeps the branch wallet and its balance: nothing is ever removed.
@@ -270,7 +301,7 @@ describe('integrations: one page per church (L113, L114)', () => {
 
   it('a person can add their email for alerts, and the log shows it hidden', async () => {
     expect((await call(COAST, 'PUT', '/me/profile', { email: 'nope' })).json().code).toBe('bad_email');
-    expect((await call(COAST, 'PUT', '/me/profile', { email: 'Fatuma@Grace.example' })).statusCode).toBe(200);
+    expect((await call(COAST, 'PUT', '/me/profile', { email: 'Fatuma@Grace.example' })).statusCode).toBe(200); // same address, nothing changes
     expect((await call(COAST, 'GET', '/me/profile')).json().email).toBe('fatuma@grace.example');
     const evt = (await call(PA1, 'GET', '/admin/audit/events?action=member.profile_email')).json().events[0];
     expect(evt.changes[0]).toMatchObject({ field: 'email', masked: true });

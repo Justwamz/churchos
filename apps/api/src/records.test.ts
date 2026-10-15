@@ -278,6 +278,7 @@ describe('members see their own records (L103, L64)', () => {
 
   it('after moving to another church the record stays with the church that holds it, shown read-only (L64)', async () => {
     const t = (await call(PETER, 'POST', '/me/transfer-request', { toChurchCode: 'HPC001' })).json();
+    await ctx.db.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ('m_brian','m_amina','org_grace') ON CONFLICT DO NOTHING`); // Brian needs another guardian before Peter can leave (L125)
     expect((await call(HOPE, 'POST', `/transfers/${t.id}/decide`, { approve: true })).statusCode).toBe(200);
     const me = (await call(PETER, 'GET', '/me')).json();
     const newMembership = me.memberships[0].id;

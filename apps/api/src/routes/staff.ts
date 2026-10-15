@@ -4,6 +4,7 @@ import { branchesFor, loadGrants, PERMISSIONS, type Permission } from '../auth';
 import { HttpError, inList, requireSession, staffScope, startOfDayEat, bearer, type Ctx } from '../ctx';
 import { verifyToken } from '../auth';
 import { csv, maskPhoneSql } from './helpers';
+import { emailRequired } from '../wallets';
 import { nextMemberNumber } from '../members';
 import { diff, maskedSnapshot, PROJECT_SPECS, recordVersion } from '../audit';
 
@@ -22,7 +23,9 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       const branches = await ctx.db.query<any>(`SELECT id, code, name, region FROM branches WHERE id IN (${inList(1, g.branchIds.length || 1)}) ORDER BY name`, g.branchIds.length ? g.branchIds : ['-']);
       out.push({ org, permissions: [...g.permissions], branches });
     }
-    return { user: { id: s.uid, name: s.name, phone: s.phone }, orgs: out };
+    const prof = (await ctx.db.query<any>(`SELECT email, email_verified FROM users WHERE id=$1`, [s.uid]))[0];
+    const need = await emailRequired(ctx, s.uid);
+    return { user: { id: s.uid, name: s.name, phone: s.phone, email: prof?.email ?? null }, emailRequired: need && !s.isAdmin, emailVerified: !!prof?.email_verified, orgs: out };
   });
 
   // ---------- live dashboard (L65) ----------
@@ -377,6 +380,14 @@ export async function applyTransfer(ctx: Ctx, q: import('@churchos/ledger').Db, 
     await q.query(`INSERT INTO membership_history (org_id, membership_id, event, from_branch, to_branch, at) VALUES ($1,$2,'transfer',$3,$4,$5)`, [m.org_id, m.id, t.from_branch, t.to_branch, now]);
     return;
   }
+  // No child may be left without an active guardian (L125), so neither a child nor a child's only guardian can leave the organisation.
+  if (m.category === 'child') throw new HttpError(409, 'A child cannot move to another church on their own. A guardian must join first and add them there.', 'child_needs_guardian');
+  const orphans = await q.query<any>(
+    `SELECT c.full_name FROM guardians g JOIN memberships c ON c.id=g.child_id AND c.status='active'
+      WHERE g.guardian_id=$1 AND NOT EXISTS (SELECT 1 FROM guardians g2 JOIN memberships gm ON gm.id=g2.guardian_id AND gm.status='active' WHERE g2.child_id=g.child_id AND g2.guardian_id<>$1)`,
+    [m.id],
+  );
+  if (orphans.length) throw new HttpError(409, `${m.full_name} is the only guardian of ${orphans.map((o) => String(o.full_name).split(' ')[0]).join(', ')}. Add another guardian first.`, 'sole_guardian');
   await q.query(`UPDATE memberships SET status='closed', closed_at=$2 WHERE id=$1`, [m.id, now]);
   await q.query(`INSERT INTO membership_history (org_id, membership_id, event, from_branch, to_branch, at) VALUES ($1,$2,'transfer_out',$3,$4,$5)`, [m.org_id, m.id, t.from_branch, t.to_branch, now]);
   const toBranch = (await q.query<any>('SELECT code FROM branches WHERE id=$1', [t.to_branch]))[0];

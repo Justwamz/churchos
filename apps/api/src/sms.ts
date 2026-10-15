@@ -1,8 +1,9 @@
 import type { Ctx } from './ctx';
+import { activeBands, costOf, recordUnits, unitsUsed } from './pricing';
 import { checkLowBalance, integrationSettings, RATES, walletFor } from './wallets';
 
 /** Kept for callers that still think in terms of the SMS price. The price is set per channel in wallets.ts (L112). */
-export const SMS_RATE_CENTS = RATES.sms;
+export const SMS_RATE_CENTS = RATES.sms; // the default list price, the real price comes from the tariff
 
 export type SmsKind = 'receipt' | 'reminder' | 'announcement';
 
@@ -26,21 +27,27 @@ export async function notify(
 
   let sent = false;
   let walletId: string | null = null;
+  let priced = 0;
   try {
     const w = await walletFor(ctx, a.orgId, a.branchId ?? null, 'sms');
-    if (w && (await ctx.ledger.chargeWallet(w.id, RATES.sms, a.idemKey, 'sms'))) {
-      walletId = w.id;
-      const settings = await integrationSettings(ctx.db, a.orgId);
-      const [res] = await ctx.messaging.send('sms', [{ to: a.phone, body: a.body, from: settings.smsSenderId }]);
-      sent = res?.status === 'sent';
-      if (!sent) await ctx.ledger.refundWallet(w.id, RATES.sms, a.idemKey, 'sms');
+    if (w) {
+      const cost = costOf(await activeBands(ctx, a.orgId, 'sms'), await unitsUsed(ctx, a.orgId, 'sms'), 1);
+      if (await ctx.ledger.chargeWallet(w.id, cost, a.idemKey, 'sms')) {
+        walletId = w.id;
+        priced = cost;
+        const settings = await integrationSettings(ctx.db, a.orgId);
+        const [res] = await ctx.messaging.send('sms', [{ to: a.phone, body: a.body, from: settings.smsSenderId }]);
+        sent = res?.status === 'sent';
+        if (sent) await recordUnits(ctx, a.orgId, 'sms', 1);
+        else await ctx.ledger.refundWallet(w.id, cost, a.idemKey, 'sms');
+      }
     }
     if (w) await checkLowBalance(ctx, w.id);
   } catch {
     sent = false;
   }
   await ctx.db.query(`INSERT INTO sms_messages (id, org_id, to_phone, kind, body, cost, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
-    ctx.newId('sms'), a.orgId, a.phone, a.kind, a.body, sent ? RATES.sms : 0, sent ? 'sent' : 'skipped_no_balance', now,
+    ctx.newId('sms'), a.orgId, a.phone, a.kind, a.body, sent ? priced : 0, sent ? 'sent' : 'skipped_no_balance', now,
   ]);
   void walletId;
   return { sms: sent ? 'sent' : 'skipped_no_balance', inApp: !!user };

@@ -1,12 +1,13 @@
 import { maskEmail } from '@churchos/shared';
 import type { Db } from '@churchos/ledger';
-import type { Ctx } from './ctx';
+import { HttpError, type Ctx } from './ctx';
+import { messagesBuyable, priceInfo } from './pricing';
 
 export type Channel = 'sms' | 'whatsapp';
 export const CHANNELS: Channel[] = ['sms', 'whatsapp'];
 export const CHANNEL_LABEL: Record<Channel, string> = { sms: 'SMS', whatsapp: 'WhatsApp' };
 
-/** Price per message in cents, set by the platform (L112). In-app is free. */
+/** List prices in cents, used only to seed the default tariff. The price a church pays comes from its tariff (L124). In-app is free. */
 export const RATES: Record<Channel, number> = { sms: 100, whatsapp: 300 };
 /** A wallet is "low" below this much credit unless the church sets its own (L115). KES 20 for SMS, KES 60 for WhatsApp. */
 export const DEFAULT_THRESHOLD: Record<Channel, number> = { sms: 2000, whatsapp: 6000 };
@@ -68,8 +69,8 @@ export function walletLabel(w: WalletRow, orgName: string, branchName: string | 
 /** What the screens show for a wallet: balance, what it buys, the threshold, and how to pay into it by paybill (L116). */
 export async function walletView(ctx: Ctx, w: WalletRow, names: { org: string; branch: string | null }) {
   const balance = await ctx.ledger.walletBalance(w.id);
-  const rate = RATES[w.channel];
-  const messagesLeft = Math.floor(balance / rate);
+  const info = await priceInfo(ctx, w.org_id, w.channel);
+  const messagesLeft = messagesBuyable(info.bands, info.used, balance);
   return {
     id: w.id,
     orgId: w.org_id,
@@ -78,16 +79,17 @@ export async function walletView(ctx: Ctx, w: WalletRow, names: { org: string; b
     scope: w.branch_id ? 'branch' : 'organisation',
     label: walletLabel(w, names.org, names.branch),
     balance,
-    rate,
+    rate: info.currentPrice,
+    price: { current: info.currentPrice, next: info.nextPrice, unitsLeftInBand: info.unitsLeftInBand, usedThisMonth: info.used, month: info.month },
     messagesLeft,
     threshold: Number(w.low_threshold),
-    state: balance < rate ? 'empty' : balance < Number(w.low_threshold) ? 'low' : 'ok',
+    state: messagesLeft < 1 ? 'empty' : balance < Number(w.low_threshold) ? 'low' : 'ok',
     paybillReference: `${PAYBILL_PREFIX[w.channel]}#${w.code}`,
   };
 }
 
 /** Who can see a wallet (L115, L116): anyone whose role has wallets.view over its scope. */
-export async function walletViewers(ctx: Ctx, w: WalletRow): Promise<{ id: string; name: string; email: string | null }[]> {
+export async function walletViewers(ctx: Ctx, w: WalletRow): Promise<{ id: string; name: string; email: string | null; email_verified: boolean }[]> {
   const rows = await ctx.db.query<any>(
     `SELECT ra.user_id, ra.scope_type, ra.scope_id FROM role_assignments ra JOIN roles r ON r.id = ra.role_id
       WHERE ra.org_id=$1 AND r.permissions @> '["wallets.view"]'::jsonb`,
@@ -103,10 +105,29 @@ export async function walletViewers(ctx: Ctx, w: WalletRow): Promise<{ id: strin
     }
   }
   if (users.size === 0) return [];
-  return ctx.db.query<any>(`SELECT id, name, email FROM users WHERE id = ANY($1::text[])`, [[...users]]);
+  return ctx.db.query<any>(`SELECT id, name, email, email_verified FROM users WHERE id = ANY($1::text[])`, [[...users]]);
 }
 
-async function sendEmail(ctx: Ctx, orgId: string | null, to: string, subject: string, body: string) {
+/** Permissions that make a person a recipient of email alerts. Holding one means a verified email is required (L123). */
+export const ALERT_PERMISSIONS = ['wallets.view'];
+
+/** True when this person receives email alerts through any of their roles. Platform admins are exempt, they have their own tools. */
+export async function emailRequired(ctx: Ctx, uid: string): Promise<boolean> {
+  const rows = await ctx.db.query<any>(
+    `SELECT 1 FROM role_assignments ra JOIN roles r ON r.id = ra.role_id WHERE ra.user_id=$1 AND r.permissions ?| $2::text[] LIMIT 1`,
+    [uid, ALERT_PERMISSIONS],
+  );
+  return rows.length > 0;
+}
+
+/** Throws 428 when someone who must have a verified email does not (L123). */
+export async function requireVerifiedEmail(ctx: Ctx, uid: string, isAdmin: boolean): Promise<void> {
+  if (isAdmin || !(await emailRequired(ctx, uid))) return;
+  const u = (await ctx.db.query<any>(`SELECT email, email_verified FROM users WHERE id=$1`, [uid]))[0];
+  if (!u?.email || !u.email_verified) throw new HttpError(428, 'Add your email address and confirm it with the code we send you, so you receive messaging alerts.', 'email_required');
+}
+
+export async function sendEmail(ctx: Ctx, orgId: string | null, to: string, subject: string, body: string) {
   const res = await ctx.email.send({ to, subject, body });
   await ctx.db.query(`INSERT INTO email_outbox (id, org_id, to_email, subject, body, status, error, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
     ctx.newId('eml'), orgId, to, subject, body, res.status, res.error ?? null, ctx.clock.now().toISOString(),
@@ -142,14 +163,14 @@ export async function checkLowBalance(ctx: Ctx, walletId: string): Promise<'ok' 
   let emailed = 0;
   for (const u of viewers) {
     await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), w.org_id, u.id, title, body, now]);
-    if (u.email && (await sendEmail(ctx, w.org_id, u.email, `ChurchOS: ${title}`, `Hello ${u.name.split(' ')[0]},\n\n${body}\n\nThis message was sent because you can view this wallet.`))) emailed++;
+    if (u.email && u.email_verified && (await sendEmail(ctx, w.org_id, u.email, `ChurchOS: ${title}`, `Hello ${u.name.split(' ')[0]},\n\n${body}\n\nThis message was sent because you can view this wallet.`))) emailed++;
   }
   const extra = (await integrationSettings(ctx.db, w.org_id)).alertEmails;
   for (const e of extra) if (await sendEmail(ctx, w.org_id, e, `ChurchOS: ${title}`, body)) emailed++;
   await ctx.ledger.audit({
     orgId: w.org_id, branchId: w.branch_id, actorType: 'system', action: 'wallet.low_balance', category: 'money', entity: 'wallet', entityId: walletId,
     summary: `${title}. Alert sent to ${viewers.length} ${viewers.length === 1 ? 'person' : 'people'}, ${emailed} by email`,
-    meta: { state: next, balance: v.balance, threshold: v.threshold, recipients: viewers.length, emailed, noEmail: viewers.filter((x) => !x.email).length, extraEmails: extra.map((e) => maskEmail(e)) },
+    meta: { state: next, balance: v.balance, threshold: v.threshold, recipients: viewers.length, emailed, noEmail: viewers.filter((x) => !x.email || !x.email_verified).length, extraEmails: extra.map((e) => maskEmail(e)) },
   });
   return next;
 }
