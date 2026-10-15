@@ -6,6 +6,7 @@ export { createApi, ApiError, API_URL } from './api';
 export type { Api } from './api';
 export { HelpButton, HelpMarkdown } from './help';
 export { CertificateCard, QrCode, printCertificate, VERIFY_ORIGIN } from './certificate';
+export { AuditLog, AuditHistory, HistoryButton, ChangeTable } from './audit';
 export type { CertificatePayload } from './certificate';
 export { formatKes, toCents, DEFAULT_FEE_SCHEDULE } from '@churchos/shared';
 

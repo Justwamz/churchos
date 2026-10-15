@@ -9,6 +9,8 @@ export class ApiError extends Error {
 }
 
 export function createApi(tokenKey: string) {
+  // Every request says which app it came from, so the audit log can record it (L104).
+  const appName = tokenKey.replace(/^churchos:/, '').replace(/-token$/, '');
   const getToken = () => {
     try {
       return localStorage.getItem(tokenKey);
@@ -31,7 +33,7 @@ export function createApi(tokenKey: string) {
     try {
       res = await fetch(`${API_URL}${path}`, {
         method,
-        headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        headers: { 'x-churchos-app': appName, ...(body ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: `Bearer ${token}` } : {}) },
         body: body ? JSON.stringify(body) : undefined,
       });
     } catch {

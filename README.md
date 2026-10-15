@@ -72,3 +72,11 @@ needs a float policy for this.
 - **Certificate design** page: Grace's template with a logo, wording, signatories and a copy price of KES 500. Branch address and contact details are edited on the same page.
 - **Verify a card:** http://localhost:3001/verify/GRC001-BAP-2026-0001?k=DEMOKEY1 (the link the QR code on Ruth's card opens). Without the `k` key, or with a wrong one, the page says it cannot verify.
 - **Copies:** the first card is free; a second needs KES 500, paid on the giving page at `/GRC001?cert=<serial>`. Someone who can approve records can waive the fee.
+
+## Audit, history and privacy (Slice 4)
+
+- **Audit log** (staff dashboard, as `0700000001` Daniel owner, `0700000003` Samuel branch admin, or `0700000007` Aisha, a read-only **Auditor** who can also export): every change with who, when, from which app, the reason, and old and new values. Click a row for details, and **Verify integrity now** to check the chain.
+- **History** buttons on records, members, the certificate design, projects and fee settings show every saved version and let you compare any two.
+- **Masked data:** phone numbers show as `254711•••001`. Roles with the reveal permission (owner, branch admin, secretary, pastor) get **Show number**, which is logged with the reason. Try it as Samuel, then look in the Audit log.
+- **Admin console** (`0700000099`): the Audit log covers every church, the Overview shows an integrity banner, and payer numbers are masked with a logged reveal.
+- **Try tampering** (development only): the database refuses to change or delete audit rows, so a tamper test has to disable the trigger first; the ledger tests do this and show the integrity check naming the changed event.
