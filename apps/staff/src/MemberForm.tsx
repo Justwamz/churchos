@@ -21,7 +21,7 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   return (
     <div className="modal-scrim" role="presentation">
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} style={{ width: 'min(640px, 100%)', maxHeight: '92vh', overflowY: 'auto' }}>
-        <div className="row between"><h2>{title}</h2><Button kind="ghost" small onClick={onClose}>Close</Button></div>
+        <div className="row between modal-head"><h2>{title}</h2><button type="button" className="modal-x" aria-label="Close" onClick={onClose}>×</button></div>
         {children}
       </div>
     </div>

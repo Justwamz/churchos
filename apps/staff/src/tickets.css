@@ -27,3 +27,8 @@
 
 /* The scan answer must be seen at once, wherever the page is scrolled: a banner over the top of the screen. */
 .ck-result { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 20px)); z-index: 90; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); cursor: pointer; }
+
+.modal-head { position: sticky; top: -26px; z-index: 2; background: var(--surface); margin: -26px -26px 8px; padding: 18px 26px 10px; border-bottom: 1px solid var(--line); border-radius: 18px 18px 0 0; align-items: center; }
+.modal-head h2 { margin: 0; }
+.modal-x { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 22px; line-height: 1; cursor: pointer; }
+.modal-x:hover { background: var(--line); }
