@@ -256,5 +256,24 @@ step('Paying through the giving flow confirms the booking', s8Pay.status === 200
 const s8Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 8 activity', s8Rec.json.ok === true);
 
+// 17. Slice 10: the church shop, stock and the till.
+const esther = await login('0700000002');
+const s10Items = await call('GET', '/shop/items', undefined, esther);
+const s10Candles = s10Items.json.find((i) => i.name === 'Candles, pack of 12');
+step('A cashier sees the shop items and stock, without cost prices', s10Items.status === 200 && s10Items.json.length >= 7 && s10Candles.cost === null, s10Items.json.length + ' items');
+const s10Sale = await call('POST', '/shop/sales', { branchId: 'br_grc001', method: 'cash', lines: [{ itemId: s10Candles.id, qty: 2 }], buyerName: 'Smoke buyer' }, esther);
+const s10After = (await call('GET', '/shop/items', undefined, esther)).json.find((i) => i.id === s10Candles.id);
+step('A cash sale completes at once and takes the stock', s10Sale.status === 200 && s10Sale.json.status === 'completed' && s10After.stock === s10Candles.stock - 2, s10Sale.json.receiptNo);
+const s10Tshirt = s10Items.json.find((i) => i.name === 'Church T-shirt');
+step('An item that is out of stock cannot be sold', (await call('POST', '/shop/sales', { branchId: 'br_grc001', method: 'cash', lines: [{ itemId: s10Tshirt.id, qty: 1 }] }, esther)).status === 409);
+step('A cashier cannot void a sale, a manager can and the stock returns', (await call('POST', `/shop/sales/${s10Sale.json.id}/void`, { reason: 'Smoke test' }, esther)).status === 404 && (await call('POST', `/shop/sales/${s10Sale.json.id}/void`, { reason: 'Smoke test' }, samuel)).json.status === 'voided' && (await call('GET', '/shop/items', undefined, esther)).json.find((i) => i.id === s10Candles.id).stock === s10Candles.stock);
+const s10Till = await call('GET', '/shop/till?branch=br_grc001', undefined, esther);
+const s10Close = await call('POST', '/shop/till', { branchId: 'br_grc001', counted: s10Till.json.expected / 100 }, esther);
+step('Closing the till sends the count for a second person to sign off', s10Close.status === 200 && s10Close.json.variance === 0);
+const s10Rep = await call('GET', '/shop/reports', undefined, daniel);
+step('The shop report shows takings, low stock and margin to a manager', s10Rep.status === 200 && s10Rep.json.totals.revenue > 0 && s10Rep.json.lowStock.length >= 2 && typeof s10Rep.json.totals.margin === 'number');
+const s10Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 10 activity', s10Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

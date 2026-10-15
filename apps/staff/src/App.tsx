@@ -29,11 +29,12 @@ import { Records } from './Records';
 import { Template } from './Template';
 import { AuditPage } from './Audit';
 import { Team } from './Team';
+import { Shop } from './Shop';
 
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop',
 };
 
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
@@ -52,6 +53,7 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'bookings', label: 'Bookings', any: ['bookings.view'], el: Bookings },
   { id: 'calendar', label: 'Calendar', any: ['bookings.view'], el: CalendarPage },
   { id: 'resources', label: 'Resources', any: ['bookings.view', 'resources.manage'], el: Resources },
+  { id: 'shop', label: 'Shop', any: ['shop.view', 'shop.sell', 'shop.manage'], el: Shop },
   { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: Adverts },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
   { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },

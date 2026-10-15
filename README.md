@@ -123,3 +123,11 @@ needs a float policy for this.
 - **People:** everyone with access to the church, where each role applies (whole church, a region or a branch), with masked phone numbers. **Add team member** takes a name, a phone number, a role and a place. They sign in with that number and a code. Use the **x** on a role label to take access away, and **Add access** to give a second role.
 - **Roles:** six built-in roles plus your own. **New role** lists every permission in plain words, grouped (Money, Members, Messaging, Bookings and so on).
 - **The rules:** you can only give access that you hold yourself, for places you look after, so Samuel (\`0700000003\`, Nairobi branch admin) can add a treasurer for Nairobi but not an auditor or a church-wide role. A church always keeps one Organisation Owner. Try it as Daniel (\`0700000001\`) first.
+
+## Church shop: sales and stock (staff > Shop)
+
+- **Till:** tap items to build a basket, name the buyer if you like, and take cash, M-Pesa, Airtel Money, T-Kash or card. Cash completes at once. Mobile money and card hold the stock for 30 minutes and complete when paid (the platform fee applies). Print the receipt.
+- **Items and stock:** the Nairobi shop has Bibles, rosaries, a prayer book, candles and a T-shirt (out of stock, to see the empty state). Receive stock, adjust or write off with reasons, and see every movement under History. Sign in as Daniel (`0700000001`, can do everything) or Esther (`0700000002`, treasurer: can sell and close the till but cannot see cost or change stock).
+- **Voids:** a manager can void a cash sale within 24 hours and put the items back.
+- **Close till:** count the cash against what the sales say. The count goes to **Cash** for a second person (Samuel, `0700000003`) to sign off.
+- **Reports:** takings by day, best sellers, categories, payment methods, low stock and stock value, with cost and margin for managers.
