@@ -16,6 +16,9 @@ You need the **Check children in and out** permission and to be listed as a teac
 1. Open **Children** and choose your class.
 2. Choose **Open session** and say when it ends, for example in two hours. This is when parents are expected to collect.
 
+## Location
+Children can only be checked in at the church. Allow location for the page when your browser asks. The strip at the top of the room says "At Grace Nairobi" when you are in the right place. If you are away, or the page cannot tell where you are, the **Check in** button is greyed and says why. If your device cannot give a location, the guardian's phone can: ask them to allow location in the app. Hand-overs still work, and are recorded with where they happened.
+
 ## Drop-off
 1. Choose **Scan a guardian** and point the camera at the QR code on the guardian's phone (Children in the member app). The code changes every 30 seconds, so a photo of it will not work.
 2. Tick the children being dropped off and choose **Check in**. Write the **tag number** on a sticker for the child and one for the guardian.

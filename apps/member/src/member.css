@@ -737,6 +737,12 @@ h3 { font-size: 17px; }
 .fam-bar { width: min(300px, 100%); height: 5px; border-radius: 3px; background: var(--brand-tint); overflow: hidden; }
 .fam-bar i { display: block; height: 100%; width: 100%; background: var(--brand); transform-origin: left; animation: fam-count linear forwards; }
 @keyframes fam-count { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.fam-geo { display: grid; justify-items: center; gap: 4px; width: min(300px, 100%); font-size: 14px; line-height: 1.35; text-align: center; overflow-wrap: anywhere; }
+.fam-geo-line { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.fam-dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; opacity: 0.5; flex: none; }
+.fam-geo.ok .fam-dot { background: var(--good); opacity: 1; }
+.fam-geo.denied, .fam-geo.unavailable { background: var(--warn-tint); color: var(--ink); padding: 10px 12px; border-radius: 12px; text-align: left; justify-items: start; }
+.fam-geo .link-btn { min-height: 32px; font-weight: 700; }
 .fam-guardian { font-size: 17px; min-height: 22px; overflow-wrap: anywhere; }
 .fam-caption { margin: 0; font-weight: 600; }
 .fam-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }

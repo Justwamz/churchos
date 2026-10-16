@@ -13,7 +13,7 @@ async function login(phone: string) {
   tokens[phone] = r.json().token;
   return tokens[phone];
 }
-const call = async (phone: string | null, method: 'GET' | 'POST' | 'PATCH', url: string, payload?: any) =>
+const call = async (phone: string | null, method: 'GET' | 'POST' | 'PATCH' | 'PUT', url: string, payload?: any) =>
   app.inject({ method, url, payload, headers: phone ? { authorization: `Bearer ${await login(phone)}`, 'user-agent': 'Mozilla/5.0 (Linux; Android 14) Chrome/120.0 Safari/537.36' } : {} });
 
 const OWNER = '0700000001', LUCY = '0700000008', TREAS = '0700000002', HOPE = '0700000005';
@@ -318,5 +318,102 @@ describe('the development SMS outbox', () => {
     expect(m.to_phone).toBe('0722 *** 010');
     expect(m.body).toMatch(/pick-up code \d{6}/);
     expect((await call(OWNER, 'GET', '/admin/sms-outbox')).statusCode).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('only at the branch (L188, L189)', () => {
+  const AT = { lat: -1.2865, lng: 36.8173, acc: 20 };
+  const FAR = { lat: -1.2, lng: 36.9, acc: 20 };
+  let s2 = '';
+  const guardianQr = async (who: string, geo?: any) => (await call(who, 'POST', '/me/family/qr', { membershipId: (await familyOf(who)).membershipId, device: 'Jane phone', geo })).json().token as string;
+  const scanAt = async (token: string, geo?: any) => (await call(LUCY, 'POST', `/kids/sessions/${s2}/scan`, { token, device: 'Lucy tablet', geo })).json();
+  const dropAt = (proof: string, ids: string[], geo?: any) => call(LUCY, 'POST', `/kids/sessions/${s2}/checkin`, { proof, childIds: ids, device: 'Lucy tablet', geo });
+  const roomOf = async () => (await call(LUCY, 'GET', `/kids/sessions/${s2}`)).json();
+
+  it('lets managers set where a branch is, and nobody else', async () => {
+    expect((await call(LUCY, 'PUT', '/kids/branches/br_grc001/location', { lat: -1.2864, lng: 36.8172 })).statusCode).toBe(403);
+    expect((await call(OWNER, 'PUT', '/kids/branches/br_grc001/location', { lat: 120, lng: 36 })).json().code).toBe('bad_location');
+    expect((await call(OWNER, 'PUT', '/kids/branches/br_grc001/location', { lat: -1.2864, lng: 36.8172, radiusM: 10 })).json().code).toBe('bad_radius');
+    expect((await call(HOPE, 'PUT', '/kids/branches/br_grc001/location', { lat: -1.2864, lng: 36.8172 })).statusCode).toBe(404);
+    const ok = await call(OWNER, 'PUT', '/kids/branches/br_grc001/location', { lat: -1.2864, lng: 36.8172, radiusM: 300 });
+    expect(ok.json().location).toEqual({ lat: -1.2864, lng: 36.8172, radiusM: 300 });
+    const list = (await call(OWNER, 'GET', '/kids/classes')).json();
+    expect(list.branches.find((b: any) => b.id === 'br_grc001').location.radiusM).toBe(300);
+    s2 = (await call(LUCY, 'POST', `/kids/classes/${classId}/sessions`, { minutes: 60, device: 'Lucy tablet' })).json().id;
+  });
+
+  it('checks a child in when the teacher is at the branch', async () => {
+    const sc = await scanAt(await guardianQr(JANE), AT);
+    expect(sc.location).toMatchObject({ status: 'ok', source: 'teacher', branch: 'Grace Nairobi' });
+    expect(JSON.stringify(sc.location)).not.toContain('36.81');
+    expect((await dropAt(sc.proof, ['m_joy'], AT)).statusCode).toBe(200);
+  });
+
+  it('refuses when the teacher is away, and says how far', async () => {
+    const sc = await scanAt(await guardianQr(JANE), FAR);
+    expect(sc.location.status).toBe('away');
+    expect(sc.location.message).toMatch(/km from Grace Nairobi\. Children can only be checked in at the branch/);
+    const r = await dropAt(sc.proof, ['m_ruth'], FAR);
+    expect(r.statusCode).toBe(409);
+    expect(r.json().code).toBe('away_from_branch');
+    expect((await roomOf()).children.some((c: any) => c.name === 'Ruth Wanjiku')).toBe(false);
+  });
+
+  it('refuses when nobody can say where it is', async () => {
+    const sc = await scanAt(await guardianQr(JANE));
+    expect(sc.location.status).toBe('unknown');
+    expect((await dropAt(sc.proof, ['m_ruth'])).json().code).toBe('location_needed');
+    expect((await dropAt(sc.proof, ['m_ruth'], { ...AT, acc: 5000 })).json().code).toBe('location_needed');
+  });
+
+  it("uses the guardian's phone when the teacher's device gives no usable reading", async () => {
+    const sc = await scanAt(await guardianQr(JANE, AT), { ...AT, acc: 5000 });
+    expect(sc.location).toMatchObject({ status: 'ok', source: 'guardian' });
+    expect((await dropAt(sc.proof, ['m_ruth'])).statusCode).toBe(200);
+    const far = await scanAt(await guardianQr(DAVID, FAR));
+    expect(far.location.status).toBe('away');
+  });
+
+  it('does not let a guardian reading override a teacher reading that is away', async () => {
+    const sc = await scanAt(await guardianQr(JANE, AT), FAR);
+    expect(sc.location.status).toBe('away');
+  });
+
+  it('tells the room screen where the device is', async () => {
+    expect((await call(LUCY, 'POST', `/kids/sessions/${s2}/locate`, { geo: AT })).json().location.status).toBe('ok');
+    expect((await call(LUCY, 'POST', `/kids/sessions/${s2}/locate`, { geo: { lat: 'x' } })).json().location.status).toBe('unknown');
+    expect((await call(LUCY, 'POST', `/kids/sessions/${s2}/locate`, { geo: FAR })).json().location.status).toBe('away');
+  });
+
+  it('records a hand-over made away from the branch but never blocks it', async () => {
+    const sc = await scanAt(await guardianQr(JANE), FAR);
+    const r = await call(LUCY, 'POST', `/kids/sessions/${s2}/checkout`, { proof: sc.proof, checkinIds: sc.collect.map((c: any) => c.id), device: 'Lucy tablet', geo: FAR });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().done).toHaveLength(2);
+    expect(r.json().location.status).toBe('away');
+  });
+
+  it('puts the place in the log and keeps coordinates out of the audit trail', async () => {
+    const log = (await call(OWNER, 'GET', `/kids/log?sessionId=${s2}`)).json().log as any[];
+    const ok = log.find((l) => l.action === 'check_in' && l.result === 'ok' && l.locationSource === 'teacher');
+    expect(ok).toMatchObject({ locationStatus: 'At the branch', locationSource: 'teacher' });
+    expect(ok.teacherLocation).toBe('-1.2865, 36.8173 (within 20 m)');
+    expect(log.find((l) => l.action === 'check_in' && l.result === 'refused' && /away/.test(l.detail))).toMatchObject({ locationStatus: 'Away from the branch' });
+    expect(log.some((l) => l.action === 'check_in' && l.result === 'refused' && l.locationStatus === 'Location not shared')).toBe(true);
+    expect(log.find((l) => l.action === 'check_in' && l.locationSource === 'guardian').guardianLocation).toBe('-1.2865, 36.8173 (within 20 m)');
+    expect(log.find((l) => l.action === 'check_out')).toMatchObject({ locationStatus: 'Away from the branch' });
+    expect((await call(OWNER, 'GET', '/kids/log?csv=1')).body).toContain('Metres from branch');
+    const audit = await ctx.db.query<any>(`SELECT meta FROM audit_events WHERE action='kids.check_in'`);
+    expect(audit.some((a) => a.meta?.location === 'away')).toBe(true);
+    expect(JSON.stringify(audit)).not.toContain('36.8173');
+  });
+
+  it('stops checking once a manager removes the location', async () => {
+    expect((await call(LUCY, 'POST', `/kids/sessions/${s2}/close`, {})).statusCode).toBe(200);
+    expect((await call(OWNER, 'PUT', '/kids/branches/br_grc001/location', { clear: true })).json().location).toBeNull();
+    s2 = (await call(LUCY, 'POST', `/kids/classes/${classId}/sessions`, { minutes: 60 })).json().id;
+    const sc = await scanAt(await guardianQr(JANE));
+    expect(sc.location.status).toBe('unchecked');
+    expect((await dropAt(sc.proof, ['m_ruth'])).statusCode).toBe(200);
   });
 });

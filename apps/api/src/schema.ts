@@ -850,7 +850,7 @@ CREATE TABLE IF NOT EXISTS help_chunks (
 );
 CREATE INDEX IF NOT EXISTS help_chunks_tsv_idx ON help_chunks USING gin(tsv);
 
--- Children's check-in and pick-up (L179 to L187). Nothing here is ever deleted: the log is the record.
+-- Children's check-in and pick-up (L179 to L190). Nothing here is ever deleted: the log is the record.
 CREATE TABLE IF NOT EXISTS kids_classes (
   id text PRIMARY KEY,
   org_id text NOT NULL,
@@ -959,6 +959,10 @@ CREATE TABLE IF NOT EXISTS kids_log (
   detail text
 );
 CREATE INDEX IF NOT EXISTS kids_log_idx ON kids_log(org_id, at DESC);
+ALTER TABLE kids_log ADD COLUMN IF NOT EXISTS location jsonb;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lat double precision;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lng double precision;
+ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_radius_m int;
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;

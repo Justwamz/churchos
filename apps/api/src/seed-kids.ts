@@ -2,7 +2,7 @@ import type { Ctx } from './ctx';
 import { todayEat } from './members';
 
 /**
- * Children's check-in demo data (L179 to L187), added on top of the normal demo for the development server and its own tests:
+ * Children's check-in demo data (L179 to L190), added on top of the normal demo for the development server and its own tests:
  * Lucy the Sunday school teacher, a class, Joy (five) and Tom (four), and Mary Kamau who has no app and is reached by SMS.
  * Kept apart from seed() so the other slices' counts stay as they were.
  */

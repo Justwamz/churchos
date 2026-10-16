@@ -51,6 +51,43 @@ function beep(ok: boolean) {
   } catch { /* optional */ }
 }
 
+// ---------- device location ----------
+
+type Geo = { lat: number; lng: number; acc: number };
+type Loc = { status: 'ok' | 'away' | 'unknown' | 'unchecked'; source?: string; distanceM?: number | null; radiusM?: number; branch?: string; message?: string };
+let lastGeo: (Geo & { at: number }) | null = null;
+/** The latest reading from any open watcher, or null when there is none or it is older than 2 minutes. */
+export function geoNow(): Geo | null {
+  if (!lastGeo || Date.now() - lastGeo.at > 120_000) return null;
+  return { lat: lastGeo.lat, lng: lastGeo.lng, acc: lastGeo.acc };
+}
+const withGeo = <T extends object>(body: T): T & { geo?: Geo } => { const g = geoNow(); return g ? { ...body, geo: g } : body; };
+
+/** Watches the device position while `active`. Never throws: denied or missing location becomes a state. */
+function useGeo(active = true) {
+  const ref = useRef<Geo | null>(null);
+  const [reading, setReading] = useState<Geo | null>(null);
+  const [state, setState] = useState<'waiting' | 'ok' | 'denied' | 'unavailable'>('waiting');
+  useEffect(() => {
+    if (!active) return;
+    if (!('geolocation' in navigator)) { setState('unavailable'); return; }
+    let id: number | null = null;
+    try {
+      id = navigator.geolocation.watchPosition(
+        (p) => {
+          const g = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) };
+          ref.current = g; lastGeo = { ...g, at: Date.now() };
+          setReading(g); setState('ok');
+        },
+        (e) => { if (e.code === 1) { setState('denied'); ref.current = null; lastGeo = null; setReading(null); } else if (!ref.current) setState('unavailable'); },
+        { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 },
+      );
+    } catch { setState('unavailable'); }
+    return () => { if (id != null) navigator.geolocation.clearWatch(id); };
+  }, [active]);
+  return { ref, reading, state, geoNow };
+}
+
 type Banner = { tone: 'good' | 'warn' | 'bad'; title: string; lines?: string[]; sticky?: boolean };
 
 function BannerView({ b, onClose }: { b: Banner | null; onClose: () => void }) {
@@ -154,41 +191,53 @@ type Panel = {
   dropOff: { id: string; name: string; age?: number | null; inClass?: string | null }[];
   collect: { id: string; name: string; tag: number | string; dropper?: string; byDifferentPerson?: boolean; state?: string }[];
   note?: string;
+  location?: Loc | null;
 };
 
-function GuardianPanel({ sessionId, panel, onClose, onChanged, onTag, onBanner }: {
-  sessionId: string; panel: Panel; onClose: () => void; onChanged: () => void;
+function GuardianPanel({ sessionId, panel, onClose, onChanged, onTag, onBanner, onLoc }: {
+  sessionId: string; panel: Panel; onClose: () => void; onChanged: () => void; onLoc: (l: Loc | null) => void;
   onTag: (t: { tag: number | string; names: string[]; codeSent: boolean }) => void; onBanner: (b: Banner) => void;
 }) {
   const [drop, setDrop] = useState<Set<string>>(new Set());
   const [coll, setColl] = useState<Set<string>>(new Set(panel.collect.map((c) => c.id)));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [loc, setLoc] = useState<Loc | null>(panel.location ?? null);
+  const [rechecking, setRechecking] = useState(false);
+  const blockedHere = loc?.status === 'away' || loc?.status === 'unknown';
+  const recheck = async () => {
+    setRechecking(true);
+    try { const r = await api.post(`/kids/sessions/${sessionId}/locate`, withGeo({})); setLoc(r.location); onLoc(r.location); } catch (e: any) { setErr(errMsg(e)); }
+    setRechecking(false);
+  };
   const toggle = (set: Set<string>, id: string, fn: (s: Set<string>) => void) => { const n = new Set(set); if (n.has(id)) n.delete(id); else n.add(id); fn(n); };
   const nothing = panel.dropOff.length === 0 && panel.collect.length === 0;
 
   const checkIn = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api.post(`/kids/sessions/${sessionId}/checkin`, { proof: panel.proof, childIds: [...drop], device: deviceLabel() });
+      const r = await api.post(`/kids/sessions/${sessionId}/checkin`, withGeo({ proof: panel.proof, childIds: [...drop], device: deviceLabel() }));
       beep(true);
       onChanged();
       onTag({ tag: r.tag, names: (r.children ?? []).map((c: any) => c.name), codeSent: !!r.codeSent });
-    } catch (e: any) { setErr(errMsg(e)); setBusy(false); }
+    } catch (e: any) {
+      setErr(errMsg(e)); setBusy(false);
+      if (e?.code === 'away_from_branch' || e?.code === 'location_needed' || /branch|location/i.test(e?.message ?? '')) { onBanner({ tone: 'bad', title: 'Cannot check in here', lines: [errMsg(e)], sticky: true }); recheck(); }
+    }
   };
   const handOver = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api.post(`/kids/sessions/${sessionId}/checkout`, { proof: panel.proof, checkinIds: [...coll], device: deviceLabel() });
+      const r = await api.post(`/kids/sessions/${sessionId}/checkout`, withGeo({ proof: panel.proof, checkinIds: [...coll], device: deviceLabel() }));
       const done: any[] = r.done ?? [];
       const refused: any[] = r.refused ?? [];
       beep(refused.length === 0);
       onChanged();
       onBanner({
-        tone: refused.length ? (done.length ? 'warn' : 'bad') : 'good',
+        tone: refused.length ? (done.length ? 'warn' : 'bad') : done.length && r.location?.status === 'away' ? 'warn' : 'good',
         title: done.length ? 'Handed over' : 'Not handed over',
-        lines: [...(done.length ? [done.map((d) => d.name).join(', ')] : []), ...refused.map((x) => `${x.name}: ${x.reason}`)],
-        sticky: refused.length > 0,
+        lines: [...(done.length ? [done.map((d) => d.name).join(', ')] : []), ...refused.map((x) => `${x.name}: ${x.reason}`), ...(done.length && r.location?.status === 'away' ? ['Handed over. Your location was away from the branch, this is recorded.'] : [])],
+        sticky: refused.length > 0 || (done.length > 0 && r.location?.status === 'away'),
       });
       onClose();
     } catch (e: any) { setErr(errMsg(e)); setBusy(false); }
@@ -210,7 +259,13 @@ function GuardianPanel({ sessionId, panel, onClose, onChanged, onTag, onBanner }
                 </label>
               ))}
             </div>
-            <div className="row"><Button disabled={busy || drop.size === 0} onClick={checkIn}>{busy ? 'Working...' : drop.size > 1 ? `Check in ${drop.size} children` : 'Check in'}</Button></div>
+            <div className="row"><Button disabled={busy || drop.size === 0 || blockedHere} onClick={checkIn}>{busy ? 'Working...' : drop.size > 1 ? `Check in ${drop.size} children` : 'Check in'}</Button></div>
+            {blockedHere && (
+              <div className={`kd-why ${loc!.status}`} role="alert">
+                <div>{loc!.message}</div>
+                {loc!.status === 'unknown' && <Button small kind="ghost" disabled={rechecking} onClick={recheck}>{rechecking ? 'Checking...' : 'Check my location again'}</Button>}
+              </div>
+            )}
           </section>
         )}
         {panel.collect.length > 0 && (
@@ -257,8 +312,8 @@ function FindModal({ sessionId, onClose, onFound, onBanner }: { sessionId: strin
   const pick = async (g: any) => {
     setBusy(true); setErr('');
     try {
-      const r = await api.post(`/kids/sessions/${sessionId}/find`, { guardianId: g.id, device: deviceLabel() });
-      onFound({ guardian: r.guardian ?? { name: g.name }, proof: r.proof, dropOff: r.dropOff ?? [], collect: r.collect ?? [] });
+      const r = await api.post(`/kids/sessions/${sessionId}/find`, withGeo({ guardianId: g.id, device: deviceLabel() }));
+      onFound({ guardian: r.guardian ?? { name: g.name }, proof: r.proof, dropOff: r.dropOff ?? [], collect: r.collect ?? [], location: r.location });
     } catch (e: any) { setErr(errMsg(e)); onBanner({ tone: 'bad', title: 'Could not find them', lines: [errMsg(e)] }); setBusy(false); }
   };
   return (
@@ -293,7 +348,7 @@ function CodeModal({ sessionId, onClose, onFound }: { sessionId: string; onClose
   const go = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api.post(`/kids/sessions/${sessionId}/lookup`, { code, device: deviceLabel() });
+      const r = await api.post(`/kids/sessions/${sessionId}/lookup`, withGeo({ code, device: deviceLabel() }));
       if (r.result !== 'ok') { setErr(r.message ?? 'That code did not work.'); setBusy(false); return; }
       onFound({ guardian: { name: r.holder }, proof: r.proof, dropOff: [], collect: r.children ?? [], note: r.kind === 'approved' ? 'This is an approved pick-up person.' : undefined });
     } catch (e: any) { setErr(errMsg(e)); setBusy(false); }
@@ -323,7 +378,7 @@ function OtherCollector({ sessionId, row, onClose, onFound }: { sessionId: strin
   const send = async (p: any) => {
     setBusy(true); setErr(''); setChosen(p);
     try {
-      const r = await api.post(`/kids/checkins/${row.id}/send-code`, { kind: p.kind, id: p.id, device: deviceLabel() });
+      const r = await api.post(`/kids/checkins/${row.id}/send-code`, withGeo({ kind: p.kind, id: p.id, device: deviceLabel() }));
       setSentTo(r.sentTo);
     } catch (e: any) { setErr(errMsg(e)); setChosen(null); }
     setBusy(false);
@@ -331,7 +386,7 @@ function OtherCollector({ sessionId, row, onClose, onFound }: { sessionId: strin
   const verify = async () => {
     setBusy(true); setErr('');
     try {
-      const r = await api.post(`/kids/sessions/${sessionId}/lookup`, { code, device: deviceLabel() });
+      const r = await api.post(`/kids/sessions/${sessionId}/lookup`, withGeo({ code, device: deviceLabel() }));
       if (r.result !== 'ok') { setErr(r.message ?? 'That code did not work.'); setBusy(false); return; }
       onFound({ guardian: { name: r.holder }, proof: r.proof, dropOff: [], collect: r.children ?? [], note: r.kind === 'approved' ? 'This is an approved pick-up person.' : undefined });
     } catch (e: any) { setErr(errMsg(e)); setBusy(false); }
@@ -372,7 +427,7 @@ function OtherCollector({ sessionId, row, onClose, onFound }: { sessionId: strin
 // ---------- late children: call and alert ----------
 
 function Contacts({ row, onClose }: { row: any; onClose: () => void }) {
-  const q = useAsync<any>(() => api.get(`/kids/checkins/${row.id}/contacts?device=${encodeURIComponent(deviceLabel())}`), [row.id]);
+  const q = useAsync<any>(() => api.get(`/kids/checkins/${row.id}/contacts?device=${encodeURIComponent(deviceLabel())}${(() => { const g = geoNow(); return g ? `&geo=${g.lat},${g.lng},${g.acc}` : ''; })()}`), [row.id]);
   return (
     <Modal title={`Call the guardians of ${row.name}`} onClose={onClose}>
       <div className="stack">
@@ -402,7 +457,7 @@ function Escalate({ row, onClose, onDone }: { row: any; onClose: () => void; onD
   const [err, setErr] = useState('');
   const go = async () => {
     setBusy(true); setErr('');
-    try { await api.post(`/kids/checkins/${row.id}/escalate`, { note: note.trim(), device: deviceLabel() }); onDone(); }
+    try { await api.post(`/kids/checkins/${row.id}/escalate`, withGeo({ note: note.trim(), device: deviceLabel() })); onDone(); }
     catch (e: any) { setErr(errMsg(e)); setBusy(false); }
   };
   return (
@@ -439,12 +494,24 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
   const [closeErr, setCloseErr] = useState('');
   const [closing, setClosing] = useState(false);
   const toast = useToast();
+  const geo = useGeo(true);
+  const [loc, setLoc] = useState<Loc | null>(null);
   const busy = useRef(false);
   const last = useRef({ code: '', at: 0 });
   const blocked = useRef(false);
   blocked.current = !!panel || !!tag || mode !== '' || !!other;
 
   useEffect(() => { const t = setInterval(reload, 10_000); return () => clearInterval(t); }, [reload]);
+
+  const [locating, setLocating] = useState(false);
+  const locate = useCallback(async () => {
+    setLocating(true);
+    try { const r = await api.post(`/kids/sessions/${id}/locate`, withGeo({})); setLoc(r.location ?? null); } catch { /* the strip just stays as it was */ }
+    setLocating(false);
+  }, [id]);
+  // Check the position when the first reading (or a refusal) arrives, then every minute.
+  useEffect(() => { if (geo.state !== 'waiting') locate(); }, [geo.state, locate]);
+  useEffect(() => { const t = setInterval(locate, 60_000); return () => clearInterval(t); }, [locate]);
 
   const onScan = useCallback(async (raw: string) => {
     const token = raw.trim();
@@ -454,10 +521,11 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
     last.current = { code: token, at: now };
     busy.current = true;
     try {
-      const r = await api.post(`/kids/sessions/${id}/scan`, { token, device: deviceLabel() });
+      const r = await api.post(`/kids/sessions/${id}/scan`, withGeo({ token, device: deviceLabel() }));
       if (r.result === 'ok') {
         beep(true);
-        setPanel({ guardian: r.guardian, proof: r.proof, dropOff: r.dropOff ?? [], collect: r.collect ?? [] });
+        setPanel({ guardian: r.guardian, proof: r.proof, dropOff: r.dropOff ?? [], collect: r.collect ?? [], location: r.location });
+        if (r.location) setLoc(r.location);
       } else {
         beep(false);
         setBanner({ tone: r.result === 'expired' ? 'warn' : 'bad', title: r.result === 'expired' ? 'Code has expired' : r.result === 'wrong_church' ? 'Not our church' : 'Not a valid code', lines: [r.message ?? 'Ask the guardian to open their code again.'] });
@@ -478,7 +546,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
 
   const closeSession = async () => {
     setClosing(true); setCloseErr('');
-    try { await api.post(`/kids/sessions/${id}/close`, { device: deviceLabel() }); scan.stop(); onBack(); }
+    try { await api.post(`/kids/sessions/${id}/close`, withGeo({ device: deviceLabel() })); scan.stop(); onBack(); }
     catch (e: any) { setCloseErr(errMsg(e)); setClosing(false); }
   };
 
@@ -498,6 +566,18 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
               </div>
               <div className="kd-count"><b>{here.length}</b><span>here now</span></div>
             </div>
+
+            {isOpen && loc && loc.status !== 'unchecked' && (
+              <div className={`kd-loc ${loc.status}`} role="status">
+                {loc.status === 'ok' ? <b>At {loc.branch ?? d.branch}</b> : <div>{loc.message}</div>}
+                {loc.status === 'unknown' && (
+                  <>
+                    <div className="tiny">Allow location for this site in your browser settings. Location needs https or localhost.</div>
+                    <Button small kind="ghost" disabled={locating} onClick={locate}>{locating ? 'Trying...' : 'Try again'}</Button>
+                  </>
+                )}
+              </div>
+            )}
 
             {isOpen && (
               <div className="card stack">
@@ -573,7 +653,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
       {other && <OtherCollector sessionId={id} row={other} onClose={() => setOther(null)} onFound={found} />}
       {calling && <Contacts row={calling} onClose={() => { setCalling(null); reload(); }} />}
       {escalating && <Escalate row={escalating} onClose={() => setEscalating(null)} onDone={() => { setEscalating(null); toast.show('The church office has been alerted'); reload(); }} />}
-      {panel && <GuardianPanel sessionId={id} panel={panel} onClose={() => setPanel(null)} onChanged={reload} onTag={(t) => { setPanel(null); setTag(t); }} onBanner={setBanner} />}
+      {panel && <GuardianPanel sessionId={id} panel={panel} onClose={() => setPanel(null)} onChanged={reload} onLoc={(l) => l && setLoc(l)} onTag={(t) => { setPanel(null); setTag(t); }} onBanner={setBanner} />}
       {tag && (
         <div className="modal-scrim" role="presentation">
           <div className="modal kd-tagcard" role="dialog" aria-modal="true" aria-label="Tag number">
@@ -649,12 +729,13 @@ function OpenSession({ cls, onClose, onOpened }: { cls: any; onClose: () => void
   const [escalate, setEscalate] = useState('30');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  useGeo(true);
   const mins = custom ? Number(custom) : minutes;
   const go = async () => {
     if (!Number.isFinite(mins) || mins < 15 || mins > 720) return setErr('Choose a time between 15 minutes and 12 hours.');
     setBusy(true); setErr('');
     try {
-      const r = await api.post(`/kids/classes/${cls.id}/sessions`, { minutes: Math.round(mins), graceMin: Number(grace) || 15, escalateMin: Number(escalate) || 30, device: deviceLabel() });
+      const r = await api.post(`/kids/classes/${cls.id}/sessions`, withGeo({ minutes: Math.round(mins), graceMin: Number(grace) || 15, escalateMin: Number(escalate) || 30, device: deviceLabel() }));
       onOpened(r.id);
     } catch (e: any) { setErr(errMsg(e)); setBusy(false); }
   };
@@ -684,6 +765,74 @@ function OpenSession({ cls, onClose, onOpened }: { cls: any; onClose: () => void
   );
 }
 
+function BranchLocation({ branches, onChanged }: { branches: any[]; onChanged: () => void }) {
+  const [radius, setRadius] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState<Record<string, { tone: 'good' | 'bad' | 'warn'; text: string }>>({});
+  const [pending, setPending] = useState<{ id: string; g: Geo } | null>(null);
+  const geo = useGeo(true);
+  const say = (id: string, tone: 'good' | 'bad' | 'warn', text: string) => setMsg((m) => ({ ...m, [id]: { tone, text } }));
+  const rad = (b: any) => Number(radius[b.id] ?? b.location?.radiusM ?? 300);
+
+  const read = (b: any) => {
+    const r = rad(b);
+    if (!Number.isFinite(r) || r < 50 || r > 2000) return say(b.id, 'bad', 'Choose a radius between 50 and 2000 metres.');
+    setBusy(b.id); setPending(null); say(b.id, 'warn', 'Reading your location...');
+    if (!('geolocation' in navigator)) { setBusy(''); return say(b.id, 'bad', 'This browser cannot give a location.'); }
+    const done = (g: Geo) => {
+      setBusy('');
+      if (g.acc <= 200) { setPending({ id: b.id, g }); say(b.id, 'good', `Location found, accurate to about ${g.acc} m. Confirm to save it as the church location.`); }
+      else say(b.id, 'bad', `Your reading is not accurate enough (about ${g.acc} m). Stand outside the church and try again.`);
+    };
+    // A reading from the live watch in the last 30 seconds is as good as a new one.
+    if (lastGeo && Date.now() - lastGeo.at < 30_000) return done({ lat: lastGeo.lat, lng: lastGeo.lng, acc: lastGeo.acc });
+    navigator.geolocation.getCurrentPosition(
+      (p) => done({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
+      (e) => { setBusy(''); say(b.id, 'bad', e.code === 1 ? 'Location is blocked. Allow location for this site in your browser settings, then try again.' : 'Could not read your location. Stand outside the church and try again.'); },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
+    );
+  };
+  const save = async (b: any) => {
+    if (!pending) return;
+    setBusy(b.id);
+    try { await api.put(`/kids/branches/${b.id}/location`, { lat: pending.g.lat, lng: pending.g.lng, radiusM: rad(b) }); setPending(null); say(b.id, 'good', 'Saved. Children can now only be checked in near the church.'); onChanged(); }
+    catch (e: any) { say(b.id, 'bad', errMsg(e)); }
+    setBusy('');
+  };
+  const clear = async (b: any) => {
+    if (!window.confirm(`Remove the location check for ${b.name}? Children could then be checked in from anywhere.`)) return;
+    setBusy(b.id);
+    try { await api.put(`/kids/branches/${b.id}/location`, { clear: true }); setPending(null); say(b.id, 'good', 'The location check was removed.'); onChanged(); }
+    catch (e: any) { say(b.id, 'bad', errMsg(e)); }
+    setBusy('');
+  };
+  if (branches.length === 0) return null;
+  return (
+    <div className="card stack kd-branch">
+      <div><h3 style={{ margin: 0 }}>Branch location</h3><div className="tiny">Do this while standing at the church. Children can then only be checked in when the teacher is there.</div></div>
+      {branches.map((b) => (
+        <div key={b.id} className="kd-brow">
+          <b>{b.name}</b>
+          {b.location
+            ? <div className="kd-set">Set: children can only be checked in within {b.location.radiusM} m of the church</div>
+            : <div className="kd-hint">Not set: children can be checked in from anywhere. Set it while you are at the church.</div>}
+          <div className="kd-radius">
+            <Field label="Radius (metres)"><input inputMode="numeric" value={radius[b.id] ?? String(b.location?.radiusM ?? 300)} onChange={(e) => setRadius({ ...radius, [b.id]: e.target.value.replace(/\D/g, '') })} /></Field>
+          </div>
+          <div className="row">
+            {pending?.id === b.id
+              ? <><Button disabled={busy === b.id} onClick={() => save(b)}>Yes, save this location</Button><Button kind="ghost" onClick={() => { setPending(null); setMsg((m) => { const n = { ...m }; delete n[b.id]; return n; }); }}>Cancel</Button></>
+              : <Button disabled={busy === b.id} onClick={() => read(b)}>{busy === b.id ? 'Working...' : 'Use my current location'}</Button>}
+            {b.location && !pending && <Button kind="ghost" disabled={busy === b.id} onClick={() => clear(b)}>Remove location check</Button>}
+          </div>
+          {geo.state === 'denied' && !msg[b.id] && <div className="tiny">Location is blocked for this site. Allow it in your browser settings first.</div>}
+          {msg[b.id] && <div className={`kd-msg ${msg[b.id].tone}`}>{msg[b.id].text}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Classes({ onRoom }: { onRoom: (id: string) => void }) {
   const q = useAsync<any>(() => api.get('/kids/classes'), []);
   const reload = q.reload;
@@ -695,6 +844,7 @@ function Classes({ onRoom }: { onRoom: (id: string) => void }) {
   const classes: any[] = d?.classes ?? [];
   return (
     <div className="stack">
+      {d?.canManage && <BranchLocation branches={d.branches ?? []} onChanged={reload} />}
       {d?.canManage && <div className="row"><Button onClick={() => setAdding(true)}>Add a class</Button></div>}
       <Load loading={q.loading} error={q.error} hasData={!!d}>
         {d && (classes.length === 0 ? <Empty>{d.canManage ? 'No classes yet. Add the first one.' : 'No classes are set up for you yet. Ask a church manager to add you to a class.'}</Empty> : (
@@ -745,6 +895,13 @@ function LogTab() {
   const log: any[] = q.data?.log ?? [];
   useEffect(() => { if (q.data) setActions((a) => [...new Set([...a, ...log.map((l) => l.action)])].sort()); }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const res = (r: string) => <Badge tone={r === 'ok' ? 'good' : r === 'refused' || r === 'invalid' ? 'bad' : 'warn'}>{label(r)}</Badge>;
+  const locCell = (l: any) => !l.locationStatus ? <span className="tiny">-</span> : (
+    <div className={`kd-locrow ${l.locationStatus === 'Away from the branch' ? 'away' : l.locationStatus === 'Location not shared' ? 'unknown' : ''}`}>
+      <b>{l.locationStatus}</b>{l.distanceM != null && l.distanceM !== '' ? ` · ${l.distanceM} m` : ''}{l.locationSource ? <span className="tiny"> ({l.locationSource})</span> : null}
+      {l.teacherLocation && <div className="tiny">Teacher: {l.teacherLocation}</div>}
+      {l.guardianLocation && <div className="tiny">Guardian: {l.guardianLocation}</div>}
+    </div>
+  );
   const who = (n?: string, dev?: string) => <>{n || '-'}{dev && <div className="tiny">{dev}</div>}</>;
   return (
     <div className="stack">
@@ -760,12 +917,12 @@ function LogTab() {
           <>
             <div className="table-wrap kd-desktop">
               <table className="table">
-                <thead><tr>{['When', 'What', 'Result', 'Class', 'Teacher', 'Guardian', 'Children', 'Detail'].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                <thead><tr>{['When', 'What', 'Result', 'Class', 'Teacher', 'Guardian', 'Children', 'Location', 'Detail'].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                 <tbody>
                   {log.map((l) => (
                     <tr key={l.id}>
                       <td>{when(l.at)}</td><td>{label(l.action)}{l.method && <div className="tiny">{label(l.method)}</div>}</td><td>{res(l.result)}</td><td>{l.className || '-'}</td>
-                      <td>{who(l.teacher, l.teacherDevice)}</td><td>{who(l.guardian, l.guardianDevice)}</td><td>{l.children || '-'}</td><td className="tiny">{l.detail}</td>
+                      <td>{who(l.teacher, l.teacherDevice)}</td><td>{who(l.guardian, l.guardianDevice)}</td><td>{l.children || '-'}</td><td>{locCell(l)}</td><td className="tiny">{l.detail}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -779,6 +936,7 @@ function LogTab() {
                   {l.children && <div>Children: {l.children}</div>}
                   <div className="tiny">Teacher: {l.teacher || '-'}{l.teacherDevice ? ` (${l.teacherDevice})` : ''}</div>
                   {l.guardian && <div className="tiny">Guardian: {l.guardian}{l.guardianDevice ? ` (${l.guardianDevice})` : ''}</div>}
+                  {l.locationStatus && <div className="tiny">Location: {locCell(l)}</div>}
                   {l.detail && <div className="tiny">{l.detail}</div>}
                 </div>
               ))}

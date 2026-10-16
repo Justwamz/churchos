@@ -52,3 +52,19 @@
 .kd-mark { font-size: 44px; line-height: 1; font-weight: 800; }
 .kd-title { font-size: 24px; font-weight: 800; }
 .modal-head { flex-wrap: nowrap; gap: 10px; }
+
+/* where the teacher is */
+.kd-loc { border: 2px solid; border-radius: 14px; padding: 10px 14px; display: grid; gap: 6px; justify-items: start; }
+.kd-loc.ok { background: var(--good-tint); color: var(--good); border-color: var(--good); }
+.kd-loc.away { background: var(--bad-tint); color: var(--bad); border-color: var(--bad); font-weight: 700; }
+.kd-loc.unknown { background: var(--warn-tint); color: var(--warn); border-color: var(--warn); font-weight: 700; }
+.kd-loc .tiny { font-weight: 400; color: inherit; }
+.kd-why { display: grid; gap: 6px; justify-items: start; font-weight: 700; font-size: 14px; }
+.kd-why.away { color: var(--bad); }
+.kd-why.unknown { color: var(--warn); }
+.kd-brow { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.kd-set { color: var(--good); font-weight: 600; font-size: 14px; }
+.kd-radius { max-width: 200px; }
+.kd-msg { font-weight: 600; font-size: 14px; }
+.kd-msg.good { color: var(--good); } .kd-msg.bad { color: var(--bad); } .kd-msg.warn { color: var(--warn); }
+.kd-locrow.away { color: var(--bad); } .kd-locrow.unknown { color: var(--warn); }

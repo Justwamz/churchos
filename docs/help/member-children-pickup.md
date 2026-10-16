@@ -15,6 +15,9 @@ Open **Children** in the app. You see a QR code that changes every 30 seconds. A
 
 If your phone is flat or you have no signal, ask the teacher to look you up by name. You will be sent an SMS with a pick-up code.
 
+## Location
+Children can only be checked in at the church, so the app shares your phone's location with your code. It is used only to confirm that the check-in happens at the church. If the teacher's phone cannot tell where it is, yours does. Allow location for the app when it asks.
+
 ## While your child is at class
 You get a message when the child is checked in, with the tag number, and another when they are collected and by whom. The Children page shows which class they are in.
 

@@ -42,13 +42,79 @@ const chipFor = (c: any) => c.inNow
     : { cls: 'good', text: `In ${c.inNow.className} · tag ${c.inNow.tag} · since ${timeOf(c.inNow.since)}` })
   : { cls: 'muted', text: 'Not at class' };
 
+// ---------------- the phone's location ----------------
+
+type Fix = { lat: number; lng: number; acc: number; at: number };
+type GeoState = 'looking' | 'ok' | 'denied' | 'unavailable';
+const GEO_MAX_AGE = 2 * 60 * 1000;
+
+/** Watches this phone's location while the screen is shown. Never blocks anything: callers just ask for the latest fresh reading. */
+function useGeo() {
+  const supported = typeof navigator !== 'undefined' && 'geolocation' in navigator;
+  const last = useRef<Fix | null>(null);
+  const waiters = useRef<Array<() => void>>([]);
+  const [state, setState] = useState<GeoState>(supported ? 'looking' : 'unavailable');
+  const [attempt, setAttempt] = useState(0);
+  const fresh = () => (last.current && Date.now() - last.current.at < GEO_MAX_AGE ? last.current : null);
+
+  useEffect(() => {
+    if (!supported) return;
+    let watch: number | null = null;
+    let giveUp: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => { if (watch != null) navigator.geolocation.clearWatch(watch); watch = null; clearTimeout(giveUp); };
+    const flush = () => { const w = waiters.current; waiters.current = []; w.forEach((f) => f()); };
+    const start = () => {
+      stop();
+      if (document.visibilityState !== 'visible') return;
+      if (!fresh()) setState((s) => (s === 'ok' ? 'looking' : s));
+      giveUp = setTimeout(() => { if (!fresh()) setState((s) => (s === 'looking' ? 'unavailable' : s)); flush(); }, 10000);
+      try {
+        watch = navigator.geolocation.watchPosition(
+          (p) => {
+            last.current = { lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy), at: Date.now() };
+            clearTimeout(giveUp);
+            setState('ok');
+            flush();
+          },
+          (e) => {
+            if (e.code === 1) { last.current = null; setState('denied'); flush(); }
+            else if (!fresh()) setState((s) => (s === 'ok' ? s : 'unavailable'));
+          },
+          { enableHighAccuracy: true, maximumAge: 30000, timeout: 10000 },
+        );
+      } catch { setState('unavailable'); flush(); }
+    };
+    const onVis = () => { if (document.visibilityState === 'visible') start(); else stop(); };
+    // A stationary phone may not report again, so renew the watch when the last reading is getting old.
+    const renew = setInterval(() => { if (document.visibilityState === 'visible' && (!last.current || Date.now() - last.current.at > GEO_MAX_AGE - 30000)) start(); }, 20000);
+    start();
+    document.addEventListener('visibilitychange', onVis);
+    return () => { stop(); clearInterval(renew); document.removeEventListener('visibilitychange', onVis); flush(); };
+  }, [supported, attempt]);
+
+  /** Latest fresh reading, or none. */
+  const get = () => { const f = fresh(); return f ? { lat: f.lat, lng: f.lng, acc: f.acc } : undefined; };
+  /** Resolves when a reading arrives, or after ms, whichever is first. */
+  const first = (ms: number) => new Promise<void>((res) => {
+    if (fresh() || !supported) return res();
+    const t = setTimeout(res, ms);
+    waiters.current.push(() => { clearTimeout(t); res(); });
+  });
+  const retry = () => { last.current = null; setState('looking'); setAttempt((n) => n + 1); };
+  return { state, get, first, retry };
+}
+
 // ---------------- the changing code ----------------
 
 function GuardianQr({ membershipId }: { membershipId: string }) {
   const [qr, setQr] = useState<{ svg: string; name: string; seconds: number; stamp: number } | null>(null);
   const [failed, setFailed] = useState(false);
+  const geo = useGeo();
+  const geoRef = useRef(geo);
+  geoRef.current = geo;
   useEffect(() => {
     let live = true;
+    let firstLoad = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let expiry: ReturnType<typeof setTimeout> | undefined;
     const clear = () => { clearTimeout(timer); clearTimeout(expiry); };
@@ -56,7 +122,9 @@ function GuardianQr({ membershipId }: { membershipId: string }) {
       clear();
       if (!live || document.visibilityState !== 'visible') return;
       try {
-        const r = await api.post('/me/family/qr', { membershipId, device: deviceLabel() });
+        if (firstLoad) { firstLoad = false; await geoRef.current.first(1500); if (!live || document.visibilityState !== 'visible') return; }
+        const g = geoRef.current.get();
+        const r = await api.post('/me/family/qr', { membershipId, device: deviceLabel(), ...(g ? { geo: g } : {}) });
         if (!live) return;
         setQr({ svg: r.qrSvg, name: r.name, seconds: r.refreshSeconds ?? 30, stamp: Date.now() });
         setFailed(false);
@@ -83,6 +151,14 @@ function GuardianQr({ membershipId }: { membershipId: string }) {
         : <div className="tk-qr fam-qr blank" role="status">{failed ? <span>Can't refresh the code. Check your connection</span> : <span>Getting your code…</span>}</div>}
       <div className="fam-bar" aria-hidden="true">{qr && <i key={qr.stamp} style={{ animationDuration: `${qr.seconds}s` }} />}</div>
       <strong className="fam-guardian">{qr?.name ?? ''}</strong>
+      <div className={`fam-geo ${geo.state}`} role="status">
+        {geo.state === 'ok' && <><span className="fam-geo-line"><i className="fam-dot" aria-hidden="true" />Location shared with this code</span><span className="tiny muted">Used only to confirm the check-in happens at the church.</span></>}
+        {geo.state === 'looking' && <span className="fam-geo-line muted"><i className="fam-dot" aria-hidden="true" />Looking for your location...</span>}
+        {(geo.state === 'denied' || geo.state === 'unavailable') && <>
+          <span>Location is off. If the teacher's phone cannot tell where it is, they will not be able to check your child in. Allow location for this app in your browser or phone settings.</span>
+          <button type="button" className="link-btn" onClick={geo.retry}>Try again</button>
+        </>}
+      </div>
     </div>
   );
 }
@@ -225,6 +301,7 @@ function HowItWorks() {
         <li>Open this page and show your code to the Sunday school teacher when you drop off. They give your child a tag.</li>
         <li>When you come back, show your code again and give back the tag. The code is new every 30 seconds.</li>
         <li>If someone else will collect, add them above. They get an SMS code on their own phone to show the teacher.</li>
+        <li>Check-in only works at the church. Keep location on so the teacher can confirm it.</li>
       </ol>
     </details>
   );

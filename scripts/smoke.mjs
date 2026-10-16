@@ -361,6 +361,23 @@ step('The session closes once every child has gone home', (await call('POST', `/
 const s13Log = (await call('GET', '/kids/log', undefined, daniel)).json.log;
 step('The log shows who scanned, on what device, and whose code', s13Log.some((l) => l.action === 'check_in' && l.teacher === 'Lucy Wairimu' && /Smoke tablet/.test(l.teacherDevice) && /Smoke phone/.test(l.guardianDevice ?? 'Smoke phone')));
 step('A teacher cannot read the log', (await call('GET', '/kids/log', undefined, s13Lucy)).status === 403);
+const AT13 = { lat: -1.2865, lng: 36.8173, acc: 20 };
+const FAR13 = { lat: -1.2, lng: 36.9, acc: 20 };
+await call('PUT', '/kids/branches/br_grc001/location', { lat: -1.2864, lng: 36.8172, radiusM: 300 }, daniel);
+const s13Sess2 = (await call('POST', `/kids/classes/${s13Classes.json.classes[0].id}/sessions`, { minutes: 60 }, s13Lucy)).json.id;
+const s13ScanAt = async (geo) => (await call('POST', `/kids/sessions/${s13Sess2}/scan`, { token: await s13Qr(janeTok, 'm_jane'), geo }, s13Lucy)).json;
+const s13Far = await s13ScanAt(FAR13);
+const s13FarTry = await call('POST', `/kids/sessions/${s13Sess2}/checkin`, { proof: s13Far.proof, childIds: ['m_ruth'], geo: FAR13 }, s13Lucy);
+step('A child cannot be checked in away from the branch', s13Far.location.status === 'away' && s13FarTry.status === 409 && s13FarTry.json.code === 'away_from_branch', s13Far.location.message);
+const s13Near = await s13ScanAt(AT13);
+const s13NearTry = await call('POST', `/kids/sessions/${s13Sess2}/checkin`, { proof: s13Near.proof, childIds: ['m_ruth'], geo: AT13 }, s13Lucy);
+step('At the branch the same check-in works', s13Near.location.status === 'ok' && s13NearTry.status === 200);
+const s13NoGeo = await s13ScanAt(undefined);
+step('With no location from anyone, check-in is refused', s13NoGeo.location.status === 'unknown');
+const s13Back = await s13ScanAt(AT13);
+await call('POST', `/kids/sessions/${s13Sess2}/checkout`, { proof: s13Back.proof, checkinIds: s13Back.collect.map((c) => c.id), geo: AT13 }, s13Lucy);
+await call('POST', `/kids/sessions/${s13Sess2}/close`, {}, s13Lucy);
+await call('PUT', '/kids/branches/br_grc001/location', { clear: true }, daniel);
 const s13Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 13 activity', s13Rec.json.ok === true);
 

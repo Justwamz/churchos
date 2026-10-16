@@ -9,7 +9,7 @@ import { checkLowBalance, integrationSettings, sendEmail, walletFor } from '../w
 import { csv } from './helpers';
 import { qrSvg } from './tickets';
 
-/** Children's check-in and pick-up (L179 to L187). */
+/** Children's check-in and pick-up (L179 to L190). */
 
 const QR_TTL_MS = 45_000;
 const PROOF_TTL_MS = 5 * 60_000;
@@ -47,6 +47,61 @@ const deviceOf = (req: FastifyRequest, given: unknown) => {
   return g ? `${g} (${u})` : u;
 };
 
+export interface Geo { lat: number; lng: number; acc: number }
+
+/** A place reading from a phone, or nothing if it is missing or nonsense. */
+export function parseGeo(v: unknown): Geo | null {
+  let o: any = v;
+  if (typeof v === 'string') { const [lat, lng, acc] = v.split(',').map(Number); o = { lat, lng, acc }; }
+  if (!o || typeof o !== 'object') return null;
+  const lat = Number(o.lat), lng = Number(o.lng), acc = o.acc === undefined || o.acc === null ? 0 : Number(o.acc);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(acc) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || acc < 0) return null;
+  return { lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, acc: Math.round(acc) };
+}
+
+const metresBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371000, rad = (x: number) => (x * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+/** A reading less exact than this is treated as no reading (L188). */
+const MAX_ACCURACY_M = 1000;
+
+export interface LocCheck { status: 'ok' | 'away' | 'unknown' | 'unchecked'; source: 'teacher' | 'guardian' | null; distanceM: number | null; radiusM: number | null; branch: string; teacher: Geo | null; guardian: Geo | null }
+
+/**
+ * Is the check happening at the branch? The teacher's device decides. If it gave no usable reading, the guardian's phone is used.
+ * A branch with no location set is not checked (L188, L189).
+ */
+export async function checkLocation(ctx: Ctx, branchId: string, teacher: Geo | null, guardian: Geo | null): Promise<LocCheck> {
+  const b = (await ctx.db.query<any>(`SELECT name, geo_lat, geo_lng, geo_radius_m FROM branches WHERE id=$1`, [branchId]))[0];
+  const base = { branch: b?.name ?? '', teacher, guardian, radiusM: b?.geo_radius_m ?? null };
+  if (!b || b.geo_lat === null || b.geo_lat === undefined) return { ...base, status: 'unchecked', source: null, distanceM: null };
+  const usable = (g: Geo | null) => (g && g.acc <= MAX_ACCURACY_M ? g : null);
+  const t = usable(teacher);
+  const use = t ?? usable(guardian);
+  if (!use) return { ...base, status: 'unknown', source: null, distanceM: null };
+  const d = Math.round(metresBetween(use, { lat: Number(b.geo_lat), lng: Number(b.geo_lng) }));
+  return { ...base, status: d - Math.min(use.acc, 100) > Number(b.geo_radius_m) ? 'away' : 'ok', source: t ? 'teacher' : 'guardian', distanceM: d };
+}
+
+const distText = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+
+/** What the teacher's screen says about the location, in plain words, without any coordinates. */
+export function publicLoc(l: LocCheck) {
+  const message =
+    l.status === 'away' ? `You are about ${distText(l.distanceM!)} from ${l.branch}. Children can only be checked in at the branch.`
+    : l.status === 'unknown' ? "We can't tell where you are. Allow location for this page, or ask the guardian to allow location in their app, then scan again."
+    : l.status === 'ok' ? `At ${l.branch}${l.source === 'guardian' ? " (from the guardian's phone)" : ''}`
+    : '';
+  return { status: l.status, source: l.source, distanceM: l.distanceM, radiusM: l.radiusM, branch: l.branch, message };
+}
+
+const geoText = (g: Geo | null) => (g ? `${g.lat}, ${g.lng} (within ${g.acc} m)` : null);
+
+const LOCATED = new Set(['scan', 'check_in', 'check_out', 'lookup', 'code_sent', 'escalated', 'contacts_shown']);
+
 export interface KidsLog {
   orgId: string;
   branchId: string;
@@ -63,20 +118,25 @@ export interface KidsLog {
   method?: string | null;
   children?: string | null;
   detail?: string | null;
+  /** Where the teacher's device said it was, and where the guardian's phone said it was when it made the code. */
+  geo?: Geo | null;
+  guardianGeo?: Geo | null;
 }
 
 /** One line in the children's log, and the same event in the audit trail. */
 export async function kidsLog(ctx: Ctx, e: KidsLog) {
   const at = ctx.clock.now().toISOString();
+  const loc = LOCATED.has(e.action) ? await checkLocation(ctx, e.branchId, e.geo ?? null, e.guardianGeo ?? null) : null;
   await ctx.db.query(
-    `INSERT INTO kids_log (id, org_id, branch_id, at, action, result, session_id, class_name, staff_id, staff_name, staff_device, subject_id, subject_name, subject_device, method, children, detail)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-    [ctx.newId('kl'), e.orgId, e.branchId, at, e.action, e.result, e.sessionId ?? null, e.className ?? null, e.staffId ?? null, e.staffName ?? null, e.staffDevice ?? null, e.subjectId ?? null, e.subjectName ?? null, e.subjectDevice ?? null, e.method ?? null, e.children ?? null, e.detail ?? null],
+    `INSERT INTO kids_log (id, org_id, branch_id, at, action, result, session_id, class_name, staff_id, staff_name, staff_device, subject_id, subject_name, subject_device, method, children, detail, location)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+    [ctx.newId('kl'), e.orgId, e.branchId, at, e.action, e.result, e.sessionId ?? null, e.className ?? null, e.staffId ?? null, e.staffName ?? null, e.staffDevice ?? null, e.subjectId ?? null, e.subjectName ?? null, e.subjectDevice ?? null, e.method ?? null, e.children ?? null, e.detail ?? null,
+      loc ? JSON.stringify({ status: loc.status, source: loc.source, distanceM: loc.distanceM, radiusM: loc.radiusM, teacher: loc.teacher, guardian: loc.guardian }) : null],
   );
   await ctx.ledger.audit({
     orgId: e.orgId, branchId: e.branchId, actorId: e.staffId ?? null, actorType: e.staffId ? 'user' : 'system', action: `kids.${e.action}`, entity: 'kids_session', entityId: e.sessionId ?? e.orgId,
     summary: `${e.action.replace(/_/g, ' ')}${e.children ? `: ${e.children}` : ''}${e.subjectName ? ` (${e.subjectName})` : ''}${e.result !== 'ok' ? `, ${e.result}` : ''}`,
-    meta: { result: e.result, method: e.method, staffDevice: e.staffDevice, guardianDevice: e.subjectDevice, session: e.sessionId, detail: e.detail },
+    meta: { result: e.result, method: e.method, staffDevice: e.staffDevice, guardianDevice: e.subjectDevice, session: e.sessionId, detail: e.detail, ...(loc ? { location: loc.status, distanceM: loc.distanceM, locationSource: loc.source } : {}) },
   }).catch(() => undefined);
 }
 
@@ -173,6 +233,8 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const nowIso = () => ctx.clock.now().toISOString();
   const nowMs = () => ctx.clock.now().getTime();
+  /** Where the teacher's device says it is, sent with each action (L188). */
+  const tg = (req: FastifyRequest): Geo | null => parseGeo((req.body as any)?.geo ?? (req.query as any)?.geo);
 
   // ======================= the guardian's side =======================
 
@@ -209,7 +271,8 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const m = (await ctx.db.query<any>(`SELECT id, org_id, full_name FROM memberships WHERE id=$1 AND user_id=$2 AND status='active'`, [String(b.membershipId ?? ''), req.session!.uid]))[0];
     if (!m) throw new HttpError(404, 'not found', 'not_found');
     const exp = nowMs() + QR_TTL_MS;
-    const token = `K1.${signData({ k: 'q', m: m.id, o: m.org_id, d: deviceOf(req, b.device), e: exp })}`;
+    const g = parseGeo(b.geo);
+    const token = `K1.${signData({ k: 'q', m: m.id, o: m.org_id, d: deviceOf(req, b.device), e: exp, ...(g ? { g } : {}) })}`;
     return { token, expiresAt: new Date(exp).toISOString(), refreshSeconds: 30, name: m.full_name, qrSvg: qrSvg(token) };
   });
 
@@ -230,7 +293,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (n >= 8) throw new HttpError(400, 'You can list up to 8 people. Remove one first.', 'too_many');
     const id = ctx.newId('kpp');
     await ctx.db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, m.org_id, m.id, p.name, p.phone, p.relation, p.idNumber, req.session!.uid, nowIso()]);
-    await kidsLog(ctx, { orgId: m.org_id, branchId: m.branch_id, action: 'pickup_person_added', result: 'ok', subjectId: m.id, subjectName: m.full_name, detail: `${p.name}${p.relation ? `, ${p.relation}` : ''}, ${maskPhone(p.phone)}`, staffId: req.session!.uid, staffName: req.session!.name, method: 'app' });
+    await kidsLog(ctx, { orgId: m.org_id, branchId: m.branch_id, action: 'pickup_person_added', result: 'ok', subjectId: m.id, subjectName: m.full_name, detail: `${p.name}${p.relation ? `, ${p.relation}` : ''}, ${maskPhone(p.phone)}`, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, method: 'app' });
     return { id };
   });
 
@@ -241,7 +304,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     ))[0];
     if (!p) throw new HttpError(404, 'not found', 'not_found');
     await ctx.db.query(`UPDATE kids_pickup_people SET active=false WHERE id=$1`, [p.id]);
-    await kidsLog(ctx, { orgId: p.org_id, branchId: p.branch_id, action: 'pickup_person_removed', result: 'ok', subjectId: p.guardian_id, subjectName: p.gname, detail: p.name, staffId: req.session!.uid, staffName: req.session!.name, method: 'app' });
+    await kidsLog(ctx, { orgId: p.org_id, branchId: p.branch_id, action: 'pickup_person_removed', result: 'ok', subjectId: p.guardian_id, subjectName: p.gname, detail: p.name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, method: 'app' });
     return { ok: true };
   });
 
@@ -293,7 +356,28 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
       const open = (await ctx.db.query<any>(`SELECT * FROM kids_sessions WHERE class_id=$1 AND status='open'`, [c.id]))[0];
       out.push({ id: c.id, name: c.name, room: c.room, branchId: c.branch_id, branch: c.branch_name, active: c.active, canManage: manage, teachers: await teacherNames(c.teachers), session: open ? await sessionView(open) : null });
     }
-    return { classes: out, canManage: sc.manage.length > 0, branches: (await ctx.db.query<any>(`SELECT id, name FROM branches WHERE org_id=$1 AND id = ANY($2::text[]) ORDER BY name`, [sc.orgId, sc.manage])).map((b) => ({ id: b.id, name: b.name })) };
+    return { classes: out, canManage: sc.manage.length > 0, branches: (await ctx.db.query<any>(`SELECT id, name, geo_lat, geo_lng, geo_radius_m FROM branches WHERE org_id=$1 AND id = ANY($2::text[]) ORDER BY name`, [sc.orgId, sc.manage])).map((b) => ({ id: b.id, name: b.name, location: b.geo_lat === null ? null : { lat: Number(b.geo_lat), lng: Number(b.geo_lng), radiusM: b.geo_radius_m } })) };
+  });
+
+  /** Where a branch is, so children can only be checked in there (L189). */
+  app.put('/kids/branches/:id/location', auth, async (req) => {
+    const g = await grantsFor(ctx, req, 'kids.manage');
+    const id = String((req.params as any).id);
+    if (!g.branchIds.includes(id)) throw new HttpError(404, 'not found', 'not_found');
+    const b = (req.body ?? {}) as any;
+    const name = (await ctx.db.query<any>(`SELECT name FROM branches WHERE id=$1`, [id]))[0]?.name;
+    if (b.clear) {
+      await ctx.db.query(`UPDATE branches SET geo_lat=NULL, geo_lng=NULL, geo_radius_m=NULL WHERE id=$1`, [id]);
+      await ctx.ledger.audit({ orgId: g.orgId, branchId: id, actor: req.session!.uid, action: 'kids.branch_location_cleared', entity: 'branch', entityId: id, summary: `Removed the location check for ${name}. Children can be checked in from anywhere.` });
+      return { ok: true, location: null };
+    }
+    const geo = parseGeo({ lat: b.lat, lng: b.lng, acc: 0 });
+    const radius = Math.round(Number(b.radiusM ?? 300));
+    if (!geo) throw new HttpError(400, 'Enter a valid latitude and longitude, or use your current location', 'bad_location');
+    if (!(radius >= 50 && radius <= 2000)) throw new HttpError(400, 'The distance from the branch must be between 50 and 2,000 metres', 'bad_radius');
+    await ctx.db.query(`UPDATE branches SET geo_lat=$2, geo_lng=$3, geo_radius_m=$4 WHERE id=$1`, [id, geo.lat, geo.lng, radius]);
+    await ctx.ledger.audit({ orgId: g.orgId, branchId: id, actor: req.session!.uid, action: 'kids.branch_location_set', entity: 'branch', entityId: id, summary: `Set the location of ${name} for children's check-in, within ${radius} m`, meta: { radiusM: radius } });
+    return { ok: true, location: { lat: geo.lat, lng: geo.lng, radiusM: radius } };
   });
 
   /** Staff of a branch who could teach (they hold the check-in permission there). */
@@ -355,7 +439,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
       `INSERT INTO kids_sessions (id, org_id, branch_id, class_id, class_name, starts_at, ends_at, grace_min, escalate_min, opened_by, opened_by_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [id, c.org_id, c.branch_id, c.id, c.name, now.toISOString(), endsAt.toISOString(), grace, esc, req.session!.uid, req.session!.name],
     );
-    await kidsLog(ctx, { orgId: c.org_id, branchId: c.branch_id, action: 'session_opened', result: 'ok', sessionId: id, className: c.name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: deviceOf(req, b.device), detail: `Until ${hm(endsAt.toISOString())}` });
+    await kidsLog(ctx, { orgId: c.org_id, branchId: c.branch_id, action: 'session_opened', result: 'ok', sessionId: id, className: c.name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: deviceOf(req, b.device), detail: `Until ${hm(endsAt.toISOString())}` });
     return { id };
   });
 
@@ -365,7 +449,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const left = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM kids_checkins WHERE session_id=$1 AND status='in'`, [s.id]))[0].n);
     if (left > 0) throw new HttpError(409, `${left} ${left === 1 ? 'child is' : 'children are'} still checked in. Hand them over or escalate first.`, 'children_in');
     await ctx.db.query(`UPDATE kids_sessions SET status='closed', closed_at=$2 WHERE id=$1`, [s.id, nowIso()]);
-    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, action: 'session_closed', result: 'ok', sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: deviceOf(req, (req.body as any)?.device) });
+    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, action: 'session_closed', result: 'ok', sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: deviceOf(req, (req.body as any)?.device) });
     return { ok: true };
   });
 
@@ -422,7 +506,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (s.status !== 'open') throw new HttpError(409, 'This session is closed', 'closed');
     const b = (req.body ?? {}) as any;
     const dev = deviceOf(req, b.device);
-    const base = { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, method: 'qr' };
+    const base = { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, method: 'qr' };
     const raw = String(b.token ?? '').trim();
     const p = raw.startsWith('K1.') ? verifyData(raw.slice(3)) : null;
     if (!p || p.k !== 'q') {
@@ -440,8 +524,16 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const drop = await childrenToDrop(g.id);
     const collect = await childrenToCollect(s, g.id);
-    await kidsLog(ctx, { ...base, action: 'scan', result: 'ok', subjectId: g.id, subjectName: g.full_name, subjectDevice: String(p.d ?? ''), children: [...collect, ...drop.filter((d) => !d.inClass)].map((c) => c.name).join(', ') || null });
-    return { result: 'ok', guardian: { id: g.id, name: g.full_name }, proof: proofFor(s, req, { m: g.id, n: g.full_name, d: String(p.d ?? ''), kind: 'guardian', method: 'qr' }), dropOff: drop, collect, noChildren: drop.length === 0 };
+    const gg = parseGeo(p.g);
+    const loc = await checkLocation(ctx, s.branch_id, tg(req), gg);
+    await kidsLog(ctx, { ...base, guardianGeo: gg, action: 'scan', result: 'ok', subjectId: g.id, subjectName: g.full_name, subjectDevice: String(p.d ?? ''), children: [...collect, ...drop.filter((d) => !d.inClass)].map((c) => c.name).join(', ') || null });
+    return { result: 'ok', guardian: { id: g.id, name: g.full_name }, proof: proofFor(s, req, { m: g.id, n: g.full_name, d: String(p.d ?? ''), kind: 'guardian', method: 'qr', ...(gg ? { gg } : {}) }), location: publicLoc(loc), dropOff: drop, collect, noChildren: drop.length === 0 };
+  });
+
+  /** Is this device at the branch? The room screen asks, to show it and to grey out check-in when it is not (L188). */
+  app.post('/kids/sessions/:id/locate', auth, async (req) => {
+    const { s } = await sessionRow(req, (req.params as any).id);
+    return { location: publicLoc(await checkLocation(ctx, s.branch_id, tg(req), null)) };
   });
 
   app.get('/kids/sessions/:id/guardians', auth, async (req) => {
@@ -468,8 +560,8 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const g = (await ctx.db.query<any>(`SELECT id, full_name, phone FROM memberships WHERE id=$1 AND org_id=$2 AND status='active' AND category='adult' AND phone IS NOT NULL`, [String(b.guardianId ?? ''), s.org_id]))[0];
     if (!g) throw new HttpError(404, 'not found', 'not_found');
     const dev = deviceOf(req, b.device);
-    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, action: 'scan', result: 'ok', method: 'search', subjectId: g.id, subjectName: g.full_name, detail: 'Found by name or number' });
-    return { result: 'ok', guardian: { id: g.id, name: g.full_name }, proof: proofFor(s, req, { m: g.id, n: g.full_name, d: '', kind: 'guardian', method: 'search' }), dropOff: await childrenToDrop(g.id), collect: await childrenToCollect(s, g.id) };
+    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, action: 'scan', result: 'ok', method: 'search', subjectId: g.id, subjectName: g.full_name, detail: 'Found by name or number' });
+    return { result: 'ok', guardian: { id: g.id, name: g.full_name }, proof: proofFor(s, req, { m: g.id, n: g.full_name, d: '', kind: 'guardian', method: 'search' }), location: publicLoc(await checkLocation(ctx, s.branch_id, tg(req), null)), dropOff: await childrenToDrop(g.id), collect: await childrenToCollect(s, g.id) };
   });
 
   // ======================= drop-off =======================
@@ -503,6 +595,11 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
       if (k.inClass) throw new HttpError(409, `${k.name} is already checked in to ${k.inClass}`, 'already_in');
       names.push(k.name);
     }
+    const loc = await checkLocation(ctx, s.branch_id, tg(req), parseGeo(p.gg));
+    if (loc.status === 'away' || loc.status === 'unknown') {
+      await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), guardianGeo: parseGeo(p.gg), staffName: req.session!.name, staffDevice: dev, action: 'check_in', result: 'refused', method: String(p.method), subjectId: g.id, subjectName: g.full_name, subjectDevice: String(p.d ?? '') || null, children: names.join(', '), detail: loc.status === 'away' ? 'Refused: away from the branch' : 'Refused: no location available' });
+      throw new HttpError(409, publicLoc(loc).message, loc.status === 'away' ? 'away_from_branch' : 'location_needed');
+    }
     const rows = await ctx.db.tx(async (q) => {
       const n = (await q.query<any>(`UPDATE kids_sessions SET tag_next=tag_next+1 WHERE id=$1 AND status='open' RETURNING tag_next-1 AS n`, [s.id]))[0];
       if (!n) throw new HttpError(409, 'This session is closed', 'closed');
@@ -519,7 +616,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
       }
       return out;
     });
-    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, action: 'check_in', result: 'ok', method: String(p.method), subjectId: g.id, subjectName: g.full_name, subjectDevice: String(p.d ?? '') || null, children: names.join(', '), detail: `Tag ${rows[0].tag}` });
+    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, guardianGeo: parseGeo(p.gg), action: 'check_in', result: 'ok', method: String(p.method), subjectId: g.id, subjectName: g.full_name, subjectDevice: String(p.d ?? '') || null, children: names.join(', '), detail: `Tag ${rows[0].tag}` });
 
     // The guardian is told. With no app, an SMS carries the tag and a pick-up code (L181).
     const who = names.join(' and ');
@@ -588,7 +685,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const code = await createCode(s, { kind: 'collect', ids, name, phone, subjectKind: b.kind === 'guardian' ? 'guardian' : 'approved', subjectId: String(b.id) });
     const body = `Pick-up code for ${r.child_name}, ${s.class_name}: ${code}. Give it to the teacher to take ${r.child_name} home. If you did not expect this, call the church.`;
     const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone, kind: 'announcement', title: 'Your pick-up code', body, idemKey: `kids:code:${r.id}:${code}`, sms: true });
-    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, action: 'code_sent', result: res.sms === 'sent' ? 'ok' : 'sms_not_sent', method: 'sms', subjectName: name, children: r.child_name, detail: `Pick-up code sent by SMS to ${maskPhone(phone)} (${b.kind === 'guardian' ? 'guardian' : 'approved person'})` });
+    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, action: 'code_sent', result: res.sms === 'sent' ? 'ok' : 'sms_not_sent', method: 'sms', subjectName: name, children: r.child_name, detail: `Pick-up code sent by SMS to ${maskPhone(phone)} (${b.kind === 'guardian' ? 'guardian' : 'approved person'})` });
     if (res.sms !== 'sent') throw new HttpError(502, 'The SMS could not be sent. Check the church\'s SMS balance, or scan the guardian\'s code.', 'sms_failed');
     return { sentTo: maskPhone(phone), name };
   });
@@ -597,7 +694,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const { s } = await sessionRow(req, (req.params as any).id);
     const b = (req.body ?? {}) as any;
     const dev = deviceOf(req, b.device);
-    const base = { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, method: 'code' };
+    const base = { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, method: 'code' };
     const bad = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM kids_log WHERE session_id=$1 AND action='lookup' AND result='bad_code' AND at > $2`, [s.id, new Date(nowMs() - 10 * 60_000).toISOString()]))[0].n);
     if (bad >= MAX_BAD_CODES) throw new HttpError(429, 'Too many wrong codes. Wait a few minutes, or scan the guardian\'s code.', 'too_many');
     const code = String(b.code ?? '').replace(/\D/g, '');
@@ -637,7 +734,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
       else allowed = Array.isArray(p.ids) && (p.ids as string[]).includes(r.id);
       if (!allowed) {
         refused.push({ name: r.child_name, reason: 'This person is not allowed to collect this child' });
-        await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, action: 'check_out', result: 'refused', method: String(p.method ?? 'code'), subjectName: String(p.n ?? ''), subjectDevice: String(p.d ?? '') || null, children: r.child_name, detail: 'Not a registered guardian or approved person for this child' });
+        await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, action: 'check_out', result: 'refused', method: String(p.method ?? 'code'), subjectName: String(p.n ?? ''), subjectDevice: String(p.d ?? '') || null, children: r.child_name, detail: 'Not a registered guardian or approved person for this child' });
         continue;
       }
       const upd = await ctx.db.query<any>(
@@ -650,7 +747,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (done.length) {
       const names = done.map((r) => r.child_name).join(', ');
       const differs = done.some((r) => r.dropper_id !== r.collector_id);
-      await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: dev, action: 'check_out', result: 'ok', method: done[0].out_method, subjectId: done[0].collector_id, subjectName: String(p.n ?? ''), subjectDevice: String(p.d ?? '') || null, children: names, detail: differs ? `Collected by someone other than ${done[0].dropper_name}` : null });
+      await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, guardianGeo: parseGeo(p.gg), action: 'check_out', result: 'ok', method: done[0].out_method, subjectId: done[0].collector_id, subjectName: String(p.n ?? ''), subjectDevice: String(p.d ?? '') || null, children: names, detail: differs ? `Collected by someone other than ${done[0].dropper_name}` : null });
       // Every guardian hears who collected. Anyone without the app, or who dropped off and is not the collector, also gets an SMS.
       const told = new Set<string>();
       for (const r of done) {
@@ -665,7 +762,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
         }
       }
     }
-    return { done: done.map((r) => ({ id: r.id, name: r.child_name })), refused };
+    return { done: done.map((r) => ({ id: r.id, name: r.child_name })), refused, location: publicLoc(await checkLocation(ctx, s.branch_id, tg(req), parseGeo(p.gg))) };
   });
 
   // ======================= not collected (L184) =======================
@@ -691,7 +788,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (r.status !== 'in') throw new HttpError(409, `${r.child_name} has already gone home`, 'not_in');
     if (!r.escalated_at && Date.parse(s.ends_at) > nowMs()) throw new HttpError(403, 'Phone numbers are shown when a child is late or staff have been alerted.', 'not_yet');
     const gs = await guardiansOf(ctx, r.child_id);
-    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, staffName: req.session!.name, staffDevice: deviceOf(req, (req.query as any).device), action: 'contacts_shown', result: 'ok', children: r.child_name, detail: `Showed phone numbers of ${gs.map((g) => g.name).join(', ')}` });
+    await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: deviceOf(req, (req.query as any).device), action: 'contacts_shown', result: 'ok', children: r.child_name, detail: `Showed phone numbers of ${gs.map((g) => g.name).join(', ')}` });
     return { child: r.child_name, guardians: gs.filter((g) => g.phone).map((g) => ({ name: g.name, phone: localPhone(g.phone) })) };
   });
 
@@ -708,9 +805,10 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (q.sessionId) { params.push(String(q.sessionId)); where.push(`session_id = $${params.length}`); }
     if (q.q) { params.push(`%${String(q.q).replace(/[%_]/g, '')}%`); where.push(`(coalesce(staff_name,'') || ' ' || coalesce(subject_name,'') || ' ' || coalesce(children,'') || ' ' || coalesce(detail,'') || ' ' || coalesce(class_name,'')) ILIKE $${params.length}`); }
     const rows = await ctx.db.query<any>(`SELECT * FROM kids_log WHERE ${where.join(' AND ')} ORDER BY at DESC LIMIT 500`, params);
-    const view = rows.map((r) => ({ id: r.id, at: r.at, action: r.action, result: r.result, className: r.class_name, teacher: r.staff_name, teacherDevice: r.staff_device, guardian: r.subject_name, guardianDevice: r.subject_device, method: r.method, children: r.children, detail: r.detail }));
+    const place = (r: any) => (r.location ? { locationStatus: ({ ok: 'At the branch', away: 'Away from the branch', unknown: 'Location not shared', unchecked: 'Not checked' } as Record<string, string>)[r.location.status] ?? '', distanceM: r.location.distanceM, locationSource: r.location.source, teacherLocation: geoText(r.location.teacher), guardianLocation: geoText(r.location.guardian) } : { locationStatus: '', distanceM: null, locationSource: null, teacherLocation: null, guardianLocation: null });
+    const view = rows.map((r) => ({ id: r.id, at: r.at, action: r.action, result: r.result, className: r.class_name, teacher: r.staff_name, teacherDevice: r.staff_device, guardian: r.subject_name, guardianDevice: r.subject_device, method: r.method, children: r.children, detail: r.detail, ...place(r) }));
     if (q.csv) {
-      return csv(view.map((v) => ({ When: new Date(v.at).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' }), What: v.action, Result: v.result, Class: v.className ?? '', Teacher: v.teacher ?? '', 'Teacher device': v.teacherDevice ?? '', 'Guardian or person': v.guardian ?? '', 'Guardian device': v.guardianDevice ?? '', How: v.method ?? '', Children: v.children ?? '', Detail: v.detail ?? '' })));
+      return csv(view.map((v) => ({ When: new Date(v.at).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' }), What: v.action, Result: v.result, Class: v.className ?? '', Teacher: v.teacher ?? '', 'Teacher device': v.teacherDevice ?? '', 'Guardian or person': v.guardian ?? '', 'Guardian device': v.guardianDevice ?? '', 'Location check': v.locationStatus, 'Metres from branch': v.distanceM ?? '', 'Teacher location': v.teacherLocation ?? '', 'Guardian location': v.guardianLocation ?? '', How: v.method ?? '', Children: v.children ?? '', Detail: v.detail ?? '' })));
     }
     return { log: view };
   });
@@ -743,7 +841,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const p = pickupBody((req.body ?? {}) as any);
     const id = ctx.newId('kpp');
     await ctx.db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, m.org_id, m.id, p.name, p.phone, p.relation, p.idNumber, req.session!.uid, nowIso()]);
-    await kidsLog(ctx, { orgId: m.org_id, branchId: m.branch_id, action: 'pickup_person_added', result: 'ok', subjectId: m.id, subjectName: m.full_name, detail: `${p.name}${p.relation ? `, ${p.relation}` : ''}, ${maskPhone(p.phone)}`, staffId: req.session!.uid, staffName: req.session!.name, method: 'staff' });
+    await kidsLog(ctx, { orgId: m.org_id, branchId: m.branch_id, action: 'pickup_person_added', result: 'ok', subjectId: m.id, subjectName: m.full_name, detail: `${p.name}${p.relation ? `, ${p.relation}` : ''}, ${maskPhone(p.phone)}`, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, method: 'staff' });
     return { id };
   });
 }
