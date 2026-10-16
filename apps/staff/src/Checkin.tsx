@@ -171,7 +171,7 @@ function Door({ event }: { event: { id: string; title: string } }) {
 
       <form className="card stack" onSubmit={(e) => { e.preventDefault(); const c = typed; setTyped(''); last.current = { code: '', at: 0 }; send(c); }}>
         <Field label="Type the code"><input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="GALA01-0001" autoCapitalize="characters" autoCorrect="off" spellCheck={false} /></Field>
-        <div className="row"><Button disabled={!typed.trim()}>Check in</Button></div>
+        <div className="row"><Button type="submit" disabled={!typed.trim()}>Check in</Button></div>
       </form>
 
       <div className="card stack">

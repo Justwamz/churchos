@@ -168,7 +168,7 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
           {act === 'event' && (
             <Load loading={events.loading} error={events.error} hasData={!!events.data}>
               {events.data && (() => {
-                const list = events.data.filter((e) => e.ticketed || e.id === eventId);
+                const list = events.data.filter((e) => (e.ticketed && e.status !== 'cancelled') || e.id === eventId);
                 return list.length === 0 ? <Empty>No event sells tickets yet. Set up tickets on an event under Events.</Empty> : (
                   <Field label="Event" hint="Only upcoming events that sell tickets are listed.">
                     <select value={eventId} onChange={(e) => setEventId(e.target.value)}>

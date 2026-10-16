@@ -37,6 +37,7 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
     if (end && Date.parse(`${end}:00+03:00`) < Date.parse(`${start}:00+03:00`)) return setErr('The event cannot end before it starts.');
     if (aud.kind === 'group' && !aud.group) return setErr('Choose a group.');
     if (!ticketed && rsvp && cap.trim() && !(Number(cap) >= 1)) return setErr('Capacity must be a number, or leave it empty.');
+    if (!ticketed && event?.ticketed && (existing.data?.types ?? []).some((t: any) => (t.sold ?? 0) + (t.held ?? 0) > 0)) return setErr('Tickets have already been sold for this event, so it cannot go back to replies. Choose Tickets, and switch off any ticket type you no longer want to sell.');
     let types: any[] | undefined;
     if (ticketed) {
       const r = typesPayload(rows);
@@ -108,7 +109,7 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
   );
 }
 
-function CancelDialog({ event, onClose, onDone }: { event: any; onClose: () => void; onDone: (m: string) => void }) {
+function CancelDialog({ event, onClose, onDone }: { event: any; onClose: () => void; onDone: (m: string, refunds?: boolean) => void }) {
   const s = useSession();
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -118,7 +119,7 @@ function CancelDialog({ event, onClose, onDone }: { event: any; onClose: () => v
     try {
       const r: any = await api.post(`/events/${event.id}/cancel` + s.qs({ branch: undefined }), { reason: reason.trim() });
       const o = r?.ordersToRefund ?? 0, t = r?.ticketsToRefund ?? 0;
-      onDone(o > 0 ? `Event cancelled. ${o} paid ${o === 1 ? 'order' : 'orders'} (${t} ${t === 1 ? 'ticket' : 'tickets'}) need a refund. Arrange these through Payment help.` : 'Event cancelled');
+      onDone(o > 0 ? `Event cancelled. ${o} paid ${o === 1 ? 'order' : 'orders'} (${t} ${t === 1 ? 'ticket' : 'tickets'}) need a refund. The refund list is open. Arrange these through Payment help.` : 'Event cancelled', o > 0);
     }
     catch (e: any) { setErr(explain(e)); setBusy(false); }
   };
@@ -231,7 +232,7 @@ export function Events() {
             : <div>{list.data.map((e) => <EventCard key={e.id} e={e} canManage={canManage} onEdit={() => { setEditing(e); setMode('form'); }} onCancel={() => setCancelling(e)} onReplies={() => setReplies(e)} onTickets={() => setTickets(e)} />)}</div>)}
         </Load>
       </div>
-      {cancelling && <CancelDialog event={cancelling} onClose={() => setCancelling(null)} onDone={(m) => { setCancelling(null); toast.show(m); list.reload(); }} />}
+      {cancelling && <CancelDialog event={cancelling} onClose={() => setCancelling(null)} onDone={(m, refunds) => { const ev = cancelling; setCancelling(null); toast.show(m); list.reload(); if (refunds) setTickets(ev); }} />}
       {tickets && <TicketPanel event={tickets} onClose={() => setTickets(null)} />}
       {replies && <Replies event={replies} onClose={() => setReplies(null)} />}
       {toast.node}

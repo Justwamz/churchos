@@ -45,7 +45,8 @@
 
 @media print {
   body * { visibility: hidden; }
-  .tk-ticket, .tk-ticket * { visibility: visible; }
+  /* The shared certificate print rule hides the page with !important, so this must be !important too. */
+  .tk-ticket, .tk-ticket * { visibility: visible !important; }
   .tk-ticket { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border: 1px solid #999; }
   .tk-actions, .no-print { display: none !important; }
 }

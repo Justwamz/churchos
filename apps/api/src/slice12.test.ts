@@ -367,6 +367,25 @@ describe('cancelling, refunds and reports (L176, L177)', () => {
     const t = (await call(JANE, 'GET', '/me/tickets')).json().tickets[0];
     expect((await scan(DOOR, eventId, t.token)).json().result).toMatch(/event_cancelled|already_used/);
     expect((await buy({}, [{ typeId: await typeId('Regular'), qty: 1 }])).statusCode).toBe(409);
+    // the staff panel lists the paid orders that now need a refund, by hand
+    const panel = (await call(OWNER, 'GET', `/events/${eventId}/tickets`)).json();
+    expect(panel).toMatchObject({ status: 'cancelled', cancelReason: 'The hall is flooded.' });
+    expect(panel.refunds.length).toBe(r.ordersToRefund);
+    expect(panel.refunds[0]).toMatchObject({ code: expect.any(String), buyer: expect.any(String), total: expect.any(Number) });
+    expect(panel.refunds.every((x: any) => x.total > 0)).toBe(true);
+  });
+});
+
+describe('the door picker', () => {
+  it('lists ticketed events up to a month ahead, so a gala in two weeks can be tested', async () => {
+    const at = new Date(ctx.clock.now().getTime() + 20 * DAY).toISOString();
+    const id = (await call(OWNER, 'POST', '/events', { title: 'Far gala', audience: { type: 'org' }, startsAt: at })).json().id;
+    await call(OWNER, 'PUT', `/events/${id}/ticketing`, { ticketed: true, types: [{ name: 'Entry', price: 0, quantity: 10 }] });
+    expect((await call(DOOR, 'GET', '/checkin/events')).json().map((e: any) => e.title)).toContain('Far gala');
+    const beyond = new Date(ctx.clock.now().getTime() + 40 * DAY).toISOString();
+    const id2 = (await call(OWNER, 'POST', '/events', { title: 'Too far gala', audience: { type: 'org' }, startsAt: beyond })).json().id;
+    await call(OWNER, 'PUT', `/events/${id2}/ticketing`, { ticketed: true, types: [{ name: 'Entry', price: 0, quantity: 10 }] });
+    expect((await call(DOOR, 'GET', '/checkin/events')).json().map((e: any) => e.title)).not.toContain('Too far gala');
   });
 });
 

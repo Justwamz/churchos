@@ -62,7 +62,7 @@ function Attendees({ event, types, toast }: { event: any; types: any[]; toast: (
       <Load loading={list.loading} error={list.error} hasData={!!list.data}>
         {list.data && (list.data.length === 0 ? <Empty>No tickets match.</Empty> : (
           <div className="tk-scroll">
-            <Table head={['Ticket', 'Name', 'Type', 'Status', 'Order', '']}>
+            <Table className="tk-att" head={['Ticket', 'Name', 'Type', 'Status', 'Order', '']}>
               {list.data.map((t) => {
                 const st = STATUS[t.status] ?? { text: t.status, tone: 'info' as const };
                 return (
@@ -109,6 +109,21 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
           {t && (
             <>
               {!t.ticketed && <Note tone="warn">This event does not sell tickets at the moment.</Note>}
+              {t.status === 'cancelled' && (
+                <div className="stack" style={{ gap: 8 }}>
+                  <Note tone="warn">
+                    This event was cancelled{t.cancelReason ? `: ${t.cancelReason}` : ''}. Buyers have been told.
+                    {t.refunds.length > 0 ? ` ${t.refunds.length} paid ${t.refunds.length === 1 ? 'order needs' : 'orders need'} a refund. Money is not returned automatically, so arrange each one through Payment help.` : ' No paid orders need a refund.'}
+                  </Note>
+                  {t.refunds.length > 0 && (
+                    <div className="tk-scroll">
+                      <Table head={['Order', 'Buyer', 'Tickets', 'Paid with', 'To refund']}>
+                        {t.refunds.map((r: any) => <tr key={r.orderId}><td className="mono">{r.code}</td><td>{r.buyer}</td><td>{r.tickets}</td><td>{r.method}</td><td>{kes(r.total)}</td></tr>)}
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
                 {t.hasPoster && <div className="tk-thumb" style={{ backgroundImage: `url("${api.url(t.posterUrl)}")` }} role="img" aria-label="Poster" />}
                 <div className="stack" style={{ gap: 4 }}>
@@ -117,7 +132,7 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
                   <div>Checked in {t.totals.checkedIn} of {t.totals.sold}</div>
                 </div>
               </div>
-              {t.shareUrl && (
+              {t.shareUrl && t.status !== 'cancelled' && (
                 <div className="stack" style={{ gap: 6 }}>
                   <div className="tiny">Share this link to sell tickets to anyone, or use it in an advert. Code: <b>{t.code}</b></div>
                   <div className="tk-link"><code>{t.shareUrl}</code><Button small kind="ghost" onClick={() => copy(t.shareUrl)}>Copy</Button></div>

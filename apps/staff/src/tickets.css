@@ -32,3 +32,16 @@
 .modal-head h2 { margin: 0; }
 .modal-x { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: 22px; line-height: 1; cursor: pointer; }
 .modal-x:hover { background: var(--line); }
+/* Date inputs have a wide intrinsic size on phones, so let the grid cells shrink instead of pushing the page sideways. */
+.tk-grid > *, .tk-row .field { min-width: 0; }
+.tk-row input { min-width: 0; max-width: 100%; box-sizing: border-box; }
+/* On a phone the attendee list is a stack of cards, so nothing is hidden off to the side. */
+@media (max-width: 600px) {
+  .table.tk-att, .table.tk-att tbody { display: block; }
+  .table.tk-att thead { display: none; }
+  .table.tk-att tr { display: grid; gap: 4px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .table.tk-att td { display: block; padding: 0; border: 0; }
+  .table.tk-att td:nth-child(1) { font-weight: 700; }
+  .table.tk-att td:nth-child(5)::before { content: 'Order '; color: var(--muted, #6b7a76); font-family: inherit; }
+  .table.tk-att td:last-child > div { flex-direction: row !important; flex-wrap: wrap; margin-top: 4px; }
+}

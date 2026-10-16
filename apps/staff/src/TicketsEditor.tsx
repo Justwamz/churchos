@@ -3,14 +3,14 @@ import { Button, ErrorNote, Field, Note } from '@churchos/ui';
 import { toIso, toLocal } from './communityBits';
 import './tickets.css';
 
-export type TypeRow = { key: string; id?: string; name: string; description: string; price: string; quantity: string; perOrderMax: string; salesStart: string; salesEnd: string; active: boolean };
+export type TypeRow = { key: string; id?: string; name: string; description: string; price: string; quantity: string; perOrderMax: string; salesStart: string; salesEnd: string; active: boolean; taken?: number };
 export type Poster = { mime: string; data: string; preview: string };
 
 let counter = 0;
 export const blankType = (): TypeRow => ({ key: `n${++counter}`, name: '', description: '', price: '', quantity: '', perOrderMax: '10', salesStart: '', salesEnd: '', active: true });
 export const rowFromType = (t: any): TypeRow => ({
   key: t.id, id: t.id, name: t.name, description: t.description ?? '', price: String((t.price ?? 0) / 100), quantity: String(t.quantity ?? ''), perOrderMax: String(t.perOrderMax ?? 10),
-  salesStart: toLocal(t.salesStart), salesEnd: toLocal(t.salesEnd), active: t.active !== false,
+  salesStart: toLocal(t.salesStart), salesEnd: toLocal(t.salesEnd), active: t.active !== false, taken: (t.sold ?? 0) + (t.held ?? 0),
 });
 
 /** Returns a message if a row is not fine, otherwise the payload for the API. */
@@ -27,6 +27,7 @@ export function typesPayload(rows: TypeRow[]): { error?: string; types?: any[] }
     if (!(price >= 0) || (price > 0 && price < 10) || price > 150000) return { error: `The price of "${name}" must be 0 or between KES 10 and KES 150,000.` };
     const quantity = Number(r.quantity);
     if (!Number.isInteger(quantity) || quantity < 1) return { error: `Enter how many "${name}" tickets are available.` };
+    if (r.taken && quantity < r.taken) return { error: `${r.taken} "${name}" tickets are already sold or held, so the number cannot go below that.` };
     const per = Number(r.perOrderMax || 10);
     if (!Number.isInteger(per) || per < 1 || per > 20) return { error: 'Most per order must be from 1 to 20.' };
     if (r.salesStart && r.salesEnd && Date.parse(`${r.salesEnd}:00+03:00`) <= Date.parse(`${r.salesStart}:00+03:00`)) return { error: `Sales for "${name}" must close after they open.` };
@@ -93,7 +94,7 @@ export function TicketsEditor({ rows, setRows, poster, setPoster, existingPoster
             <div className="row between"><b>Ticket type {i + 1}</b>
               <span className="row">
                 {r.id && <label className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><input type="checkbox" checked={r.active} onChange={(e) => set(i, { active: e.target.checked })} /> On sale</label>}
-                {rows.length > 1 && <Button small kind="ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</Button>}
+                {rows.length > 1 && (r.taken ? <span className="tiny">Has sales, so it cannot be removed. Switch it off instead.</span> : <Button small kind="ghost" onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</Button>)}
               </span>
             </div>
             <div className="tk-grid">

@@ -380,7 +380,13 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const e = await staffEvent(req, (req.params as any).id, 'events.view');
     const types = await counts(e.id);
     const fees = (await ctx.db.query<any>(`SELECT COALESCE(SUM(service_fee),0) AS fees, COALESCE(SUM(subtotal),0) AS money, count(*)::int AS orders FROM ticket_orders WHERE event_id=$1 AND status='paid'`, [e.id]))[0];
+    // A cancelled event: the paid orders the church now has to refund by hand (money is never returned automatically).
+    const refunds = e.status === 'cancelled'
+      ? (await ctx.db.query<any>(`SELECT o.id, o.code, o.buyer_name, o.method, o.total, o.created_at, (SELECT count(*) FROM tickets t WHERE t.order_id=o.id)::int AS n FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 ORDER BY o.created_at`, [e.id]))
+          .map((o) => ({ orderId: o.id, code: o.code, buyer: o.buyer_name, method: o.method, total: Number(o.total), tickets: o.n, at: o.created_at }))
+      : [];
     return {
+      status: e.status, cancelReason: e.cancel_reason, refunds,
       eventId: e.id, ticketed: e.ticketed, code: e.code, shareUrl: e.code ? `${ctx.givingUrl}/?event=${e.code}` : null, hasPoster: !!e.poster_data, posterUrl: e.poster_data ? `/events/${e.id}/poster` : null,
       types: types.map((t) => typeView(t, true)),
       totals: { sold: types.reduce((s, t) => s + t.sold, 0), held: types.reduce((s, t) => s + t.held, 0), checkedIn: types.reduce((s, t) => s + t.used, 0), takings: Number(fees.money), serviceFees: Number(fees.fees), orders: fees.orders },
@@ -467,7 +473,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/checkin/events', auth, async (req) => {
     const g = await grantsFor(ctx, req, 'events.checkin');
     const now = ctx.clock.now().getTime();
-    const rows = await ctx.db.query<any>(`SELECT id, title, starts_at, ends_at, branch_id, location, status FROM events WHERE org_id=$1 AND ticketed AND status='scheduled' AND COALESCE(ends_at, starts_at) >= $2 AND starts_at <= $3 ORDER BY starts_at`, [g.orgId, new Date(now - 12 * 3600_000).toISOString(), new Date(now + 14 * 86400_000).toISOString()]);
+    const rows = await ctx.db.query<any>(`SELECT id, title, starts_at, ends_at, branch_id, location, status FROM events WHERE org_id=$1 AND ticketed AND status='scheduled' AND COALESCE(ends_at, starts_at) >= $2 AND starts_at <= $3 ORDER BY starts_at`, [g.orgId, new Date(now - 12 * 3600_000).toISOString(), new Date(now + 30 * 86400_000).toISOString()]);
     return rows.filter((e) => (e.branch_id ? g.branchIds.includes(e.branch_id) : g.wholeOrg)).map((e) => ({ id: e.id, title: e.title, startsAt: e.starts_at, location: e.location }));
   });
 }
