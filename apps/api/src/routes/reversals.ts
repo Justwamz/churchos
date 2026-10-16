@@ -28,6 +28,8 @@ export async function createReversalRequest(
     orgId?: string;
     branchIds?: string[];
     payerPhone?: string;
+    /** Ticket refunds are agreed with the church well after the usual reversal window (L193). */
+    force?: boolean;
   },
 ) {
   let payment: any | null = null;
@@ -48,8 +50,8 @@ export async function createReversalRequest(
 
   const id = ctx.newId('rev');
   await ctx.db.query(
-    `INSERT INTO reversal_requests (id, payment_id, requested_by, source, message, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [id, payment.id, a.requestedBy, a.source, a.message ?? null, a.reason?.trim() || 'Requested by user', ctx.clock.now().toISOString()],
+    `INSERT INTO reversal_requests (id, payment_id, requested_by, source, message, reason, created_at, force) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [id, payment.id, a.requestedBy, a.source, a.message ?? null, a.reason?.trim() || 'Requested by user', ctx.clock.now().toISOString(), !!a.force],
   );
   await ctx.ledger.audit({ orgId: payment.org_id, branchId: payment.branch_id, actor: a.requestedBy, action: 'reversal.request', entity: 'payment', entityId: payment.id, summary: `Asked for a reversal of payment ${payment.provider_tx_id}`, reason: a.reason?.trim() || null, links: { paymentId: payment.id, reversalRequestId: id } });
   return {
@@ -82,7 +84,7 @@ export async function decideReversal(ctx: Ctx, requestId: string, adminId: strin
   if (needsTwo && r.first_approver === adminId) throw new HttpError(403, 'A different admin must give the second approval', 'same_person');
 
   try {
-    await ctx.ledger.reverse(payment.id, { reason: r.reason, actor: adminId, force: false });
+    await ctx.ledger.reverse(payment.id, { reason: r.reason, actor: adminId, force: !!r.force });
   } catch (e: any) {
     await ctx.db.query(`UPDATE reversal_requests SET status='failed', failure=$2 WHERE id=$1`, [requestId, e.message]);
     throw new HttpError(409, e.message, e.code ?? 'reversal_failed');

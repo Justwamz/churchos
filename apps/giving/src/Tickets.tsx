@@ -7,11 +7,13 @@ import './tickets.css';
 const api = createApi('churchos:giving:tickets');
 
 interface TType { id: string; name: string; description?: string | null; price: number; perOrderMax: number; onSale: boolean; soldOut: boolean; left?: number | null }
-interface EventInfo { code: string; title: string; description?: string | null; location?: string | null; startsAt: string; endsAt?: string | null; church: string; status: string; cancelReason?: string | null; over: boolean; posterUrl?: string | null; types: TType[] }
+interface EventInfo { code: string; title: string; description?: string | null; location?: string | null; startsAt: string; endsAt?: string | null; church: string; status: string; refundDaysBefore?: number | null; postponed?: Postponed | null; cancelReason?: string | null; over: boolean; posterUrl?: string | null; types: TType[] }
+interface Postponed { note?: string | null; from?: string | null; startsAt?: string | null; refundUntil?: string | null }
+interface Refund { allowed: boolean; freeCancel: boolean; until?: string | null; why?: string | null; request: null | { id: string; status: 'pending' | 'approved' | 'refunded' | 'declined' | 'failed'; note?: string | null; at?: string } }
 interface Quote { count: number; subtotal: number; serviceFee: number; total: number; free: boolean }
 interface OrderTicket { id: string; serial: string; type: string; holder: string; status: string; url: string; token: string }
-interface Order { id: string; secret: string; code: string; status: string; subtotal: number; serviceFee: number; total: number; method?: string; payUrl?: string | null; message?: string; event?: { title: string; code: string }; tickets: OrderTicket[] }
-interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; posterUrl?: string | null } }
+interface Order { id: string; secret: string; code: string; status: string; subtotal: number; serviceFee: number; total: number; method?: string; payUrl?: string | null; message?: string; event?: { title: string; code: string }; eventStatus?: string; refund?: Refund; tickets: OrderTicket[] }
+interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; postponed?: boolean; movedFrom?: string | null; posterUrl?: string | null }; order?: { id: string; code: string; secret: string; refund?: Refund } }
 
 const METHODS: [string, string][] = [['mpesa', 'M-Pesa'], ['airtel', 'Airtel Money'], ['tkash', 'T-Kash'], ['card', 'Card']];
 const eat = (d: string, o: Intl.DateTimeFormatOptions) => new Date(d).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', ...o });
@@ -21,6 +23,74 @@ const sameDay = (a: string, b: string) => day(a) === day(b);
 const when = (s: string, e?: string | null) => (e ? (sameDay(s, e) ? `${day(s)}, ${clock(s)} to ${clock(e)}` : `${day(s)}, ${clock(s)} to ${day(e)}, ${clock(e)}`) : `${day(s)}, ${clock(s)}`);
 const errMsg = (e: unknown) => (e instanceof ApiError && e.message ? e.message : 'Something went wrong. Please try again.');
 const posterSrc = (u?: string | null) => (u ? `${API_URL}${u}` : null);
+
+const dayTime = (d: string) => `${day(d)}, ${clock(d)}`;
+
+function PostponedBanner({ p, title }: { p?: Postponed | null; title?: string }) {
+  return (
+    <div className="tk-postponed" role="status">
+      <b>Postponed</b>
+      {title && <div>{title}</div>}
+      {p?.note && <div>{p.note}</div>}
+      {p?.startsAt
+        ? <div>New date: <b>{dayTime(p.startsAt)}</b>{p.from ? ` (was ${dayTime(p.from)})` : ''}</div>
+        : <div>The new date will be announced.</div>}
+    </div>
+  );
+}
+
+const EXPLAIN = 'The church will look at your request and tell you by email. Your tickets still work until then. Money goes back to the number or card you paid with, less any charge the payment provider keeps.';
+
+/** Refund state and the cancel / ask-for-refund button. Works with the order secret only. */
+function RefundBox({ refund, secret, onDone }: { refund?: Refund; secret: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  if (!refund) return null;
+  const r = refund.request;
+  const send = async () => {
+    setBusy(true); setError(undefined);
+    try {
+      await api.post(`/public/tickets/orders/${encodeURIComponent(secret)}/refund-request`, { reason: reason.trim() || undefined });
+      setOpen(false); setReason(''); onDone();
+    } catch (e) { setError(errMsg(e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="stack">
+      {r?.status === 'pending' && <Note tone="info"><b>Refund requested:</b> waiting for the church to decide. Your tickets still work until then.</Note>}
+      {r?.status === 'declined' && <Note tone="warn">The church could not approve a refund{r.note ? `: ${r.note}` : '.'}</Note>}
+      {(r?.status === 'approved' || r?.status === 'refunded') && <Note tone="good"><b>Refunded.</b> The money goes back to the number or card you paid with.</Note>}
+      {r?.status === 'failed' && <Note tone="warn">The refund could not be sent to your number or card. The church will be in touch.</Note>}
+      {refund.allowed && (!r || r.status === 'declined') && (
+        <Card>
+          <div className="stack">
+            {refund.until && !refund.freeCancel && <div className="tiny">You can ask until {dayTime(refund.until)}.</div>}
+            <Button kind="ghost" onClick={() => setOpen(true)}>{refund.freeCancel ? 'Cancel my tickets' : 'Cancel and ask for a refund'}</Button>
+          </div>
+        </Card>
+      )}
+      {!refund.allowed && !r && refund.why && <div className="tiny tk-muted">{refund.why}</div>}
+      {open && (
+        <div className="tk-modal" role="dialog" aria-modal="true" aria-label={refund.freeCancel ? 'Cancel my tickets' : 'Ask for a refund'} onClick={(e) => { if (e.target === e.currentTarget && !busy) setOpen(false); }}>
+          <div className="tk-sheet stack">
+            <h2 style={{ margin: 0 }}>{refund.freeCancel ? 'Cancel my tickets?' : 'Cancel and ask for a refund'}</h2>
+            {refund.freeCancel ? <p className="muted" style={{ margin: 0 }}>These tickets are free, so they are cancelled right away.</p> : (
+              <>
+                <p className="muted" style={{ margin: 0 }}>{EXPLAIN}</p>
+                <Field label="Reason (optional)"><textarea rows={3} value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
+              </>
+            )}
+            {error && <ErrorNote>{error}</ErrorNote>}
+            <Button onClick={send} disabled={busy}>{busy ? 'One moment...' : refund.freeCancel ? 'Yes, cancel my tickets' : 'Send my request'}</Button>
+            <Button kind="ghost" onClick={() => setOpen(false)} disabled={busy}>Keep my tickets</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TkShell({ children }: { children: ReactNode }) {
   return (
@@ -75,7 +145,8 @@ export function EventPage({ code }: { code: string }) {
   if (ev === undefined) return <TkShell><Spinner /></TkShell>;
   if (!ev) return <TkShell><Card><Note tone="warn">We could not find that event. Please check the link you were given.</Note></Card></TkShell>;
 
-  const closed = ev.over || ev.status === 'cancelled';
+  const postponed = ev.status === 'postponed';
+  const closed = (ev.over && !postponed) || ev.status === 'cancelled';
   const free = quote?.free ?? false;
   const mobile = method !== 'card';
   const hint = phoneHint(method);
@@ -108,19 +179,23 @@ export function EventPage({ code }: { code: string }) {
           <h1>{ev.title}</h1>
         </div>
         <div className="tk-meta">
-          <div><b>{when(ev.startsAt, ev.endsAt)}</b></div>
+          <div><b>{postponed ? (ev.postponed?.startsAt ? when(ev.postponed.startsAt) : 'Date to be announced') : when(ev.startsAt, ev.endsAt)}</b></div>
           {ev.location && <div>{ev.location}</div>}
         </div>
         {ev.description && <p className="tk-desc">{ev.description}</p>}
 
         {ev.status === 'cancelled' && <Note tone="bad">This event was cancelled.{ev.cancelReason ? ` ${ev.cancelReason}` : ''} Tickets can no longer be bought.</Note>}
-        {ev.status !== 'cancelled' && ev.over && <Note tone="warn">This event has already happened. Tickets can no longer be bought.</Note>}
+        {(postponed || ev.postponed) && ev.status !== 'cancelled' && <PostponedBanner p={ev.postponed} />}
+        {ev.status !== 'cancelled' && !postponed && ev.over && <Note tone="warn">This event has already happened. Tickets can no longer be bought.</Note>}
 
+        {!closed && ev.refundDaysBefore != null && <div className="tiny">You can cancel and ask for a refund until {ev.refundDaysBefore} {ev.refundDaysBefore === 1 ? 'day' : 'days'} before the event.</div>}
+        {!closed && ev.refundDaysBefore == null && !postponed && <div className="tiny">Tickets are not refundable.</div>}
         {!closed && (
           <form onSubmit={submit} noValidate className="stack" aria-label="Buy tickets">
+            {postponed && <Note tone="warn">Tickets are paused until the new date is announced</Note>}
             <h2 style={{ margin: '6px 0 0' }}>Tickets</h2>
             {ev.types.map((t) => {
-              const can = t.onSale && !t.soldOut;
+              const can = t.onSale && !t.soldOut && !postponed;
               const n = qty[t.id] ?? 0;
               return (
                 <Card key={t.id} className={`tk-type ${can ? '' : 'off'}`}>
@@ -183,7 +258,7 @@ export function EventPage({ code }: { code: string }) {
               {error && <ErrorNote>{error}</ErrorNote>}
             </div>
 
-            <Button type="submit" disabled={busy || count === 0}>
+            <Button type="submit" disabled={busy || count === 0 || postponed}>
               {busy ? 'One moment...' : !quote ? 'Choose your tickets' : quote.free ? 'Get free tickets' : `Pay ${kes(quote.total)}`}
             </Button>
           </form>
@@ -199,6 +274,15 @@ export function OrderPage() {
   const { secret = '' } = useParams();
   const [o, setO] = useState<Order | null | undefined>(undefined);
   const [timedOut, setTimedOut] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [pp, setPp] = useState<Postponed | null>(null);
+  const evCode = o?.event?.code;
+  useEffect(() => {
+    if (!evCode) return;
+    let alive = true;
+    api.get<EventInfo>(`/public/event/${encodeURIComponent(evCode)}`).then((e) => alive && setPp(e.postponed ?? null)).catch(() => undefined);
+    return () => { alive = false; };
+  }, [evCode]);
 
   useEffect(() => {
     let alive = true;
@@ -222,19 +306,28 @@ export function OrderPage() {
     };
     load();
     return () => { alive = false; if (timer) clearTimeout(timer); };
-  }, [secret]);
+  }, [secret, tick]);
 
   if (o === undefined) return <TkShell><Spinner /></TkShell>;
   if (o === null) return <TkShell><Card><Note tone="warn">We could not find that order. Please check the link we emailed you.</Note></Card></TkShell>;
 
   const title = o.event?.title ?? 'the event';
+  const gone = o.tickets.length > 0 && o.tickets.every((t) => t.status === 'cancelled');
   const back = `/?event=${encodeURIComponent(o.event?.code ?? o.code ?? '')}`;
   const cardUrl = o.payUrl ? `${o.payUrl}${o.payUrl.includes('?') ? '&' : '?'}return=${encodeURIComponent(`${location.origin}/tickets/${secret}`)}` : null;
 
   return (
     <TkShell>
       <div className="stack">
-        {o.status === 'paid' && (
+        {o.status === 'paid' && gone && (
+          <Card>
+            <div className="center stack">
+              <h1>Your tickets were cancelled</h1>
+              <p className="muted" style={{ margin: 0 }}>These tickets for {title} no longer work.</p>
+            </div>
+          </Card>
+        )}
+        {o.status === 'paid' && !gone && (
           <Card>
             <div className="center stack">
               <div className="tk-tick">✓</div>
@@ -243,7 +336,9 @@ export function OrderPage() {
             </div>
           </Card>
         )}
-        {o.status === 'paid' && (
+        {o.status === 'paid' && (o.eventStatus === 'postponed' || pp) && <PostponedBanner p={pp} title={title} />}
+        {o.status === 'paid' && <RefundBox refund={gone && !o.refund?.request ? undefined : o.refund} secret={secret} onDone={() => setTick((n) => n + 1)} />}
+        {o.status === 'paid' && !gone && (
           <Card title="Your tickets">
             {o.tickets.map((t) => (
               <div key={t.id} className="tk-ticketrow">
@@ -331,6 +426,7 @@ export function TicketPage() {
   const cancelled = t.status === 'cancelled' || t.event.cancelled;
   const used = t.status === 'used' && !cancelled;
   const dim = cancelled || used;
+  const manage = t.order?.secret && (t.order.refund?.allowed || t.order.refund?.request) ? t.order.secret : null;
   return (
     <TkShell>
       <article className="tk-ticket" aria-label={`Ticket for ${t.event.title}`}>
@@ -344,6 +440,8 @@ export function TicketPage() {
               {t.event.location && <div>{t.event.location}</div>}
             </div>
           </div>
+          {t.event.postponed && !cancelled && <div className="tk-postponed" role="status"><b>This event was postponed</b><div>The new date will be announced. It was {dayTime(t.event.startsAt)}.</div></div>}
+          {t.event.movedFrom && !t.event.postponed && !cancelled && <Note tone="warn">Moved from {dayTime(t.event.movedFrom)}</Note>}
           <div className="tk-cut" />
           <div className={`tk-qrwrap ${dim ? 'dim' : ''}`}>
             <div role="img" aria-label="Ticket QR code" dangerouslySetInnerHTML={{ __html: t.qrSvg }} />
@@ -365,6 +463,7 @@ export function TicketPage() {
       <div className="tk-actions no-print">
         <Button kind="ghost" onClick={() => window.print()}>Print ticket</Button>
         <Button kind="ghost" onClick={() => downloadIcs(t)}>Add to calendar</Button>
+        {manage && <Link className="btn ghost" to={`/tickets/${encodeURIComponent(manage)}`}>Manage this order</Link>}
       </div>
     </TkShell>
   );

@@ -115,7 +115,7 @@ describe('REVIEW FOCUS 5: version history is exact (L105)', () => {
   it('template, branch address, fees, projects and the number format each keep history', async () => {
     const t = (await call(ADMIN, 'GET', '/certificates/template')).json();
     await call(ADMIN, 'PUT', '/certificates/template', { config: { ...t.config, accent: '#112233', tagline: 'New tagline' } });
-    await call(ADMIN, 'PUT', '/certificates/branch-profile/br_grc001', { address: 'New Road', town: 'Nairobi', phone: '+254 700 000 111', email: 'nairobi@grace.example' });
+    await call(ADMIN, 'PUT', '/certificates/branch-profile/br_grc001', { address: 'New Road', town: 'Nairobi', phone: '+254 700 000 111', email: 'nairobi@gracechurch.org' });
     await call(OWNER, 'PUT', '/members/settings', { pattern: 'GRC/{YYYY}/{SEQ:4}', next: 50 });
     await call(TREAS, 'POST', '/projects', { branchId: 'br_grc001', code: 'HALL', name: 'Youth Hall', target: 250000, restricted: true });
     const tenants = (await call(PA1, 'GET', '/admin/tenants')).json();

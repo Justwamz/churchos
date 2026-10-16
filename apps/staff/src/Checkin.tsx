@@ -9,8 +9,8 @@ const time = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 
 
 type Result = { result: string; holder?: string; type?: string; serial?: string; message?: string; usedAt?: string; usedBy?: string; group?: { total: number; checkedIn: number } };
 
-const TONE: Record<string, 'good' | 'warn' | 'bad'> = { valid: 'good', already_used: 'warn', cancelled: 'bad', wrong_event: 'bad', event_cancelled: 'bad', not_found: 'bad' };
-const TITLE: Record<string, string> = { valid: 'Valid', already_used: 'Already used', cancelled: 'Cancelled', wrong_event: 'Wrong event', event_cancelled: 'Event cancelled', not_found: 'Not found' };
+const TONE: Record<string, 'good' | 'warn' | 'bad'> = { valid: 'good', already_used: 'warn', cancelled: 'bad', wrong_event: 'bad', event_cancelled: 'bad', not_found: 'bad', event_postponed: 'warn', refund_pending: 'warn' };
+const TITLE: Record<string, string> = { valid: 'Valid', already_used: 'Already used', cancelled: 'Cancelled', wrong_event: 'Wrong event', event_cancelled: 'Event cancelled', not_found: 'Not found', event_postponed: 'Event postponed', refund_pending: 'Refund requested' };
 
 function beep(ok: boolean) {
   try { navigator.vibrate?.(ok ? 80 : [120, 80, 120]); } catch { /* optional */ }

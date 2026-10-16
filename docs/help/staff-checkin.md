@@ -19,6 +19,8 @@ The **Check-in** page lets you scan tickets on a phone or tablet. You need the *
    - **Valid** in green, with the name and ticket type. If tickets were bought together you also see how many of that group have arrived, for example "2 of 3".
    - **Already used**, with the time and who scanned it. Do not let them in again.
    - **Cancelled**, **wrong event** or **not found** with the reason.
+   - **Event postponed**: do not let anyone in yet.
+   - **Refund requested**: the buyer asked for a refund for this ticket. Ask a manager before letting them in.
 
 Each ticket works once. A screenshot of a QR code works only for whoever is scanned first.
 

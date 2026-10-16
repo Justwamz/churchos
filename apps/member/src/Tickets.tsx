@@ -36,6 +36,7 @@ const ERR: Record<string, string> = {
   bad_phone: 'Please enter the phone number to send the payment prompt to.',
   bad_method: 'Please choose M-Pesa, Airtel Money, T-Kash or Card.',
   cancelled: 'This event was cancelled, so tickets are no longer sold.',
+  postponed: 'This event has been postponed. Tickets go back on sale when the new date is announced.',
   over: 'This event is over, so tickets are no longer sold.',
 };
 
@@ -54,6 +55,64 @@ export const priceLine = (e: { ticketFrom?: number; soldOut?: boolean }) => (e.s
 
 function Qr({ svg, size, used }: { svg: string; size: number; used?: boolean }) {
   return <div className={`tk-qr ${used ? 'used' : ''}`} style={{ width: size, height: size }} role="img" aria-label="Ticket QR code" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+const EXPLAIN = 'The church will look at your request and tell you by email. Your tickets still work until then. Money goes back to the number or card you paid with, less any charge the payment provider keeps.';
+
+/** What happened to an order's refund, plus the cancel / ask-for-refund button. */
+function RefundPanel({ order, onDone }: { order: any; onDone: () => void }) {
+  const refund = order?.refund;
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!refund) return null;
+  const r = refund.request;
+  const send = async () => {
+    setBusy(true); setError('');
+    try {
+      await api.post(`/me/tickets/orders/${order.id}/refund-request`, { reason: reason.trim() || undefined });
+      setOpen(false); setReason(''); onDone();
+    } catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="tk-refund">
+      {r?.status === 'pending' && <Note tone="info"><strong>Refund requested:</strong> waiting for the church to decide. Your tickets still work until then.</Note>}
+      {r?.status === 'declined' && <Note tone="warn">The church could not approve a refund{r.note ? `: ${r.note}` : '.'}</Note>}
+      {(r?.status === 'approved' || r?.status === 'refunded') && <Note tone="good"><strong>Refunded.</strong> The money goes back to the number or card you paid with.</Note>}
+      {r?.status === 'failed' && <Note tone="warn">The refund could not be sent to your number or card. The church will be in touch.</Note>}
+      {refund.allowed && (!r || r.status === 'declined') && (
+        <>
+          {refund.until && !refund.freeCancel && <span className="tiny">You can ask until {dateShort(refund.until)}, {timeOf(refund.until)}.</span>}
+          <Button kind="ghost" small onClick={() => setOpen(true)}>{refund.freeCancel ? 'Cancel my tickets' : 'Cancel and ask for a refund'}</Button>
+        </>
+      )}
+      {!refund.allowed && !r && refund.why && !/cancelled/.test(refund.why) && <span className="tiny">{refund.why}</span>}
+      <Sheet open={open} onClose={() => { if (!busy) setOpen(false); }} title={refund.freeCancel ? 'Cancel my tickets?' : 'Cancel and ask for a refund'}>
+        <div className="stack">
+          {refund.freeCancel ? <p>These tickets are free, so they are cancelled right away.</p> : (
+            <>
+              <p>{EXPLAIN}</p>
+              <Field label="Reason (optional)"><textarea rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+            </>
+          )}
+          {error && <ErrorNote>{error}</ErrorNote>}
+          <Button disabled={busy} onClick={send}>{busy ? 'One moment…' : refund.freeCancel ? 'Yes, cancel my tickets' : 'Send my request'}</Button>
+          <Button kind="ghost" disabled={busy} onClick={() => setOpen(false)}>Keep my tickets</Button>
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+/** Amber notice for a postponed event. */
+function PostponedNote({ startsAt, was }: { startsAt?: string | null; was?: string | null }) {
+  return (
+    <Note tone="warn">
+      <strong>Postponed.</strong> {startsAt ? `New date: ${dateShort(startsAt)}, ${timeOf(startsAt)}${was ? ` (was ${dateShort(was)})` : ''}` : 'The new date will be announced.'} Your tickets stay valid.
+    </Note>
+  );
 }
 
 // ---------------- buying ----------------
@@ -81,7 +140,8 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
 
   const lines = useMemo(() => Object.entries(qty).filter(([, n]) => n > 0).map(([typeId, n]) => ({ typeId, qty: n })), [qty]);
   const count = lines.reduce((s, l) => s + l.qty, 0);
-  const closed = !!e && (e.status === 'cancelled' || e.over);
+  const postponed = !!e && e.status === 'postponed';
+  const closed = !!e && (e.status === 'cancelled' || (e.over && !postponed));
 
   // live price, a moment after the last change
   useEffect(() => {
@@ -165,19 +225,20 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
           <div className="stack tk-buy">
             <Poster url={e.posterUrl} title={e.title} className="wide" />
             <div className="event-facts">
-              <span><Icon name="calendar" size={18} /> {when(e.startsAt)}</span>
+              <span><Icon name="calendar" size={18} /> {postponed ? (e.postponed?.startsAt ? when(e.postponed.startsAt) : 'Date to be confirmed') : when(e.startsAt)}</span>
               {e.location && <span><Icon name="pin" size={18} /> {e.location}</span>}
               <span className="tiny">{e.church}</span>
             </div>
             {e.description && <p className="full-text clamp4">{e.description}</p>}
             {e.status === 'cancelled' && <Note tone="bad">This event was cancelled.{e.cancelReason ? ` Reason: ${e.cancelReason}` : ''}</Note>}
-            {e.status !== 'cancelled' && e.over && <Note tone="info">This event is over, so tickets are no longer sold.</Note>}
+            {postponed && <Note tone="warn"><strong>Postponed.</strong>{e.postponed?.note ? ` ${e.postponed.note}` : ''} {e.postponed?.startsAt ? `New date: ${when(e.postponed.startsAt)}${e.postponed.from ? ` (was ${dateShort(e.postponed.from)})` : ''}.` : 'The new date will be announced.'} <strong>Tickets are paused until the new date is announced.</strong></Note>}
+            {e.status !== 'cancelled' && !postponed && e.over && <Note tone="info">This event is over, so tickets are no longer sold.</Note>}
             {!closed && (
               <>
                 <div className="field-label">Choose your tickets</div>
                 <ul className="tk-types">
                   {types.map((t) => {
-                    const off = t.soldOut || !t.onSale;
+                    const off = t.soldOut || !t.onSale || postponed;
                     const max = maxFor(t);
                     return (
                       <li key={t.id} className={`tk-type ${off ? 'off' : ''}`}>
@@ -187,7 +248,7 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
                           <span className="tk-type-price">{t.price ? kes(t.price) : 'Free'}</span>
                           {!off && t.left != null && <span className="shop-left inline">Only {t.left} left</span>}
                         </span>
-                        {off ? <span className="badge muted">{t.soldOut ? 'Sold out' : 'Not on sale'}</span> : (
+                        {off ? <span className="badge muted">{postponed ? 'Paused' : t.soldOut ? 'Sold out' : 'Not on sale'}</span> : (
                           <div className="stepper" role="group" aria-label={`Number of ${t.name} tickets`}>
                             <button type="button" aria-label={`One less ${t.name}`} disabled={(qty[t.id] ?? 0) <= 0} onClick={() => set(t, (qty[t.id] ?? 0) - 1)}>{'−'}</button>
                             <output aria-live="polite">{qty[t.id] ?? 0}</output>
@@ -198,7 +259,9 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
                     );
                   })}
                 </ul>
-                {!types.some((t) => t.onSale && !t.soldOut) && <Note tone="warn">Tickets are sold out or no longer on sale.</Note>}
+                {!postponed && e.refundDaysBefore != null && <p className="tiny">You can cancel and ask for a refund until {e.refundDaysBefore} {e.refundDaysBefore === 1 ? 'day' : 'days'} before the event.</p>}
+                {!postponed && e.refundDaysBefore == null && <p className="tiny">Tickets are not refundable.</p>}
+                {!postponed && !types.some((t) => t.onSale && !t.soldOut) && <Note tone="warn">Tickets are sold out or no longer on sale.</Note>}
 
                 {count > 0 && (
                   <div className="tk-sum" aria-live="polite">
@@ -231,7 +294,7 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
                 )}
                 <p className="tiny tk-name">The tickets will be in your name.</p>
                 {error && <ErrorNote>{error}</ErrorNote>}
-                <Button disabled={busy || !ready} onClick={pay}>
+                <Button disabled={busy || !ready || postponed} onClick={pay}>
                   {busy ? (method === 'card' && !free ? 'Opening card page…' : 'One moment…') : !count ? 'Choose your tickets' : free ? 'Get free tickets' : quote ? `Pay ${kes(quote.total)}` : 'Pay'}
                 </Button>
               </>
@@ -294,17 +357,19 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
 
 // ---------------- my tickets ----------------
 
-const isUpcoming = (ev: any) => !ev.cancelled && new Date(ev.endsAt ?? ev.startsAt).getTime() + (ev.endsAt ? 0 : 3 * 3600_000) >= Date.now();
+const isUpcoming = (ev: any) => !ev.cancelled && (ev.postponed || new Date(ev.endsAt ?? ev.startsAt).getTime() + (ev.endsAt ? 0 : 3 * 3600_000) >= Date.now());
 
 function statusOf(t: any): { label: string; tone: string } {
   if (t.event.cancelled) return { label: 'Event cancelled', tone: 'bad' };
+  if (t.status === 'cancelled') return { label: 'Cancelled', tone: 'bad' };
   if (t.status === 'used') return { label: 'Used', tone: 'muted' };
+  if (t.event.postponed) return { label: 'Postponed', tone: 'warn' };
   return { label: 'Valid', tone: 'good' };
 }
 
 function TicketView({ t, onClose }: { t: any | null; onClose: () => void }) {
   const s = t ? statusOf(t) : null;
-  const dead = !!t && (t.status === 'used' || t.event.cancelled);
+  const dead = !!t && (t.status === 'used' || t.status === 'cancelled' || t.event.cancelled);
   return (
     <Sheet open={!!t} onClose={onClose} full title={t?.event.title} label="Your ticket">
       {t && s && (
@@ -314,11 +379,14 @@ function TicketView({ t, onClose }: { t: any | null; onClose: () => void }) {
           <Qr svg={t.qrSvg} size={280} used={dead} />
           <code className="tk-serial">{t.serial}</code>
           <div className="event-facts tk-view-facts">
-            <span><Icon name="calendar" size={18} /> {when(t.event.startsAt)}</span>
+            <span><Icon name="calendar" size={18} /> {t.event.postponed ? `Was ${when(t.event.startsAt)}` : when(t.event.startsAt)}</span>
             {t.event.location && <span><Icon name="pin" size={18} /> {t.event.location}</span>}
             <span><Icon name="ticket" size={18} /> {t.type} · {t.holder}</span>
           </div>
-          {t.event.cancelled ? <Note tone="bad">This event was cancelled.</Note>
+          {t.event.postponed && !t.event.cancelled && <PostponedNote />}
+          {t.event.movedFrom && !t.event.postponed && !t.event.cancelled && <Note tone="warn">Moved from {dateShort(t.event.movedFrom)}, {timeOf(t.event.movedFrom)}</Note>}
+          {t.status === 'cancelled' && !t.event.cancelled ? <Note tone="bad">This ticket was cancelled.</Note>
+            : t.event.cancelled ? <Note tone="bad">This event was cancelled.</Note>
             : t.status === 'used' ? <p className="tk-door used">Used{t.usedAt ? ` at ${timeOf(t.usedAt)} on ${dateShort(t.usedAt)}` : ''}</p>
             : <p className="tk-door"><strong>Show this at the door.</strong> It works once.</p>}
           <Button kind="ghost" onClick={onClose}>Close</Button>
@@ -363,6 +431,7 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
   if (q.loading && !q.data) return <div className="card"><Skeleton lines={4} tall /></div>;
   if (q.error && !q.data) return <div className="stack"><ErrorNote>{q.error}</ErrorNote><Button kind="ghost" onClick={q.reload}>Try again</Button></div>;
 
+  const byOrder = (items: any[]) => { const m = new Map<string, any[]>(); for (const t of items) { const k = t.order?.id ?? t.id; m.set(k, [...(m.get(k) ?? []), t]); } return [...m.values()]; };
   const section = (label: string, list: { ev: any; items: any[] }[]) => list.length > 0 && (
     <section className="tk-group-wrap">
       <h3 className="agenda-month">{label}</h3>
@@ -373,16 +442,21 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
               <Poster url={g.ev.posterUrl} title={g.ev.title} className="strip" />
               <div className="tk-group-title">
                 <strong>{g.ev.title}</strong>
-                <span className="tiny"><Icon name="calendar" size={14} /> {when(g.ev.startsAt)}</span>
+                <span className="tiny"><Icon name="calendar" size={14} /> {g.ev.postponed ? `Date to be confirmed (was ${dateShort(g.ev.startsAt)})` : when(g.ev.startsAt)}</span>
                 {g.ev.location && <span className="tiny"><Icon name="pin" size={14} /> {g.ev.location}</span>}
               </div>
             </div>
+            {g.ev.postponed && <PostponedNote />}
+            {g.ev.movedFrom && !g.ev.postponed && <Note tone="warn">Moved from {dateShort(g.ev.movedFrom)}, {timeOf(g.ev.movedFrom)}</Note>}
+            {byOrder(g.items).map((its) => (
+            <div key={its[0].order?.id ?? its[0].id} className="tk-order">
+            {its[0].order?.code && <span className="tiny">Order {its[0].order.code}</span>}
             <ul className="tk-list">
-              {g.items.map((t) => {
+              {its.map((t) => {
                 const s = statusOf(t);
                 return (
                   <li key={t.id}>
-                    <button type="button" className={`tk-card ${t.status === 'used' || t.event.cancelled ? 'dim' : ''}`} onClick={() => setOpen(t)} aria-label={`${t.type} ticket for ${t.event.title}, ${s.label}`}>
+                    <button type="button" className={`tk-card ${t.status === 'used' || t.status === 'cancelled' || t.event.cancelled ? 'dim' : ''}`} onClick={() => setOpen(t)} aria-label={`${t.type} ticket for ${t.event.title}, ${s.label}`}>
                       <span className="tk-card-ico"><Icon name="ticket" size={22} /></span>
                       <span className="tk-card-main"><strong>{t.type}</strong><span className="tiny ell">{t.holder} · {t.serial}</span></span>
                       <span className={`badge ${s.tone}`}>{s.label}</span>
@@ -391,6 +465,9 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
                 );
               })}
             </ul>
+            <RefundPanel order={its[0].order} onDone={q.reload} />
+            </div>
+            ))}
           </div>
         ))}
       </div>
@@ -452,7 +529,8 @@ export function HomeTickets({ onOpen }: { onOpen: () => void }) {
         <Poster url={next.ev.posterUrl} title={next.ev.title} className="strip" />
         <div className="tk-home-text">
           <strong>Your next event: {next.ev.title}</strong>
-          <span className="tiny">{dateShort(next.ev.startsAt)}, {timeOf(next.ev.startsAt)} · {next.n} {next.n === 1 ? 'ticket' : 'tickets'}</span>
+          {next.ev.postponed && <span><span className="badge warn">Postponed</span></span>}
+          <span className="tiny">{next.ev.postponed ? 'Date to be confirmed' : `${dateShort(next.ev.startsAt)}, ${timeOf(next.ev.startsAt)}`} · {next.n} {next.n === 1 ? 'ticket' : 'tickets'}</span>
         </div>
       </div>
       <Button onClick={onOpen}>Show tickets</Button>

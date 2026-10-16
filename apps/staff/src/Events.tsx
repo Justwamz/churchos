@@ -4,7 +4,8 @@ import { api, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
 import { AudiencePicker, audienceValue, explainCommunity as explain, initialAudience, toIso, toLocal, type AudState } from './communityBits';
-import { TicketsEditor, blankType, explainTickets, rowFromType, typesPayload, type Poster, type TypeRow } from './TicketsEditor';
+import { TicketsEditor, blankType, explainTickets, rowFromType, typesPayload, type Poster, type RefundPolicy, type TypeRow } from './TicketsEditor';
+import { PostponeDialog } from './Postpone';
 import { TicketPanel } from './TicketPanel';
 import './community.css';
 import './tickets.css';
@@ -12,14 +13,15 @@ import './tickets.css';
 const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', ...o });
 const whenText = (e: any) => `${fmt(e.startsAt, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}${e.endsAt ? ` to ${fmt(e.endsAt, { hour: 'numeric', minute: '2-digit' })}` : ''}`;
 
-function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => void; onSaved: (m: string) => void }) {
+function EventForm({ event, seed, onClose, onSaved, onCopy }: { event?: any; seed?: any; onClose: () => void; onSaved: (m: string) => void; onCopy?: (e: any) => void }) {
   const s = useSession();
-  const [title, setTitle] = useState<string>(event?.title ?? '');
-  const [desc, setDesc] = useState<string>(event?.description ?? '');
-  const [place, setPlace] = useState<string>(event?.location ?? '');
-  const [start, setStart] = useState(toLocal(event?.startsAt));
-  const [end, setEnd] = useState(toLocal(event?.endsAt));
-  const [aud, setAud] = useState<AudState>(initialAudience(event?.audience, s.branches[0]?.id ?? ''));
+  const src = event ?? seed;
+  const [title, setTitle] = useState<string>(src?.title ?? '');
+  const [desc, setDesc] = useState<string>(src?.description ?? '');
+  const [place, setPlace] = useState<string>(src?.location ?? '');
+  const [start, setStart] = useState(toLocal(src?.startsAt));
+  const [end, setEnd] = useState(toLocal(src?.endsAt));
+  const [aud, setAud] = useState<AudState>(initialAudience(src?.audience, s.branches[0]?.id ?? ''));
   const [rsvp, setRsvp] = useState<boolean>(!!event?.rsvp);
   const [cap, setCap] = useState<string>(event?.capacity != null ? String(event.capacity) : '');
   const [ticketed, setTicketed] = useState<boolean>(!!event?.ticketed);
@@ -27,22 +29,30 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
   const [poster, setPoster] = useState<Poster | null>(null);
   const existing = useAsync<any>(() => (event?.ticketed ? api.get(`/events/${event.id}/tickets` + s.qs({ branch: undefined })) : Promise.resolve(null)), [event?.id]);
   useEffect(() => { if (existing.data?.types?.length) setRows(existing.data.types.map(rowFromType)); }, [existing.data]);
+  const [refund, setRefund] = useState<RefundPolicy>({ on: false, days: '30' });
+  const [reason, setReason] = useState('');
+  useEffect(() => { if (existing.data) setRefund(existing.data.refundDaysBefore != null ? { on: true, days: String(existing.data.refundDaysBefore) } : { on: false, days: '30' }); }, [existing.data]);
+  const hasSales = !!event?.ticketed && ((existing.data?.totals?.sold ?? 0) + (existing.data?.totals?.held ?? 0) > 0 || (existing.data?.totals?.orders ?? 0) > 0);
+  const origQty = new Map<string, number>((existing.data?.types ?? []).map((t: any) => [t.id, t.quantity]));
+  const askReason = hasSales && ticketed && rows.some((r) => r.id && origQty.has(r.id) && Number(r.quantity) !== origQty.get(r.id));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [freeBlocked, setFreeBlocked] = useState(false);
 
   const save = async () => {
-    setErr('');
+    setErr(''); setFreeBlocked(false);
     if (!title.trim()) return setErr('Write the name of the event.');
     if (!start) return setErr('Choose when the event starts.');
     if (end && Date.parse(`${end}:00+03:00`) < Date.parse(`${start}:00+03:00`)) return setErr('The event cannot end before it starts.');
     if (aud.kind === 'group' && !aud.group) return setErr('Choose a group.');
     if (!ticketed && rsvp && cap.trim() && !(Number(cap) >= 1)) return setErr('Capacity must be a number, or leave it empty.');
-    if (!ticketed && event?.ticketed && (existing.data?.types ?? []).some((t: any) => (t.sold ?? 0) + (t.held ?? 0) > 0)) return setErr('Tickets have already been sold for this event, so it cannot go back to replies. Choose Tickets, and switch off any ticket type you no longer want to sell.');
+    if (!ticketed && event?.ticketed && hasSales) { setFreeBlocked(true); return setErr('Tickets have been sold, so this event cannot become free. Cancel it, refund the buyers, then create a new free event.'); }
     let types: any[] | undefined;
     if (ticketed) {
       const r = typesPayload(rows);
       if (r.error) return setErr(r.error);
       types = r.types;
+      if (refund.on && !(refund.days !== '' && Number(refund.days) >= 0 && Number(refund.days) <= 365)) return setErr('Enter how many days before the event buyers can ask for a refund, from 0 to 365.');
     }
     const wasTicketed = !!event?.ticketed;
     const payload = {
@@ -55,7 +65,7 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
       if (event) await api.put(`/events/${event.id}` + s.qs({ branch: undefined }), payload);
       else id = (await api.post('/events' + s.qs({ branch: undefined }), payload)).id;
       try {
-        if (ticketed || wasTicketed) await api.put(`/events/${id}/ticketing` + s.qs({ branch: undefined }), { ticketed, types: ticketed ? types : [] });
+        if (ticketed || wasTicketed) await api.put(`/events/${id}/ticketing` + s.qs({ branch: undefined }), { ticketed, types: ticketed ? types : [], ...(ticketed ? { refundDaysBefore: refund.on ? Math.floor(Number(refund.days)) : null } : {}), ...(reason.trim() ? { reason: reason.trim() } : {}) });
         if (ticketed && poster) await api.post(`/events/${id}/poster` + s.qs({ branch: undefined }), { image: { mime: poster.mime, data: poster.data } });
       } catch (e: any) {
         setErr(`The event was saved, but its tickets were not. ${explainTickets(e) ?? explain(e)}${event ? '' : ' Close this form and edit the event to set up its tickets.'}`);
@@ -68,7 +78,7 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
 
   return (
     <div className="stack">
-      <div className="row between"><h2 style={{ margin: 0 }}>{event ? 'Edit event' : 'New event'}</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
+      <div className="row between"><h2 style={{ margin: 0 }}>{event ? 'Edit event' : seed ? 'New event (copy)' : 'New event'}</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
       <Card title="1. About the event">
         <div className="stack">
           <Field label="Name" hint={`${title.length} of 80 characters`}><input maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
@@ -88,7 +98,7 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
           {ticketed ? (
             <>
               {existing.loading && !existing.data && event?.ticketed ? <div className="tiny">Loading your tickets...</div> : null}
-              <TicketsEditor rows={rows} setRows={setRows} poster={poster} setPoster={setPoster} existingPoster={existing.data?.hasPoster ? api.url(existing.data.posterUrl) : undefined} />
+              <TicketsEditor rows={rows} setRows={setRows} poster={poster} setPoster={setPoster} existingPoster={existing.data?.hasPoster ? api.url(existing.data.posterUrl) : undefined} refund={refund} setRefund={setRefund} askReason={askReason} reason={reason} setReason={setReason} />
             </>
           ) : (
             <>
@@ -104,6 +114,7 @@ function EventForm({ event, onClose, onSaved }: { event?: any; onClose: () => vo
         </div>
       </Card>
       {err && <ErrorNote>{err}</ErrorNote>}
+      {(freeBlocked || /cannot become free/i.test(err)) && event && onCopy && <div className="row"><Button kind="ghost" onClick={() => onCopy(event)}>Copy as a new event</Button><span className="tiny">Opens a new form with the same details and tickets switched off.</span></div>}
       <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : event ? 'Save changes' : 'Create event'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
     </div>
   );
@@ -162,8 +173,16 @@ function Replies({ event, onClose }: { event: any; onClose: () => void }) {
   );
 }
 
-function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets }: { e: any; canManage: boolean; onEdit: () => void; onCancel: () => void; onReplies: () => void; onTickets: () => void }) {
+function RefundBadge({ id }: { id: string }) {
+  const s = useSession();
+  const d = useAsync<any>(() => api.get(`/events/${id}/tickets` + s.qs({ branch: undefined })), [id]);
+  const n = d.data?.pendingRefunds ?? 0;
+  return n > 0 ? <Badge tone="bad">{n} refund {n === 1 ? 'request' : 'requests'}</Badge> : null;
+}
+
+function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets, onPostpone }: { e: any; canManage: boolean; onEdit: () => void; onCancel: () => void; onReplies: () => void; onTickets: () => void; onPostpone: () => void }) {
   const cancelled = e.status === 'cancelled';
+  const postponed = e.status === 'postponed';
   const pct = e.capacity ? Math.min(100, Math.round((e.peopleComing / e.capacity) * 100)) : 0;
   return (
     <section className="card ev-item">
@@ -172,8 +191,10 @@ function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets }: { e
         <div className="row between" style={{ alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}><b style={{ overflowWrap: 'anywhere' }}>{e.title}</b>{e.description && <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{e.description}</div>}</div>
           {cancelled && <Badge tone="bad">Cancelled</Badge>}
+          {postponed && <Badge tone="warn">Postponed</Badge>}
         </div>
-        <div className="tiny">{whenText(e)}{e.location ? `. ${e.location}` : ''}. For: {e.audienceLabel}.</div>
+        {postponed && <Note tone="warn">{e.postponedFrom ? `Moved from ${fmt(e.postponedFrom, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.` : 'Date to be confirmed. Buyers keep their tickets.'}</Note>}
+        <div className="tiny">{postponed ? `Was ${whenText(e)}` : whenText(e)}{e.location ? `. ${e.location}` : ''}. For: {e.audienceLabel}.</div>
         {cancelled && e.cancelReason && <Note tone="warn">Cancelled: {e.cancelReason}</Note>}
         {e.rsvp && (
           <div className="stack" style={{ gap: 4 }}>
@@ -182,13 +203,14 @@ function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets }: { e
           </div>
         )}
         {e.ticketed && (
-          <div className="row"><Badge tone="info">Tickets</Badge><span className="tiny"><b>{e.ticketsSold}</b> sold. Code <b>{e.code}</b></span></div>
+          <div className="row"><Badge tone="info">Tickets</Badge><span className="tiny"><b>{e.ticketsSold}</b> sold. Code <b>{e.code}</b></span><RefundBadge id={e.id} /></div>
         )}
         {canManage && (
           <div className="row">
             {e.ticketed && <Button small onClick={onTickets}>Tickets and sales</Button>}
             {e.rsvp && <Button small kind="ghost" onClick={onReplies}>Who is coming</Button>}
             {!cancelled && <Button small kind="ghost" onClick={onEdit}>Edit</Button>}
+            {!cancelled && <Button small kind="ghost" onClick={onPostpone}>{postponed ? 'Set new date' : 'Postpone'}</Button>}
             {!cancelled && <Button small kind="ghost" onClick={onCancel}>Cancel event</Button>}
           </div>
         )}
@@ -207,20 +229,22 @@ export function Events() {
   const [cancelling, setCancelling] = useState<any>(null);
   const [replies, setReplies] = useState<any>(null);
   const [tickets, setTickets] = useState<any>(null);
+  const [postponing, setPostponing] = useState<any>(null);
+  const [seed, setSeed] = useState<any>(null);
   const canManage = s.can('events.manage');
 
   if (mode === 'form') {
     return (
       <div>
         <PageHead title="Events" />
-        <EventForm event={editing} onClose={() => setMode('list')} onSaved={(m) => { setMode('list'); toast.show(m); list.reload(); }} />
+        <EventForm key={seed?.id ?? editing?.id ?? "new"} event={editing} seed={seed} onCopy={(ev) => { setSeed(ev); setEditing(null); }} onClose={() => setMode('list')} onSaved={(m) => { setMode('list'); toast.show(m); list.reload(); }} />
         {toast.node}
       </div>
     );
   }
   return (
     <div>
-      <PageHead title="Events" sub="Things happening at your church. Members see them in the member app." action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New event</Button> : undefined} />
+      <PageHead title="Events" sub="Things happening at your church. Members see them in the member app." action={canManage ? <Button onClick={() => { setEditing(null); setSeed(null); setMode('form'); }}>New event</Button> : undefined} />
       <div className="stack">
         <div className="chips" role="tablist">
           <button type="button" className={`chip ${tab === 'up' ? 'on' : ''}`} onClick={() => setTab('up')}>Upcoming</button>
@@ -229,11 +253,12 @@ export function Events() {
         <Load loading={list.loading} error={list.error} hasData={!!list.data}>
           {list.data && (list.data.length === 0
             ? <Empty>{tab === 'past' ? 'No past events.' : `No upcoming events.${canManage ? ' Create your first one.' : ''}`}</Empty>
-            : <div>{list.data.map((e) => <EventCard key={e.id} e={e} canManage={canManage} onEdit={() => { setEditing(e); setMode('form'); }} onCancel={() => setCancelling(e)} onReplies={() => setReplies(e)} onTickets={() => setTickets(e)} />)}</div>)}
+            : <div>{list.data.map((e) => <EventCard key={e.id} e={e} canManage={canManage} onEdit={() => { setEditing(e); setSeed(null); setMode('form'); }} onPostpone={() => setPostponing(e)} onCancel={() => setCancelling(e)} onReplies={() => setReplies(e)} onTickets={() => setTickets(e)} />)}</div>)}
         </Load>
       </div>
       {cancelling && <CancelDialog event={cancelling} onClose={() => setCancelling(null)} onDone={(m, refunds) => { const ev = cancelling; setCancelling(null); toast.show(m); list.reload(); if (refunds) setTickets(ev); }} />}
-      {tickets && <TicketPanel event={tickets} onClose={() => setTickets(null)} />}
+      {postponing && <PostponeDialog event={postponing} onClose={() => setPostponing(null)} onDone={(m) => { setPostponing(null); toast.show(m); list.reload(); }} />}
+      {tickets && <TicketPanel event={tickets} onClose={() => { setTickets(null); list.reload(); }} />}
       {replies && <Replies event={replies} onClose={() => setReplies(null)} />}
       {toast.node}
     </div>

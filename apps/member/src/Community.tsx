@@ -105,6 +105,7 @@ const hasStarted = (e: any) => new Date(e.startsAt).getTime() <= Date.now();
 
 function Pill({ e }: { e: any }) {
   if (e.status === 'cancelled') return <span className="badge bad">Cancelled</span>;
+  if (e.status === 'postponed') return <span className="badge warn">Postponed</span>;
   if (!e.rsvp) return null;
   if (e.myResponse === 'going') return <span className="badge good">Going</span>;
   if (e.myResponse === 'not_going') return <span className="badge muted">Not going</span>;
@@ -122,11 +123,12 @@ function EventCard({ e, onOpen, church }: { e: any; onOpen: () => void; church?:
       {e.ticketed ? <Poster url={e.posterUrl} title={e.title} className="thumb" /> : <DateBlock iso={e.startsAt} cancelled={e.status === 'cancelled'} />}
       <span className="event-main">
         <strong className={e.status === 'cancelled' ? 'struck' : ''}>{e.title}</strong>
-        <span className="tiny ell">{e.ticketed ? `${dateShort(e.startsAt)} · ${timeOf(e.startsAt)}${e.location ? ` · ${e.location}` : ''}` : `${timeRange(e)}${e.location ? ` · ${e.location}` : ''}`}</span>
+        {e.status === 'postponed' && <span className="ev-postponed"><span className="badge warn">Postponed</span> Date to be confirmed</span>}
+        <span className={`tiny ell ${e.status === 'postponed' ? 'struck-soft' : ''}`}>{e.ticketed ? `${dateShort(e.startsAt)} · ${timeOf(e.startsAt)}${e.location ? ` · ${e.location}` : ''}` : `${timeRange(e)}${e.location ? ` · ${e.location}` : ''}`}</span>
         {e.ticketed && e.status !== 'cancelled' && <span className={`tk-from ${e.soldOut ? 'out' : ''}`}>{priceLine(e)}</span>}
         {church && <span className="tiny ell">{e.church}</span>}
       </span>
-      {e.ticketed && e.status !== 'cancelled' ? <span className={`tk-get ${e.soldOut ? 'out' : ''}`}>{e.soldOut ? 'Sold out' : 'Get tickets'}</span> : <Pill e={e} />}
+      {e.ticketed && e.status !== 'cancelled' ? <span className={`tk-get ${e.soldOut || e.status === 'postponed' ? 'out' : ''}`}>{e.status === 'postponed' ? 'Tickets paused' : e.soldOut ? 'Sold out' : 'Get tickets'}</span> : <Pill e={e} />}
     </button>
   );
 }
@@ -171,10 +173,11 @@ function EventBody({ e, onSaved }: { e: any; onSaved: () => void }) {
   return (
     <div className="stack">
       <div className="event-facts">
-        <span><Icon name="calendar" size={18} /> {dateLong(e.startsAt)}, {timeRange(e)}</span>
+        <span><Icon name="calendar" size={18} /> {e.status === 'postponed' ? 'Date to be confirmed' : `${dateLong(e.startsAt)}, ${timeRange(e)}`}</span>
         {e.location && <span><Icon name="pin" size={18} /> {e.location}</span>}
         <span className="tiny">{e.church}</span>
       </div>
+      {e.status === 'postponed' && <Note tone="warn"><strong>Postponed.</strong> The new date will be announced.</Note>}
       {cancelled && <Note tone="bad">This event was cancelled.{e.cancelReason ? ` Reason: ${e.cancelReason}` : ''}</Note>}
       {e.description && <p className="full-text">{e.description}</p>}
       {e.rsvp && !cancelled && (

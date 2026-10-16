@@ -301,7 +301,7 @@ const s12Reg = s12Ev.json.types?.find((t) => t.name === 'Regular');
 step('The public ticket page shows the event and its ticket types', s12Ev.status === 200 && s12Ev.json.types.length === 3 && s12Reg.price === 150000);
 const s12Q = await call('POST', '/public/tickets/quote', { code: 'GALA01', method: 'mpesa', lines: [{ typeId: s12Reg.id, qty: 2 }] });
 step('The buyer sees the fee on top before paying', s12Q.json.subtotal === 300000 && s12Q.json.serviceFee > 0 && s12Q.json.total === 300000 + s12Q.json.serviceFee);
-const s12Buy = await call('POST', '/public/tickets/orders', { code: 'GALA01', name: 'Smoke Buyer', email: 'smoke@example.com', phone: '0711555777', method: 'mpesa', lines: [{ typeId: s12Reg.id, qty: 2 }] });
+const s12Buy = await call('POST', '/public/tickets/orders', { code: 'GALA01', name: 'Smoke Buyer', email: 'smokebuyer@acme.co.ke', phone: '0711555777', method: 'mpesa', lines: [{ typeId: s12Reg.id, qty: 2 }] });
 let s12Order = s12Buy.json;
 for (let i = 0; i < 30 && s12Order.status !== 'paid'; i++) { await sleep(300); s12Order = (await call('GET', `/public/tickets/orders/${s12Buy.json.secret}`)).json; }
 step('A non-member pays by mobile money and gets two QR tickets', s12Order.status === 'paid' && s12Order.tickets.length === 2, s12Order.tickets?.map((t) => t.serial).join(', '));
@@ -380,6 +380,39 @@ await call('POST', `/kids/sessions/${s13Sess2}/close`, {}, s13Lucy);
 await call('PUT', '/kids/branches/br_grc001/location', { clear: true }, daniel);
 const s13Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 13 activity', s13Rec.json.ok === true);
+
+// 21. Slice 14: postponing, refunds the church approves, and email rules.
+const s14Day = 86400_000;
+const s14Now = new Date((await call('GET', '/health')).json.time).getTime();
+const s14Ev = (await call('POST', '/events', { title: 'Smoke refund night', audience: { type: 'org' }, startsAt: new Date(s14Now + 60 * s14Day).toISOString(), endsAt: new Date(s14Now + 60.1 * s14Day).toISOString() }, daniel)).json.id;
+await call('PUT', `/events/${s14Ev}/ticketing`, { ticketed: true, refundDaysBefore: 30, types: [{ name: 'Regular', price: 2000, quantity: 50 }] }, daniel);
+const s14Sum = (await call('GET', `/events/${s14Ev}/tickets`, undefined, daniel)).json;
+step('Made-up and throw-away email addresses are refused', (await call('POST', '/public/tickets/orders', { code: s14Sum.code, name: 'Fake Person', email: 'abc@gmail.com', phone: '0711555001', method: 'mpesa', lines: [{ typeId: s14Sum.types[0].id, qty: 1 }] })).json.code === 'bad_email');
+const s14Buy = async (n) => {
+  const r = await call('POST', '/public/tickets/orders', { code: s14Sum.code, name: `Smoke Refunder ${n}`, email: `smoke.refunder${n}@acme.co.ke`, phone: `0711555${800 + n}`, method: 'mpesa', lines: [{ typeId: s14Sum.types[0].id, qty: 1 }] });
+  let o = r.json;
+  for (let i = 0; i < 30 && o.status !== 'paid'; i++) { await sleep(300); o = (await call('GET', `/public/tickets/orders/${r.json.secret}`)).json; }
+  return o;
+};
+const s14A = await s14Buy(1);
+step('A buyer can cancel and ask for a refund until 30 days before', s14A.status === 'paid' && s14A.refund.allowed === true && s14A.refund.freeCancel === false);
+const s14Req = await call('POST', `/public/tickets/orders/${s14A.secret}/refund-request`, { reason: 'Cannot come' });
+step('The request waits for the church, and the door holds the ticket', s14Req.json.status === 'requested' && (await call('POST', `/events/${s14Ev}/checkin`, { code: s14A.tickets[0].serial }, daniel)).json.result === 'refund_pending');
+const s14List = (await call('GET', `/events/${s14Ev}/refund-requests`, undefined, daniel)).json;
+const s14Approve = await call('POST', `/refund-requests/${s14List.requests[0].id}/decide`, { approve: true, note: 'Sorry you cannot come' }, daniel);
+const s14After = (await call('GET', `/public/tickets/orders/${s14A.secret}`)).json;
+step('The church approves: tickets are cancelled and the refund goes to ChurchOS', s14Approve.json.status === 'approved' && s14After.tickets.every((t) => t.status === 'cancelled'));
+const s14Rev = (await call('GET', '/admin/reversal-requests?status=pending', undefined, admin)).json.find((r) => /Ticket refund/.test(r.reason));
+const s14Pay = await call('POST', `/admin/reversal-requests/${s14Rev?.id}/decide`, { approve: true }, admin);
+step('ChurchOS sends the money back', s14Pay.status === 200 && s14Pay.json.status === 'approved');
+const s14B = await s14Buy(2);
+const s14Post = await call('POST', `/events/${s14Ev}/postpone`, { note: 'Smoke postponement' }, daniel);
+step('Postponing tells buyers and pauses sales and the door', s14Post.json.status === 'postponed' && s14Post.json.told.orders >= 1 && (await call('POST', '/public/tickets/orders', { code: s14Sum.code, name: 'Late Person', email: 'late.person@acme.co.ke', phone: '0711555900', method: 'mpesa', lines: [{ typeId: s14Sum.types[0].id, qty: 1 }] })).json.code === 'postponed' && (await call('POST', `/events/${s14Ev}/checkin`, { code: s14B.tickets[0].serial }, daniel)).json.result === 'event_postponed');
+const s14Moved = await call('POST', `/events/${s14Ev}/postpone`, { startsAt: new Date(s14Now + 90 * s14Day).toISOString(), refundDays: 14 }, daniel);
+const s14BView = (await call('GET', `/public/tickets/orders/${s14B.secret}`)).json;
+step('A new date keeps the tickets valid and opens a refund window', s14Moved.json.status === 'scheduled' && s14BView.tickets[0].status === 'valid' && s14BView.refund.allowed === true);
+const s14Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 14 activity', s14Rec.json.ok === true);
 
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

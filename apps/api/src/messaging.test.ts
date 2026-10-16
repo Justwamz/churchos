@@ -60,7 +60,7 @@ describe('wallets: balances people can see (L113, L116)', () => {
 
   it('a branch person sees the headquarters wallet and their own branch, never another branch', async () => {
     expect((await call(COAST, 'GET', '/wallets')).json().code).toBe('email_required'); // Fatuma has not confirmed an email yet
-    await confirmEmail(COAST, 'fatuma@grace.example');
+    await confirmEmail(COAST, 'fatuma@gracechurch.org');
     const ids = (await wallets(ADMIN)).wallets.map((x: any) => x.id);
     expect(ids).toContain(SMS_ORG);
     expect(ids).toContain(SMS_NBO);
@@ -241,14 +241,14 @@ describe('integrations: one page per church (L113, L114)', () => {
     expect((await put({ smsSenderId: 'A very long sender name' })).json().code).toBe('bad_sender');
     expect((await put({ whatsappNumber: '0712' })).json().code).toBe('bad_whatsapp');
     expect((await put({ alertEmails: ['not-an-email'] })).json().code).toBe('bad_email');
-    expect((await put({ alertEmails: ['a@b.co', 'b@b.co', 'c@b.co', 'd@b.co', 'e@b.co', 'f@b.co'] })).json().code).toBe('too_many');
+    expect((await put({ alertEmails: ['anna@acme.co.ke', 'brian@acme.co.ke', 'carol@acme.co.ke', 'dennis@acme.co.ke', 'esther@acme.co.ke', 'faith@acme.co.ke'] })).json().code).toBe('too_many');
     expect((await put({ branches: [{ branchId: 'br_hpc001', smsSenderId: 'GRACEKISUMU' }] })).json().code).toBe('bad_branch'); // another church's branch
   });
 
   it('saves changes with masked history, and switching a church to per-branch creates each branch wallet', async () => {
     const hopeBefore = (await call(HOPE, 'GET', '/wallets')).json().wallets.map((w: any) => w.id);
     expect(hopeBefore).toEqual(['wal:org_hope:sms', 'wal:org_hope:whatsapp']); // shared: just the church's two wallets
-    const r = await call(HOPE, 'PUT', '/integrations', { walletMode: 'per_branch', smsSenderId: 'HOPECHAPEL', whatsappDisplayName: 'Hope Chapel', whatsappNumber: '+254 722 000 999', alertEmails: ['accounts@hope.example'], branches: [{ branchId: 'br_hpc001', smsSenderId: 'HOPEKISUMU', whatsappNumber: '254722111222' }] });
+    const r = await call(HOPE, 'PUT', '/integrations', { walletMode: 'per_branch', smsSenderId: 'HOPECHAPEL', whatsappDisplayName: 'Hope Chapel', whatsappNumber: '+254 722 000 999', alertEmails: ['accounts@hopechurch.org'], branches: [{ branchId: 'br_hpc001', smsSenderId: 'HOPEKISUMU', whatsappNumber: '254722111222' }] });
     expect(r.statusCode).toBe(200);
     const ids = (await call(HOPE, 'GET', '/wallets')).json().wallets.map((w: any) => w.id);
     expect(ids).toEqual(expect.arrayContaining(['wal:org_hope:sms', 'wal:br_hpc001:sms', 'wal:br_hpc001:whatsapp']));
@@ -301,8 +301,8 @@ describe('integrations: one page per church (L113, L114)', () => {
 
   it('a person can add their email for alerts, and the log shows it hidden', async () => {
     expect((await call(COAST, 'PUT', '/me/profile', { email: 'nope' })).json().code).toBe('bad_email');
-    expect((await call(COAST, 'PUT', '/me/profile', { email: 'Fatuma@Grace.example' })).statusCode).toBe(200); // same address, nothing changes
-    expect((await call(COAST, 'GET', '/me/profile')).json().email).toBe('fatuma@grace.example');
+    expect((await call(COAST, 'PUT', '/me/profile', { email: 'Fatuma@Gracechurch.org' })).statusCode).toBe(200); // same address, nothing changes
+    expect((await call(COAST, 'GET', '/me/profile')).json().email).toBe('fatuma@gracechurch.org');
     const evt = (await call(PA1, 'GET', '/admin/audit/events?action=member.profile_email')).json().events[0];
     expect(evt.changes[0]).toMatchObject({ field: 'email', masked: true });
     expect(JSON.stringify(evt)).not.toMatch(/fatuma@grace/);

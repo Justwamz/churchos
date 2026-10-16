@@ -76,7 +76,8 @@ function readPoster(file: File): Promise<Poster> {
   });
 }
 
-export function TicketsEditor({ rows, setRows, poster, setPoster, existingPoster }: { rows: TypeRow[]; setRows: (r: TypeRow[]) => void; poster: Poster | null; setPoster: (p: Poster | null) => void; existingPoster?: string }) {
+export type RefundPolicy = { on: boolean; days: string };
+export function TicketsEditor({ rows, setRows, poster, setPoster, existingPoster, refund, setRefund, askReason, reason, setReason }: { rows: TypeRow[]; setRows: (r: TypeRow[]) => void; poster: Poster | null; setPoster: (p: Poster | null) => void; existingPoster?: string; refund?: RefundPolicy; setRefund?: (r: RefundPolicy) => void; askReason?: boolean; reason?: string; setReason?: (r: string) => void }) {
   const file = useRef<HTMLInputElement>(null);
   const [perr, setPerr] = useState('');
   const set = (i: number, p: Partial<TypeRow>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
@@ -112,6 +113,19 @@ export function TicketsEditor({ rows, setRows, poster, setPoster, existingPoster
         ))}
         <div className="row"><Button kind="ghost" disabled={rows.length >= 10} onClick={() => setRows([...rows, blankType()])}>Add a ticket type</Button><span className="tiny">Up to 10 types. A free ticket still gets a QR code for the door.</span></div>
       </div>
+      {refund && setRefund && (
+        <Field label="Refunds">
+          <div className="stack" style={{ gap: 8 }}>
+            <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="tkrefund" checked={!refund.on} onChange={() => setRefund({ ...refund, on: false })} /> <b>No refunds</b></label>
+            <label className="row" style={{ gap: 8, flexWrap: 'wrap' }}><input type="radio" name="tkrefund" checked={refund.on} onChange={() => setRefund({ ...refund, on: true })} /> <b>Buyers can ask for a refund until</b>
+              <input aria-label="Days before the event" inputMode="numeric" style={{ width: 80 }} value={refund.days} onChange={(e) => setRefund({ on: true, days: e.target.value.replace(/\D/g, '').slice(0, 3) })} /> <b>days before the event</b></label>
+            <div className="tiny">You approve or decline each request. If you postpone or cancel the event, buyers can still ask.</div>
+          </div>
+        </Field>
+      )}
+      {askReason && setReason && (
+        <Field label="Reason for this change" hint="Optional, but please say why. It is saved in the audit log. Tickets are already sold for this event."><input maxLength={200} value={reason ?? ''} onChange={(e) => setReason(e.target.value)} placeholder="For example: we moved to a bigger hall" /></Field>
+      )}
       <Field label="Poster" hint="Widescreen 16:9, at least 1280 x 720, PNG, JPG or WebP, up to 1 MB">
         <div className="stack" style={{ gap: 8 }}>
           <div className="tk-poster" style={src ? { backgroundImage: `url("${src}")` } : undefined}>{!src && 'Your poster will show here'}</div>

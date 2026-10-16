@@ -960,6 +960,36 @@ CREATE TABLE IF NOT EXISTS kids_log (
 );
 CREATE INDEX IF NOT EXISTS kids_log_idx ON kids_log(org_id, at DESC);
 ALTER TABLE kids_log ADD COLUMN IF NOT EXISTS location jsonb;
+-- Postponing an event, and refunds the church approves (L192 to L195).
+ALTER TABLE events DROP CONSTRAINT IF EXISTS events_status_check;
+ALTER TABLE events ADD CONSTRAINT events_status_check CHECK (status IN ('scheduled','cancelled','postponed'));
+ALTER TABLE events ADD COLUMN IF NOT EXISTS postponed_at text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS postponed_from text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS postpone_note text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS refund_open_until text;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS refund_days_before int;
+ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_email_key text;
+ALTER TABLE reversal_requests ADD COLUMN IF NOT EXISTS force boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS ticket_refunds (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text,
+  event_id text NOT NULL,
+  order_id text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('buyer','postponed','church')),
+  amount bigint NOT NULL,
+  reason text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','refunded','declined','failed')),
+  requested_by_name text NOT NULL,
+  requested_by_user text,
+  decided_by text,
+  decided_by_name text,
+  decided_at text,
+  decision_note text,
+  reversal_id text,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ticket_refunds_order_idx ON ticket_refunds(order_id);
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lat double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lng double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_radius_m int;
@@ -968,7 +998,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

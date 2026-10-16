@@ -132,8 +132,8 @@ export async function seed(ctx: Ctx) {
       logoSvg, now,
     ],
   );
-  await db.query(`INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ('br_grc001','org_grace','Ngong Road, Kilimani','Nairobi','+254 700 000 111','nairobi@grace.example') ON CONFLICT DO NOTHING`);
-  await db.query(`INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ('br_grc002','org_grace','Nyali Road','Mombasa','+254 700 000 222','mombasa@grace.example') ON CONFLICT DO NOTHING`);
+  await db.query(`INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ('br_grc001','org_grace','Ngong Road, Kilimani','Nairobi','+254 700 000 111','nairobi@gracechurch.org') ON CONFLICT DO NOTHING`);
+  await db.query(`INSERT INTO branch_profiles (branch_id, org_id, address, town, phone, email) VALUES ('br_grc002','org_grace','Nyali Road','Mombasa','+254 700 000 222','mombasa@gracechurch.org') ON CONFLICT DO NOTHING`);
   const rec = (r: { id: string; kind: 'baptism' | 'marriage'; membership: string | null; name: string; date: string; place: string; officiant: string; details: object; status: string; serial: string | null; key: string | null; file?: boolean; by?: string }) =>
     db.query(
       `INSERT INTO sacramental_records (id, org_id, branch_id, kind, membership_id, subject_name, event_date, place, officiant, register_number, details, status, serial, verify_key, file_name, file_mime, file_data, created_by, last_edited_by, approved_by, approved_at, created_at, updated_at)
@@ -178,12 +178,12 @@ export async function seed(ctx: Ctx) {
   await db.query(`INSERT INTO org_tariffs (org_id, tariff_id) VALUES ('org_newhope','tar_volume') ON CONFLICT DO NOTHING`);
   await db.query(
     `INSERT INTO integration_settings (org_id, wallet_mode, sms_sender_id, whatsapp_display_name, whatsapp_number, alert_emails) VALUES
-       ('org_grace','per_branch','GRACECHURCH','Grace Community Church','254700123456','["finance@grace.example"]'),
+       ('org_grace','per_branch','GRACECHURCH','Grace Community Church','254700123456','["finance@gracechurch.org"]'),
        ('org_hope','shared',NULL,NULL,NULL,'[]'), ('org_newhope','shared',NULL,NULL,NULL,'[]') ON CONFLICT DO NOTHING`,
   );
   for (const org of ['org_grace', 'org_hope', 'org_newhope']) await ensureWallets(ctx, org);
   // Staff emails, so low-balance alerts reach people by email as well as in the app (L115).
-  for (const [id, email] of [['u_owner', 'daniel@grace.example'], ['u_admin', 'samuel@grace.example'], ['u_treas', 'esther@grace.example'], ['u_hope', 'grace@hope.example']]) {
+  for (const [id, email] of [['u_owner', 'daniel@gracechurch.org'], ['u_admin', 'samuel@gracechurch.org'], ['u_treas', 'esther@gracechurch.org'], ['u_hope', 'grace@hopechurch.org']]) {
     await db.query('UPDATE users SET email=$2, email_verified=true WHERE id=$1', [id, email]);
   }
   // Opening balances go through the real top-up path. GRC002 and Hope start empty, to show the empty-wallet behaviour.

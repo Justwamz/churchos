@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor } from '../auth';
+import { assertEmail } from '../email-rules';
 import { BRANCH_PROFILE_SPECS, diff, flattenRecord, maskedSnapshot, RECORD_SPECS, recordVersion, sha, TEMPLATE_SPECS } from '../audit';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import {
@@ -77,7 +78,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     const scope = await staffScope(ctx, req, 'templates.manage', branchId);
     const f = (v: unknown, max: number) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max) || null;
     const email = f(b.email, 120);
-    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new HttpError(400, 'Enter a valid email address', 'bad_email');
+    if (email) assertEmail(email);
     const beforeP = (await ctx.db.query<any>('SELECT address, town, phone, email FROM branch_profiles WHERE branch_id=$1', [branchId]))[0] ?? null;
     const afterP = { address: f(b.address, 160), town: f(b.town, 80), phone: f(b.phone, 40), email };
     await ctx.db.query(

@@ -3,17 +3,18 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import qrcode from 'qrcode-generator';
 import { buildReference, computeFee, maskEmail, networkMismatch, toCents } from '@churchos/shared';
 import { normalizePhone } from '../auth';
+import { assertEmail, checkEmail } from '../email-rules';
 import { diff, type FieldSpec } from '../audit';
 import { validateArtwork } from '../artwork';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { inStaffScope, grantsFor } from '../scope';
 import { sendEmail } from '../wallets';
 import { csv, normalizeMethod } from './helpers';
+import { refundStateFor, runRefundJobs } from './ticket-refunds';
 
 const HOLD_MINUTES = 15;
 const MAX_PER_ORDER = 20;
 const MAX_FREE_PER_PERSON = 10;
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 const TYPE_SPECS: FieldSpec[] = [
   { field: 'name', label: 'Name' },
@@ -102,7 +103,8 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const over = e.status === 'cancelled' || Date.parse(e.ends_at ?? e.starts_at) < ctx.clock.now().getTime();
     return {
       code: e.code, title: e.title, description: e.description, location: e.location, startsAt: e.starts_at, endsAt: e.ends_at, church: e.church, branch,
-      status: e.status, cancelReason: e.cancel_reason, over, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null,
+      status: e.status, cancelReason: e.cancel_reason, over, refundDaysBefore: e.refund_days_before ?? null,
+      postponed: e.postponed_at ? { note: e.postpone_note, from: e.postponed_from, startsAt: e.status === 'scheduled' ? e.starts_at : null, refundUntil: e.refund_open_until ?? null } : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null,
       types: types.filter((t) => t.row.active).map((t) => typeView(t, false)),
     };
   };
@@ -114,6 +116,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null }) {
     const e = o.event;
     if (e.status === 'cancelled') throw new HttpError(409, 'This event was cancelled', 'cancelled');
+    if (e.status === 'postponed') throw new HttpError(409, 'This event has been postponed. Tickets go back on sale when the new date is announced.', 'postponed');
     if (Date.parse(e.ends_at ?? e.starts_at) < ctx.clock.now().getTime()) throw new HttpError(409, 'This event has already happened', 'over');
     const wanted: { typeId: string; qty: number }[] = [];
     for (const l of Array.isArray(o.lines) ? o.lines : []) {
@@ -136,12 +139,15 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
     const b = o.buyer;
     if (!b.userId && !b.email) throw new HttpError(400, 'Enter an email address so we can send your tickets', 'bad_email');
-    if (b.email && !EMAIL.test(b.email)) throw new HttpError(400, 'Enter a valid email address', 'bad_email');
+    // A member whose saved address is no longer accepted still gets their tickets in the app.
+    if (b.email && b.userId && !checkEmail(b.email).ok) b.email = null;
+    const mailbox = b.email ? assertEmail(b.email) : null;
+    if (mailbox) b.email = mailbox.email;
     const free = subtotal === 0;
     if (free) {
       const held = Number((await ctx.db.query<any>(
-        `SELECT COALESCE(SUM(l.qty),0)::int AS n FROM ticket_order_lines l JOIN ticket_orders o ON o.id=l.order_id WHERE o.event_id=$1 AND o.status IN ('paid','awaiting_payment') AND l.unit_price=0 AND ((o.buyer_user_id IS NOT NULL AND o.buyer_user_id=$2) OR (o.buyer_email IS NOT NULL AND lower(o.buyer_email)=lower($3)))`,
-        [e.id, b.userId ?? '', b.email ?? ''],
+        `SELECT COALESCE(SUM(l.qty),0)::int AS n FROM ticket_order_lines l JOIN ticket_orders o ON o.id=l.order_id WHERE o.event_id=$1 AND o.status IN ('paid','awaiting_payment') AND l.unit_price=0 AND ((o.buyer_user_id IS NOT NULL AND o.buyer_user_id=$2) OR (o.buyer_email_key IS NOT NULL AND o.buyer_email_key=$3))`,
+        [e.id, b.userId ?? '', mailbox?.key ?? ''],
       ))[0].n);
       if (held + wanted.reduce((s, w) => s + w.qty, 0) > MAX_FREE_PER_PERSON) throw new HttpError(409, `One person can get up to ${MAX_FREE_PER_PERSON} free tickets for an event`, 'free_limit');
     }
@@ -178,9 +184,9 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
         if (l.c.row.quantity - s - h < l.qty) throw new HttpError(409, `"${l.c.row.name}" has just sold out`, 'sold_out');
       }
       await q.query(
-        `INSERT INTO ticket_orders (id, secret, code, org_id, branch_id, event_id, buyer_name, buyer_email, buyer_phone, buyer_user_id, buyer_membership_id, method, status, subtotal, service_fee, total, provider_tx_id, hold_until, advert_id, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
-        [id, secret, code, e.org_id, e.branch_id, e.id, b.name, b.email, phone, b.userId, b.membershipId, method, free ? 'paid' : 'awaiting_payment', subtotal, fee?.totalFee ?? 0, fee?.amountPaid ?? 0, providerTxId, free ? null : new Date(ctx.clock.now().getTime() + HOLD_MINUTES * 60_000).toISOString(), o.advertId ?? null, now],
+        `INSERT INTO ticket_orders (id, secret, code, org_id, branch_id, event_id, buyer_name, buyer_email, buyer_phone, buyer_user_id, buyer_membership_id, method, status, subtotal, service_fee, total, provider_tx_id, hold_until, advert_id, created_at, buyer_email_key)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+        [id, secret, code, e.org_id, e.branch_id, e.id, b.name, b.email, phone, b.userId, b.membershipId, method, free ? 'paid' : 'awaiting_payment', subtotal, fee?.totalFee ?? 0, fee?.amountPaid ?? 0, providerTxId, free ? null : new Date(ctx.clock.now().getTime() + HOLD_MINUTES * 60_000).toISOString(), o.advertId ?? null, now, mailbox?.key ?? null],
       );
       for (const l of lines) await q.query(`INSERT INTO ticket_order_lines (order_id, type_id, type_name, qty, unit_price) VALUES ($1,$2,$3,$4,$5)`, [id, l.c.row.id, l.c.row.name, l.qty, l.price]);
       if (fee) {
@@ -234,10 +240,12 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function orderResponse(id: string) {
     const o = (await ctx.db.query<any>(`SELECT o.*, e.title, e.code AS event_code FROM ticket_orders o JOIN events e ON e.id=o.event_id WHERE o.id=$1`, [id]))[0];
+    const ev = (await ctx.db.query<any>(`SELECT * FROM events WHERE id=$1`, [o.event_id]))[0];
     const lines = await ctx.db.query<any>(`SELECT type_name, qty, unit_price FROM ticket_order_lines WHERE order_id=$1 ORDER BY type_name`, [id]);
     const tickets = o.status === 'paid' ? await ticketsOf(id) : [];
     return {
       id: o.id, secret: o.secret, code: o.code, status: o.status, event: { title: o.title, code: o.event_code }, subtotal: Number(o.subtotal), serviceFee: Number(o.service_fee), total: Number(o.total), method: o.method,
+      refund: await refundStateFor(ctx, o, ev), eventStatus: ev.status,
       holdUntil: o.hold_until, payUrl: o.status === 'awaiting_payment' && o.method === 'card' && o.provider_tx_id ? `${ctx.givingUrl}/checkout/${o.provider_tx_id}` : null,
       lines: lines.map((l) => ({ name: l.type_name, qty: l.qty, unitPrice: Number(l.unit_price) })),
       tickets: tickets.map((t) => ({ id: t.id, serial: t.serial, type: t.type_name, holder: t.holder_name, status: t.status, url: ticketUrl(t.token), token: t.token })),
@@ -253,9 +261,11 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function ticketView(t: any) {
     const e = (await ctx.db.query<any>(`SELECT e.*, o.name AS church FROM events e JOIN organisations o ON o.id=e.org_id WHERE e.id=$1`, [t.event_id]))[0];
+    const ord = (await ctx.db.query<any>(`SELECT * FROM ticket_orders WHERE id=$1`, [t.order_id]))[0];
     return {
+      order: { id: ord.id, code: ord.code, secret: ord.secret, refund: await refundStateFor(ctx, ord, e) },
       id: t.id, serial: t.serial, type: t.type_name, holder: t.holder_name, status: t.status, usedAt: t.checked_in_at, url: ticketUrl(t.token), token: t.token, qrSvg: qrSvg(ticketUrl(t.token)),
-      event: { id: e.id, code: e.code, title: e.title, startsAt: e.starts_at, endsAt: e.ends_at, location: e.location, church: e.church, cancelled: e.status === 'cancelled', posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null },
+      event: { id: e.id, code: e.code, title: e.title, startsAt: e.starts_at, endsAt: e.ends_at, location: e.location, church: e.church, cancelled: e.status === 'cancelled', postponed: e.status === 'postponed', movedFrom: e.postponed_from && e.status === 'scheduled' ? e.postponed_from : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null },
     };
   }
 
@@ -318,6 +328,12 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     if (e.status === 'cancelled') throw new HttpError(409, 'This event was cancelled', 'locked');
     const before = await counts(e.id);
     const ticketed = !!b.ticketed;
+    let refundDays: number | null = e.refund_days_before ?? null;
+    if ('refundDaysBefore' in b) {
+      refundDays = b.refundDaysBefore === null || b.refundDaysBefore === '' ? null : Number(b.refundDaysBefore);
+      if (refundDays !== null && (!Number.isInteger(refundDays) || refundDays < 0 || refundDays > 365)) throw new HttpError(400, 'Refunds can be allowed from 0 to 365 days before the event', 'bad_days');
+    }
+    const changeReason = text(b.reason, 200, 'reason');
     const incoming: any[] = Array.isArray(b.types) ? b.types : [];
     if (ticketed && incoming.length === 0) throw new HttpError(400, 'Add at least one ticket type', 'bad_types');
     if (incoming.length > 10) throw new HttpError(400, 'An event can have up to 10 ticket types', 'bad_types');
@@ -355,10 +371,10 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
         else await q.query(`INSERT INTO ticket_types (id, org_id, event_id, name, description, price, quantity, per_order_max, sales_start, sales_end, active, sort, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [r.id, e.org_id, e.id, r.name, r.description, r.price, r.quantity, r.perOrderMax, r.salesStart, r.salesEnd, r.active, r.sort, nowIso()]);
       }
       // A ticketed event takes its own numbers, so replies and a capacity would only confuse people.
-      await q.query(`UPDATE events SET ticketed=$2, code=$3, rsvp=CASE WHEN $2 THEN false ELSE rsvp END, capacity=CASE WHEN $2 THEN NULL ELSE capacity END, updated_at=$4 WHERE id=$1`, [e.id, ticketed, code, nowIso()]);
+      await q.query(`UPDATE events SET ticketed=$2, code=$3, rsvp=CASE WHEN $2 THEN false ELSE rsvp END, capacity=CASE WHEN $2 THEN NULL ELSE capacity END, refund_days_before=$5, updated_at=$4 WHERE id=$1`, [e.id, ticketed, code, nowIso(), ticketed ? refundDays : null]);
     });
     const changes = rows.flatMap((r) => diff(TYPE_SPECS, r.old ? { name: r.old.row.name, price: Number(r.old.row.price), quantity: r.old.row.quantity, perOrderMax: r.old.row.per_order_max, salesStart: r.old.row.sales_start, salesEnd: r.old.row.sales_end, active: r.old.row.active } : null, { name: r.name, price: r.price, quantity: r.quantity, perOrderMax: r.perOrderMax, salesStart: r.salesStart, salesEnd: r.salesEnd, active: r.active }).map((c) => ({ ...c, label: `${r.name}: ${c.label}` })));
-    await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: req.session!.uid, action: 'event.ticketing', entity: 'event', entityId: e.id, summary: ticketed ? `Set the ticket types for "${e.title}": ${rows.map((r) => `${r.name} ${r.price ? kesText(r.price) : 'free'} x ${r.quantity}`).join(', ')}` : `Turned tickets off for "${e.title}"`, changes });
+    await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: req.session!.uid, action: 'event.ticketing', entity: 'event', entityId: e.id, summary: ticketed ? `Set the ticket types for "${e.title}": ${rows.map((r) => `${r.name} ${r.price ? kesText(r.price) : 'free'} x ${r.quantity}`).join(', ')}` : `Turned tickets off for "${e.title}"`, reason: changeReason ?? undefined, changes, meta: { refundDaysBefore: ticketed ? refundDays : null } });
     return { id: e.id, ticketed, code, shareUrl: `${ctx.givingUrl}/?event=${code}` };
   });
 
@@ -382,11 +398,12 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const fees = (await ctx.db.query<any>(`SELECT COALESCE(SUM(service_fee),0) AS fees, COALESCE(SUM(subtotal),0) AS money, count(*)::int AS orders FROM ticket_orders WHERE event_id=$1 AND status='paid'`, [e.id]))[0];
     // A cancelled event: the paid orders the church now has to refund by hand (money is never returned automatically).
     const refunds = e.status === 'cancelled'
-      ? (await ctx.db.query<any>(`SELECT o.id, o.code, o.buyer_name, o.method, o.total, o.created_at, (SELECT count(*) FROM tickets t WHERE t.order_id=o.id)::int AS n FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 ORDER BY o.created_at`, [e.id]))
+      ? (await ctx.db.query<any>(`SELECT o.id, o.code, o.buyer_name, o.method, o.total, o.created_at, (SELECT count(*) FROM tickets t WHERE t.order_id=o.id)::int AS n FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 AND NOT EXISTS (SELECT 1 FROM ticket_refunds r WHERE r.order_id=o.id AND r.status IN ('approved','refunded')) ORDER BY o.created_at`, [e.id]))
           .map((o) => ({ orderId: o.id, code: o.code, buyer: o.buyer_name, method: o.method, total: Number(o.total), tickets: o.n, at: o.created_at }))
       : [];
     return {
-      status: e.status, cancelReason: e.cancel_reason, refunds,
+      status: e.status, cancelReason: e.cancel_reason, refunds, refundDaysBefore: e.refund_days_before ?? null, postponed: e.postponed_at ? { note: e.postpone_note, from: e.postponed_from, refundUntil: e.refund_open_until ?? null } : null,
+      pendingRefunds: Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM ticket_refunds WHERE event_id=$1 AND status='pending'`, [e.id]))[0].n),
       eventId: e.id, ticketed: e.ticketed, code: e.code, shareUrl: e.code ? `${ctx.givingUrl}/?event=${e.code}` : null, hasPoster: !!e.poster_data, posterUrl: e.poster_data ? `/events/${e.id}/poster` : null,
       types: types.map((t) => typeView(t, true)),
       totals: { sold: types.reduce((s, t) => s + t.sold, 0), held: types.reduce((s, t) => s + t.held, 0), checkedIn: types.reduce((s, t) => s + t.used, 0), takings: Number(fees.money), serviceFees: Number(fees.fees), orders: fees.orders },
@@ -452,6 +469,9 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     if (t.status === 'cancelled') return { result: 'cancelled', ...base, message: 'This ticket was cancelled' };
     if (e.status === 'cancelled') return { result: 'event_cancelled', ...base, message: 'This event was cancelled' };
+    if (e.status === 'postponed') return { result: 'event_postponed', ...base, message: 'This event was postponed. Do not let anyone in yet.' };
+    const pending = (await ctx.db.query<any>(`SELECT 1 FROM ticket_refunds WHERE order_id=$1 AND status='pending'`, [t.order_id]))[0];
+    if (pending) return { result: 'refund_pending', ...base, message: 'The buyer asked for a refund for this ticket. Ask a manager before letting them in.' };
     const upd = await ctx.db.query<any>(`UPDATE tickets SET status='used', checked_in_at=$2, checked_in_by=$3 WHERE id=$1 AND status='valid' RETURNING id`, [t.id, nowIso(), req.session!.uid]);
     if (upd.length === 0) {
       const again = (await ctx.db.query<any>(`SELECT t.checked_in_at, u.name AS by_name FROM tickets t LEFT JOIN users u ON u.id=t.checked_in_by WHERE t.id=$1`, [t.id]))[0];
@@ -551,7 +571,8 @@ export async function sendConfirmationFor(ctx: Ctx, orderId: string) {
 
 
 /** Holds that ran out are released, and ticket holders get a reminder the day before (L173, L177). */
-export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminders: number }> {
+export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminders: number; refunded: number }> {
+  const refunds = await runRefundJobs(ctx);
   const now = ctx.clock.now().toISOString();
   const lapsed = await ctx.db.query<any>(`UPDATE ticket_orders SET status='lapsed' WHERE status='awaiting_payment' AND hold_until <= $1 RETURNING id, org_id, branch_id, code`, [now]);
   for (const o of lapsed) await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actorType: 'system', action: 'ticket.lapsed', entity: 'ticket_order', entityId: o.id, summary: `The ticket order ${o.code} was not paid in time. The tickets were released.` });
@@ -567,7 +588,7 @@ export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminde
       reminders++;
     }
   }
-  return { lapsed: lapsed.length, reminders };
+  return { lapsed: lapsed.length, reminders, refunded: refunds.refunded };
 }
 
 /** An event was cancelled: every buyer is told and the church is told how many paid orders need a refund (L176). */

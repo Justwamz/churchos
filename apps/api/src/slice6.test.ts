@@ -134,12 +134,12 @@ describe('providers and sender names belong to the platform (L128)', () => {
 
 describe('alert email (L123)', () => {
   it('rejects a wrong code, and keeps the email unconfirmed until the right one is used', async () => {
-    const r = await call(ADMIN, 'PUT', '/me/profile', { email: 'samuel.new@grace.example' });
+    const r = await call(ADMIN, 'PUT', '/me/profile', { email: 'samuel.new@gracechurch.org' });
     expect(r.statusCode).toBe(200);
     expect((await call(ADMIN, 'POST', '/me/profile/verify', { code: '000000' })).statusCode).toBe(400);
     expect((await call(ADMIN, 'GET', '/me/profile')).json().emailVerified).toBe(false);
     expect((await call(ADMIN, 'POST', '/me/profile/verify', { code: r.json().devCode })).statusCode).toBe(200);
-    expect((await call(ADMIN, 'GET', '/me/profile')).json()).toMatchObject({ email: 'samuel.new@grace.example', emailVerified: true });
+    expect((await call(ADMIN, 'GET', '/me/profile')).json()).toMatchObject({ email: 'samuel.new@gracechurch.org', emailVerified: true });
   });
 
   it('a person who receives alerts cannot remove their email, while members are not forced to have one', async () => {

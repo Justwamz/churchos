@@ -77,7 +77,7 @@ describe('certificate template (L99)', () => {
 
   it('saves branch address and contact details, and rejects a bad email', async () => {
     expect((await call(ADMIN, 'PUT', '/certificates/branch-profile/br_grc001', { address: 'Ngong Road', town: 'Nairobi', email: 'not-an-email' })).json().code).toBe('bad_email');
-    expect((await call(ADMIN, 'PUT', '/certificates/branch-profile/br_grc001', { address: 'Ngong Road, Kilimani', town: 'Nairobi', phone: '+254 700 000 111', email: 'nairobi@grace.example' })).statusCode).toBe(200);
+    expect((await call(ADMIN, 'PUT', '/certificates/branch-profile/br_grc001', { address: 'Ngong Road, Kilimani', town: 'Nairobi', phone: '+254 700 000 111', email: 'nairobi@gracechurch.org' })).statusCode).toBe(200);
     expect((await call(ADMIN, 'PUT', '/certificates/branch-profile/br_hpc001', { address: 'x' })).statusCode).toBe(403); // another church's branch
   });
 });

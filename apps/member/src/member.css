@@ -762,3 +762,10 @@ h3 { font-size: 17px; }
   .fam-cols { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); }
   .fam-qr-card { position: sticky; top: 0; }
 }
+.tk-order { display: grid; gap: 8px; min-width: 0; }
+.tk-order + .tk-order { padding-top: 10px; border-top: 1px solid var(--line); }
+.tk-refund { display: grid; gap: 8px; justify-items: start; }
+.tk-refund .note { justify-self: stretch; }
+.tk-group > .note { margin: 0; }
+.ev-postponed { font-size: 14px; font-weight: 700; color: var(--warn); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.struck-soft { text-decoration: line-through; opacity: .7; }

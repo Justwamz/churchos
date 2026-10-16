@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor, normalizePhone, signData, verifyData } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { activeBands, costOf, recordUnits, unitsUsed } from '../pricing';
-import { grantsFor, inStaffScope } from '../scope';
+import { grantsFor, inStaffScope, staffWith } from '../scope';
 import { notify } from '../sms';
 import { checkLowBalance, integrationSettings, sendEmail, walletFor } from '../wallets';
 import { csv } from './helpers';
@@ -159,19 +159,6 @@ async function sendWhatsapp(ctx: Ctx, a: { orgId: string; branchId: string; phon
   } catch {
     return 'skipped';
   }
-}
-
-/** Staff in a branch who hold a permission, for alerts that go to the church office. */
-async function staffWith(ctx: Ctx, orgId: string, branchId: string, perm: 'kids.manage' | 'kids.checkin') {
-  const ras = await ctx.db.query<any>(`SELECT DISTINCT user_id FROM role_assignments WHERE org_id=$1`, [orgId]);
-  const out: { id: string; name: string; phone: string }[] = [];
-  for (const r of ras) {
-    const ok = (await branchesFor(ctx.db, r.user_id, perm)).some((b) => b.orgId === orgId && b.branchId === branchId);
-    if (!ok) continue;
-    const u = (await ctx.db.query<any>(`SELECT id, name, phone FROM users WHERE id=$1`, [r.user_id]))[0];
-    if (u) out.push(u);
-  }
-  return out;
 }
 
 /** The registered guardians of a child, with whether they have the app. */

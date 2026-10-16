@@ -31,7 +31,7 @@ const wait = async (fn: () => Promise<boolean>, ms = 4000) => {
 const inbox = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows as any[];
 const pub = async (code = 'GALA01') => (await call(null, 'GET', `/public/event/${code}`)).json();
 const typeId = async (name: string, code = 'GALA01') => (await pub(code)).types.find((t: any) => t.name === name).id as string;
-const buy = (extra: any = {}, lines: any[] = []) => call(null, 'POST', '/public/tickets/orders', { code: 'GALA01', name: 'Wanjala Barasa', email: 'wanjala@example.com', phone: '0711555001', method: 'mpesa', lines, ...extra });
+const buy = (extra: any = {}, lines: any[] = []) => call(null, 'POST', '/public/tickets/orders', { code: 'GALA01', name: 'Wanjala Barasa', email: 'wanjala@acme.co.ke', phone: '0711555001', method: 'mpesa', lines, ...extra });
 const order = async (secret: string) => (await call(null, 'GET', `/public/tickets/orders/${secret}`)).json();
 const paidOrder = async (lines: any[], extra: any = {}) => {
   const r = (await buy(extra, lines)).json();
@@ -89,7 +89,7 @@ describe('setting up tickets (L170)', () => {
     const code = s.code;
     const student = s.types.find((t: any) => t.name === 'Student').id;
     const delegate = s.types.find((t: any) => t.name === 'Delegate').id;
-    const r = (await call(null, 'POST', '/public/tickets/orders', { code, name: 'A B', email: 'ab@example.com', phone: '0711555009', method: 'mpesa', lines: [{ typeId: student, qty: 3 }] })).json();
+    const r = (await call(null, 'POST', '/public/tickets/orders', { code, name: 'A B', email: 'abel@acme.co.ke', phone: '0711555009', method: 'mpesa', lines: [{ typeId: student, qty: 3 }] })).json();
     await wait(async () => (await order(r.secret)).status === 'paid');
     const keepBoth = (types: any[]) => call(OWNER, 'PUT', `/events/${id}/ticketing`, { ticketed: true, types });
     expect((await keepBoth([{ id: delegate, name: 'Delegate', price: 3000, quantity: 100 }])).json().code).toBe('has_sales'); // Student has sales
@@ -123,7 +123,7 @@ describe('the public page and buying as a non-member (L171, L172)', () => {
     expect(o.tickets[0].serial).toMatch(/^GALA01-\d{4}$/);
     const p = (await ctx.db.query<any>(`SELECT amount_paid, net FROM payments WHERE purpose=$1`, [`TKT-${o.code}`]))[0];
     expect(Number(p.amount_paid)).toBe(r.total);
-    const mail = ctx.email.sent.slice(sentBefore).find((m) => m.to === 'wanjala@example.com')!;
+    const mail = ctx.email.sent.slice(sentBefore).find((m) => m.to === 'wanjala@acme.co.ke')!;
     expect(mail.subject).toBe('Your tickets for Christmas Gala Dinner');
     expect(mail.body).toContain(o.tickets[0].url);
     expect((mail.html!.match(/<img /g) ?? []).length).toBe(2); // a QR code for each ticket
@@ -162,7 +162,7 @@ describe('never oversold, and holds are released (L173)', () => {
     code = r.json().code;
     small = (await call(null, 'GET', `/public/event/${code}`)).json().types[0].id;
   });
-  const card = (name: string, qty: number) => call(null, 'POST', '/public/tickets/orders', { code, name, email: `${name.toLowerCase()}@example.com`, method: 'card', lines: [{ typeId: small, qty }] });
+  const card = (name: string, qty: number) => call(null, 'POST', '/public/tickets/orders', { code, name, email: `${name.toLowerCase()}@acme.co.ke`, method: 'card', lines: [{ typeId: small, qty }] });
 
   it('holds the tickets while a buyer pays, and refuses a buyer who asks for more than is left', async () => {
     const a = (await card('Alice', 2)).json();
@@ -238,9 +238,9 @@ describe('members buy in the app (L171, L174)', () => {
     expect((await get(1)).json().code).toBe('free_limit');
     // a free ticket for a non-member needs an email address
     expect((await call(null, 'POST', '/public/tickets/orders', { code: 'PRAISE', name: 'Walk Up', email: '', lines: [{ typeId: entry, qty: 1 }] })).json().code).toBe('bad_content');
-    const guest = await call(null, 'POST', '/public/tickets/orders', { code: 'PRAISE', name: 'Walk Up', email: 'walkup@example.com', lines: [{ typeId: entry, qty: 1 }] });
+    const guest = await call(null, 'POST', '/public/tickets/orders', { code: 'PRAISE', name: 'Walk Up', email: 'walkup@acme.co.ke', lines: [{ typeId: entry, qty: 1 }] });
     expect(guest.json()).toMatchObject({ status: 'paid', total: 0 });
-    expect(ctx.email.sent.some((m) => m.to === 'walkup@example.com' && m.subject.includes('Youth Praise Concert'))).toBe(true);
+    expect(ctx.email.sent.some((m) => m.to === 'walkup@acme.co.ke' && m.subject.includes('Youth Praise Concert'))).toBe(true);
   });
 });
 
@@ -304,7 +304,7 @@ describe('cancelling, refunds and reports (L176, L177)', () => {
     const all = (await call(OWNER, 'GET', `/events/${eventId}/attendees`)).json();
     expect(all.length).toBeGreaterThanOrEqual(5);
     expect(all.find((a: any) => a.holder === 'Wanjala Barasa').email).toMatch(/\*|•/);
-    expect(JSON.stringify(all)).not.toContain('wanjala@example.com');
+    expect(JSON.stringify(all)).not.toContain('wanjala@acme.co.ke');
     expect((await call(OWNER, 'GET', `/events/${eventId}/attendees?q=wanjala`)).json().every((a: any) => a.holder === 'Wanjala Barasa')).toBe(true);
     expect((await call(OWNER, 'GET', `/events/${eventId}/attendees?q=%25`)).json()).toEqual([]);
     expect((await call(OWNER, 'GET', `/events/${eventId}/attendees?status=used`)).json().every((a: any) => a.status === 'used')).toBe(true);
@@ -328,7 +328,7 @@ describe('cancelling, refunds and reports (L176, L177)', () => {
     const r = await call(OWNER, 'POST', `/tickets/${target.id}/cancel`, { reason: 'Duplicate purchase' });
     expect(r.json()).toMatchObject({ status: 'cancelled', refundNeeded: true });
     expect((await call(OWNER, 'GET', `/events/${eventId}/tickets`)).json().types.find((t: any) => t.name === 'Regular').left).toBe(before + 1);
-    expect(ctx.email.sent.slice(sentBefore).some((m) => m.to === 'wanjala@example.com' && /cancelled/.test(m.subject))).toBe(true);
+    expect(ctx.email.sent.slice(sentBefore).some((m) => m.to === 'wanjala@acme.co.ke' && /cancelled/.test(m.subject))).toBe(true);
     expect((await scan(DOOR, eventId, target.serial)).json().result).toBe('cancelled');
     expect((await call(OWNER, 'POST', `/tickets/${target.id}/cancel`, { reason: 'again' })).statusCode).toBe(409);
     const used = all.find((a: any) => a.status === 'used');
@@ -354,7 +354,7 @@ describe('cancelling, refunds and reports (L176, L177)', () => {
     await runTicketJobs(ctx);
     await runTicketJobs(ctx);
     expect((await inbox(JANE)).filter((n) => n.title === 'Tomorrow: Christmas Gala Dinner')).toHaveLength(0); // all of Jane's tickets were already used, so there is nothing to remind her about
-    expect(ctx.email.sent.slice(mails).some((m) => m.to === 'wanjala@example.com' && m.subject.startsWith('Tomorrow'))).toBe(true);
+    expect(ctx.email.sent.slice(mails).some((m) => m.to === 'wanjala@acme.co.ke' && m.subject.startsWith('Tomorrow'))).toBe(true);
   });
 
   it('tells every buyer when the event is cancelled, and says how many orders need a refund', async () => {

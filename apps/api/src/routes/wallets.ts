@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { maskEmail, maskPhone, toCents } from '@churchos/shared';
 import { branchesFor, normalizePhone } from '../auth';
+import { assertEmail, checkEmail } from '../email-rules';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 import { activeBands, costOf, priceInfo, unitsUsed } from '../pricing';
@@ -16,7 +17,6 @@ const INTEGRATION_SPECS: FieldSpec[] = [
   { field: 'branchOverrides', label: 'Branch overrides' },
 ];
 
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
@@ -194,7 +194,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     };
     const emails = [...new Set((Array.isArray(b.alertEmails) ? b.alertEmails : []).map((e: any) => String(e).trim().toLowerCase()).filter(Boolean))] as string[];
     if (emails.length > 5) throw new HttpError(400, 'You can add up to 5 extra alert emails', 'too_many');
-    for (const e of emails) if (!EMAIL.test(e)) throw new HttpError(400, `"${e}" is not a valid email address`, 'bad_email');
+    for (const e of emails) { const c = checkEmail(e); if (!c.ok) throw new HttpError(400, `"${e}": ${c.message}`, 'bad_email'); }
     const display = String(b.whatsappDisplayName ?? '').trim().slice(0, 60) || null;
     const wanted = { smsSenderId: sender(b.smsSenderId), whatsappDisplayName: display, whatsappNumber: waNumber(b.whatsappNumber) };
     const branchRows = (Array.isArray(b.branches) ? b.branches : []).map((x: any) => ({ branchId: String(x.branchId), smsSenderId: sender(x.smsSenderId), whatsappNumber: waNumber(x.whatsappNumber) }));
@@ -305,7 +305,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.put('/me/profile', auth, async (req) => {
     const email = String((req.body as any)?.email ?? '').trim().toLowerCase() || null;
-    if (email && !EMAIL.test(email)) throw new HttpError(400, 'Enter a valid email address', 'bad_email');
+    if (email) assertEmail(email);
     const uid = req.session!.uid;
     const cur = (await ctx.db.query<any>(`SELECT email, email_verified, name FROM users WHERE id=$1`, [uid]))[0];
     if (!email && (await emailRequired(ctx, uid))) throw new HttpError(400, 'Your role receives email alerts, so it needs an email address', 'email_required');

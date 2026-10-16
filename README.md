@@ -157,3 +157,11 @@ needs a float policy for this.
 - **Managers (Daniel `0700000001`):** Children > Classes (add classes and teachers), Log (who scanned, which device, whose code, every SMS and alert; download as CSV) and Reports.
 - Not in this slice by decision: child photos, medical and allergy notes, and a "must not be released" flag.
 - **Only at the church:** a manager opens Children > Classes and chooses **Use my current location** while standing at the church. From then on the teacher's device must be within that distance (300 m by default) to check a child in, and the Check in button is greyed with the reason when it is not. If the teacher's device cannot give a location, the guardian's phone location (sent inside their code) is used. Hand-overs are never blocked, only recorded. Removing the location switches the check off. The log shows the place for each action.
+
+## Postponing, refunds and email rules (Slice 14)
+
+- **Postpone (staff app > Events > Postpone):** with a new date or "date to be confirmed". Buyers are told by email, SMS and in the app (read the SMS in admin console > **SMS outbox** and the email in **Email outbox**). Tickets stay valid, sales and the door pause while there is no date.
+- **Refunds:** in the ticket setup choose "Refunds: buyers can ask until N days before". A buyer (member app > My tickets, or the link in the ticket email) chooses **Cancel and ask for a refund**. The church approves or declines each one under **Tickets and sales > Refund requests**. An approval cancels the tickets and puts a refund request in front of ChurchOS: admin console > Reversal requests, where you approve it to send the money. Free tickets are cancelled at once.
+- **After cancelling an event:** Refund next to an order, or Refund everyone.
+- **Email addresses:** made-up (abc@, test@), example and test domains, throw-away inboxes and + addresses are refused everywhere an address is typed. Use real-looking ones such as `peter.mwangi@acme.co.ke` when testing.
+- **Ticket numbers** can be raised at any time with a reason. An event with sales cannot become free: cancel, refund, then **Copy as a new event**.

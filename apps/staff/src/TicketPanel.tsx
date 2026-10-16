@@ -3,6 +3,7 @@ import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, useAsync, use
 import { api, friendly, useSession } from './session';
 import { Load } from './bits';
 import { Modal } from './MemberForm';
+import { RefundRequests, RefundsToArrange } from './Refunds';
 import './tickets.css';
 
 const STATUS: Record<string, { text: string; tone: 'good' | 'bad' | 'info' }> = { valid: { text: 'Valid', tone: 'info' }, used: { text: 'Checked in', tone: 'good' }, cancelled: { text: 'Cancelled', tone: 'bad' } };
@@ -110,20 +111,17 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
             <>
               {!t.ticketed && <Note tone="warn">This event does not sell tickets at the moment.</Note>}
               {t.status === 'cancelled' && (
-                <div className="stack" style={{ gap: 8 }}>
-                  <Note tone="warn">
-                    This event was cancelled{t.cancelReason ? `: ${t.cancelReason}` : ''}. Buyers have been told.
-                    {t.refunds.length > 0 ? ` ${t.refunds.length} paid ${t.refunds.length === 1 ? 'order needs' : 'orders need'} a refund. Money is not returned automatically, so arrange each one through Payment help.` : ' No paid orders need a refund.'}
-                  </Note>
-                  {t.refunds.length > 0 && (
-                    <div className="tk-scroll">
-                      <Table head={['Order', 'Buyer', 'Tickets', 'Paid with', 'To refund']}>
-                        {t.refunds.map((r: any) => <tr key={r.orderId}><td className="mono">{r.code}</td><td>{r.buyer}</td><td>{r.tickets}</td><td>{r.method}</td><td>{kes(r.total)}</td></tr>)}
-                      </Table>
-                    </div>
-                  )}
-                </div>
+                <Note tone="warn">This event was cancelled{t.cancelReason ? `: ${t.cancelReason}` : ''}. Buyers have been told.</Note>
               )}
+              {t.status === 'postponed' && (
+                <Note tone="warn"><b>Postponed. Date to be confirmed.</b>{t.postponed?.note ? ` ${t.postponed.note}` : ''} Buyers keep their tickets. Check-in is closed until you set a new date.{t.postponed?.refundUntil ? ` Buyers can ask for a refund until ${when(t.postponed.refundUntil)}.` : ''}</Note>
+              )}
+              {t.status === 'scheduled' && t.postponed && (
+                <Note tone="warn"><b>Postponed{t.postponed.from ? `, moved from ${when(t.postponed.from)}` : ''}.</b>{t.postponed.note ? ` ${t.postponed.note}` : ''}{t.postponed.refundUntil ? ` Buyers can ask for a refund until ${when(t.postponed.refundUntil)}.` : ''}</Note>
+              )}
+              {t.status !== 'cancelled' && <RefundRequests event={event} toast={toast.show} onChanged={d.reload} />}
+              {t.status === 'cancelled' && <RefundsToArrange event={event} refunds={t.refunds ?? []} toast={toast.show} onChanged={d.reload} />}
+              {t.ticketed && t.status !== 'cancelled' && <div className="tiny">{t.refundDaysBefore != null ? `Buyers can ask for a refund until ${t.refundDaysBefore} ${t.refundDaysBefore === 1 ? 'day' : 'days'} before.` : 'No refunds before the event.'}</div>}
               <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
                 {t.hasPoster && <div className="tk-thumb" style={{ backgroundImage: `url("${api.url(t.posterUrl)}")` }} role="img" aria-label="Poster" />}
                 <div className="stack" style={{ gap: 4 }}>

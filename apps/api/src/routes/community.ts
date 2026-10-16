@@ -181,7 +181,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/events', auth, async (req) => {
     const g = await grantsFor(ctx, req, 'events.view');
     const past = (req.query as any).past === '1';
-    const rows = await ctx.db.query<any>(`${EVENT_SELECT} WHERE e.org_id=$1 AND ${past ? 'COALESCE(e.ends_at, e.starts_at) < $2' : 'COALESCE(e.ends_at, e.starts_at) >= $2'} ORDER BY e.starts_at ${past ? 'DESC' : 'ASC'} LIMIT 200`, [g.orgId, nowIso()]);
+    const rows = await ctx.db.query<any>(`${EVENT_SELECT} WHERE e.org_id=$1 AND ${past ? "COALESCE(e.ends_at, e.starts_at) < $2 AND e.status <> 'postponed'" : "(COALESCE(e.ends_at, e.starts_at) >= $2 OR e.status = 'postponed')"} ORDER BY e.starts_at ${past ? 'DESC' : 'ASC'} LIMIT 200`, [g.orgId, nowIso()]);
     const out = [];
     for (const e of rows) if (e.branch_id ? g.branchIds.includes(e.branch_id) : g.wholeOrg) out.push(await eventView(e));
     return out;
@@ -285,7 +285,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     const rows = await ctx.db.query<any>(
       `SELECT e.*, o.name AS church, (SELECT response FROM event_rsvps r WHERE r.event_id=e.id AND r.user_id=$1) AS my_response, (SELECT guests FROM event_rsvps r WHERE r.event_id=e.id AND r.user_id=$1) AS my_guests
          FROM events e JOIN organisations o ON o.id=e.org_id
-        WHERE COALESCE(e.ends_at, e.starts_at) >= $2 AND ${audienceMatchSql('e', '$1')} ORDER BY e.starts_at LIMIT 100`,
+        WHERE (COALESCE(e.ends_at, e.starts_at) >= $2 OR e.status = 'postponed') AND ${audienceMatchSql('e', '$1')} ORDER BY e.starts_at LIMIT 100`,
       [req.session!.uid, nowIso()],
     );
     const out = [];
@@ -308,7 +308,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!e) throw new HttpError(404, 'event not found', 'not_found');
     if (!e.rsvp) throw new HttpError(400, 'This event does not ask for replies', 'no_rsvp');
     if (e.status === 'cancelled') throw new HttpError(409, 'This event was cancelled', 'cancelled');
-    if (e.starts_at < nowIso()) throw new HttpError(409, 'This event has already started', 'started');
+    if (e.status !== 'postponed' && e.starts_at < nowIso()) throw new HttpError(409, 'This event has already started', 'started');
     const response = b.response === 'going' || b.response === 'not_going' ? b.response : null;
     if (!response) throw new HttpError(400, 'Choose Going or Not going', 'bad_response');
     const guests = response === 'going' ? Math.floor(Number(b.guests ?? 0)) : 0;

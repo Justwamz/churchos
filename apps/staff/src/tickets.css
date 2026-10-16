@@ -45,3 +45,11 @@
   .table.tk-att td:nth-child(5)::before { content: 'Order '; color: var(--muted, #6b7a76); font-family: inherit; }
   .table.tk-att td:last-child > div { flex-direction: row !important; flex-wrap: wrap; margin-top: 4px; }
 }
+
+/* Refunds */
+.tk-refunds { border: 1px solid var(--bad); border-radius: 12px; padding: 12px; background: var(--bad-tint); }
+.tk-req { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 6px; background: var(--surface); min-width: 0; }
+.tk-earlier summary { cursor: pointer; padding: 6px 0; }
+.tk-count { background: var(--bad); color: #fff; border-radius: 999px; min-width: 24px; padding: 2px 8px; text-align: center; font-weight: 700; font-size: 13px; }
+.modal .tk-grid input { min-width: 0; max-width: 100%; box-sizing: border-box; width: 100%; }
+@media (max-width: 600px) { .modal .tk-grid { grid-template-columns: 1fr; } }

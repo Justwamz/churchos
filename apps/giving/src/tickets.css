@@ -51,3 +51,11 @@
   .tk-actions, .no-print { display: none !important; }
 }
 .tk .tk-tick { width: 56px; height: 56px; margin: 0 auto; border-radius: 50%; background: var(--good-tint); color: var(--good); font-size: 28px; display: grid; place-items: center; }
+.tk .tk-postponed { background: var(--warn-tint); color: var(--warn); border-radius: 12px; padding: 12px 14px; display: grid; gap: 4px; }
+.tk .tk-postponed b { font-size: 1.05rem; }
+.tk .tk-muted { color: var(--ink-3); }
+.tk .tk-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; align-items: end; justify-items: center; z-index: 50; }
+.tk .tk-sheet { background: var(--surface); width: min(560px, 100%); border-radius: 20px 20px 0 0; padding: 20px 16px 24px; max-height: 92vh; overflow: auto; box-sizing: border-box; }
+.tk .tk-sheet textarea { width: 100%; box-sizing: border-box; }
+@media (min-width: 700px) { .tk .tk-modal { align-items: center; } .tk .tk-sheet { border-radius: 20px; } }
+.tk-actions a.btn { min-height: 46px; font-size: 1rem; grid-column: 1 / -1; }
