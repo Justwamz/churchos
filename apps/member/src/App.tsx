@@ -13,11 +13,12 @@ import { HomeShop, ShopPage } from './Shop';
 import type { ShopIntent } from './Shop';
 import { Icon, Sheet, Skeleton } from './ui';
 import { FamilyPage, HomeKids, useFamilies } from './Family';
+import { HomeRegular, RegularGiving } from './RegularGiving';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'kids' | 'inbox' | 'groups' | 'me';
 type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets';
-type GiveSub = 'give' | 'pledges' | 'history';
+type GiveSub = 'give' | 'pledges' | 'history' | 'regular';
 type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
 type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
 const TABS: { key: Tab; label: string; ico: string }[] = [
@@ -198,6 +199,7 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
   const actions: { ico: string; label: string; on: () => void }[] = [
     { ico: 'give', label: 'Give tithe', on: () => go('give', { purpose: 'TITHE' }) },
     { ico: 'coin', label: 'Give offering', on: () => go('give', { purpose: 'OFFERING' }) },
+    { ico: 'refresh', label: 'Give regularly', on: () => go('give', { sub: 'regular' }) },
     { ico: 'history', label: 'My giving history', on: () => go('give', { sub: 'history' }) },
     { ico: 'cert', label: 'Records and certificates', on: () => go('me') },
     { ico: 'swap', label: 'Transfer church', on: () => go('me') },
@@ -216,6 +218,7 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
       <AdvertSlider onShop={openShop} />
       <HomeKids families={families} onOpen={() => go('kids')} />
       <HomeTickets onOpen={() => openSub('tickets')} />
+      <HomeRegular onOpen={() => go('give', { sub: 'regular' })} />
 
       <HomeNotices onAll={() => openSub('notices')} />
       <HomeEvents onAll={() => openSub('events')} />
@@ -295,7 +298,7 @@ function GiveTab({ me, user, online, nav, go }: { me: any; user: any; online: bo
   const church = useAsync<any>(() => (code ? api.get(`/public/church/${encodeURIComponent(code)}`) : Promise.resolve(undefined)), [code]);
   const [sub, setSub] = useState<GiveSub>(nav.sub);
   useEffect(() => { setSub(nav.sub); }, [nav.k]); // eslint-disable-line
-  const SUBS: { key: GiveSub; label: string }[] = [{ key: 'give', label: 'Give' }, { key: 'pledges', label: 'Pledges' }, { key: 'history', label: 'History' }];
+  const SUBS: { key: GiveSub; label: string }[] = [{ key: 'give', label: 'Give' }, { key: 'pledges', label: 'Pledges' }, { key: 'history', label: 'History' }, { key: 'regular', label: 'Regular' }];
   return (
     <div className="stack">
       <div className="seg" role="tablist" aria-label="Giving">
@@ -304,6 +307,7 @@ function GiveTab({ me, user, online, nav, go }: { me: any; user: any; online: bo
       {sub === 'give' && <Give me={me} user={user} online={online} church={church} initPurpose={nav.purpose} nav={nav} go={go} />}
       {sub === 'pledges' && <Pledges me={me} church={church} />}
       {sub === 'history' && <History />}
+      {sub === 'regular' && <RegularGiving me={me} user={user} online={online} />}
     </div>
   );
 }
@@ -439,6 +443,11 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
           {error && <ErrorNote>{error}</ErrorNote>}
         </div>
       </Card>
+      <button type="button" className="rg-entry" onClick={() => go('give', { sub: 'regular' })}>
+        <span className="rg-home-ico"><Icon name="refresh" size={22} /></span>
+        <span className="rg-home-text"><strong>Give regularly</strong><span className="tiny">Set up a weekly or monthly tithe or offering</span></span>
+        <Icon name="chev" size={20} />
+      </button>
       <div className="sticky-cta">
         <Button disabled={!online || busy || !valid || phone.trim().length < 9 || !!mismatch} onClick={give}>{busy ? (method === 'card' ? 'Opening card page…' : 'Sending…') : valid ? `${method === 'card' ? 'Pay by card' : 'Give'} ${kes(Math.round(n * 100))}` : 'Give'}</Button>
       </div>

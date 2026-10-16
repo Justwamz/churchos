@@ -990,6 +990,55 @@ CREATE TABLE IF NOT EXISTS ticket_refunds (
   created_at text NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ticket_refunds_order_idx ON ticket_refunds(order_id);
+-- Regular giving (L197 to L203): a plan, and one run for each due date.
+CREATE TABLE IF NOT EXISTS giving_plans (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  membership_id text NOT NULL,
+  user_id text NOT NULL,
+  phone text NOT NULL,
+  amount bigint NOT NULL,
+  method text NOT NULL,
+  purpose text NOT NULL,
+  project_id text,
+  frequency text NOT NULL CHECK (frequency IN ('weekly','fortnightly','monthly')),
+  weekday int,
+  month_day int,
+  anchor_date text,
+  time_of_day text NOT NULL DEFAULT '10:00',
+  start_date text NOT NULL,
+  end_date text,
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','cancelled','ended')),
+  skip_next boolean NOT NULL DEFAULT false,
+  next_run_at text,
+  last_run_at text,
+  completed_count int NOT NULL DEFAULT 0,
+  missed_count int NOT NULL DEFAULT 0,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS giving_plans_due_idx ON giving_plans(status, next_run_at);
+CREATE TABLE IF NOT EXISTS giving_plan_runs (
+  id text PRIMARY KEY,
+  plan_id text NOT NULL,
+  org_id text NOT NULL,
+  due_date text NOT NULL,
+  scheduled_for text NOT NULL,
+  kind text NOT NULL DEFAULT 'scheduled' CHECK (kind IN ('scheduled','first')),
+  amount bigint NOT NULL,
+  status text NOT NULL DEFAULT 'prompted' CHECK (status IN ('prompted','completed','missed','skipped')),
+  attempt int NOT NULL DEFAULT 0,
+  next_attempt_at text,
+  prompted_at text,
+  intent_id text,
+  payment_id text,
+  completed_at text,
+  note text,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS giving_plan_runs_due_idx ON giving_plan_runs(status, next_attempt_at);
+ALTER TABLE give_intents ADD COLUMN IF NOT EXISTS plan_run_id text;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lat double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lng double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_radius_m int;
@@ -998,7 +1047,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

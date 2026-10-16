@@ -165,3 +165,11 @@ needs a float policy for this.
 - **After cancelling an event:** Refund next to an order, or Refund everyone.
 - **Email addresses:** made-up (abc@, test@), example and test domains, throw-away inboxes and + addresses are refused everywhere an address is typed. Use real-looking ones such as `peter.mwangi@acme.co.ke` when testing.
 - **Ticket numbers** can be raised at any time with a reason. An event with sales cannot become free: cancel, refund, then **Copy as a new event**.
+
+## Regular giving (Slice 15)
+
+- **Set one up (member app > Give > Give regularly):** Jane `0711000001`. Choose tithe, offering or the New Sanctuary Roof project (Jane has a pledge for it), the amount, how often (weekly, every two weeks, monthly) and the time (10:00 by default). Tick "Give the first gift now" to see a prompt straight away: in development the simulated phone pays within about 3 seconds.
+- **The scheduled prompt:** in the admin console > Test tools, move the clock forward past the due time. That also runs the scheduler: you will see the prompt go out and the gift appear. If you do not complete it, it is retried at +3 hours, +1 day and +2 days, then marked missed with an SMS (admin console > SMS outbox) and an in-app message.
+- **Pause, skip, change, stop:** open the plan in the app.
+- **What the church sees:** staff app > **Regular giving** (Daniel `0700000001`): plans, expected monthly value, collected and missed this month, CSV.
+- **Not built:** automatic collection (M-Pesa standing order or saved card), which waits for the real payment provider. Cards are not offered for regular gifts for now.

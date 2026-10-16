@@ -338,6 +338,16 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L196. Numbers and free events.** A manager can raise ticket numbers at any time, even after sales begin, with an optional reason that is recorded; the number can never go below what is sold. Once sales begin an event cannot become free: cancel it, refund the buyers and create a new free event, which can be started with "Copy as a new event".
 - **Not decided yet.** Moving a buyer's money to a later event as a credit, and buyers saving a card for next time (to wait for the real payment provider).
 
+### 4.34 Regular giving (decided in discussion; builds on L70)
+
+- **L197. Plans.** A signed-in member sets up a regular gift: an amount, what it is for (tithe, offering, or an open project, which also counts toward their pledge for it), how often (weekly, every two weeks, or monthly on a day from 1 to 28 or the last day), when it starts, an optional end date, and the mobile money number and network it is paid from. A member can have up to five. Non-members cannot set one up.
+- **L198. A prompt, never an automatic charge.** On each due date, at 10:00 Nairobi time unless the member chose another time, ChurchOS sends the phone prompt. The member types their PIN and the gift is recorded like any other: the usual fees, receipt and ledger. Nobody is charged without completing it. Cards are not offered, because a card cannot be charged without the person until the real payment provider supports saved cards.
+- **L199. When a prompt is not completed.** It is sent again 3 hours later, then 1 day and 2 days after the due time. If it is still not completed 3 hours after the last try, the gift is marked missed, and the member is told by SMS and in the app. The plan continues with the next due date. A prompt that was due more than 3 days ago, for example while ChurchOS was off, is marked missed without being sent.
+- **L200. Looking after a plan.** A member can change the amount, number, network and end date, and change the prompt time (it applies from the next prompt). They can skip the next gift, pause (no prompts until resumed; resuming starts from the next due date, never a gift missed while paused), or stop for good. Each is recorded.
+- **L201. A first gift now.** When setting up, the member can also give the first gift straight away. The regular prompts then start after today.
+- **L202. What the church sees.** People who see collections can list plans (member, branch, gift, amount, how often, status, next prompt, gifts completed and missed), with the expected monthly value, what was collected this month and what was missed. Phone numbers are not shown. Staff cannot change a member's plan.
+- **L203. Not in this slice.** Automatic collection (M-Pesa standing orders or a saved card) waits for the real payment provider; plans will then switch over without any change for givers.
+
 
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).

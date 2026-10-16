@@ -11,6 +11,7 @@ import { Bookings } from './Bookings';
 import { CalendarPage } from './CalendarPage';
 import { Dashboard } from './Dashboard';
 import { Collections } from './Collections';
+import { RegularGiving } from './RegularGiving';
 import { Settlements } from './Settlements';
 import { Cash } from './Cash';
 import { Members, Transfers } from './Members';
@@ -42,6 +43,7 @@ const HELP_SCREEN: Record<string, string> = {
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
   { id: 'dashboard', label: 'Dashboard', any: ['collections.view'], el: Dashboard },
   { id: 'collections', label: 'Collections', any: ['collections.view'], el: Collections },
+  { id: 'regular-giving', label: 'Regular giving', any: ['collections.view'], el: RegularGiving },
   { id: 'settlements', label: 'Settlements', any: ['settlements.view'], el: Settlements },
   { id: 'cash', label: 'Cash', any: ['cash.count', 'cash.approve'], el: Cash },
   { id: 'members', label: 'Members', any: ['members.view', 'members.edit'], el: Members },

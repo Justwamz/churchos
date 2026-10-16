@@ -24,6 +24,7 @@ import { shopRoutes } from './routes/shop';
 import { ticketRoutes } from './routes/tickets';
 import { kidsRoutes } from './routes/kids';
 import { ticketRefundRoutes } from './routes/ticket-refunds';
+import { givingPlanRoutes } from './routes/giving-plans';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -64,7 +65,7 @@ export async function buildApp(opts: BuildOptions = {}) {
     const app = req.headers['x-churchos-app'];
     als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: typeof app === 'string' ? app.slice(0, 20) : null, requestId: String(req.id) }, done);
   });
-  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'] });
+  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
 
   // Keep the raw body, the PSP signature is computed over the exact bytes.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -101,6 +102,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   ticketRoutes(app, ctx);
   kidsRoutes(app, ctx);
   ticketRefundRoutes(app, ctx);
+  givingPlanRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

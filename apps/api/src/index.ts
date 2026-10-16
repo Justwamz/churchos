@@ -6,6 +6,7 @@ import { runBookingJobs } from './routes/bookings';
 import { runShopJobs } from './routes/shop';
 import { runTicketJobs } from './routes/tickets';
 import { runKidsJobs } from './routes/kids';
+import { runGivingJobs } from './routes/giving-plans';
 import { seedKidsDemo } from './seed-kids';
 import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 
@@ -19,6 +20,7 @@ setInterval(() => void runMemberHousekeeping(ctx).catch((e) => console.error('ho
 // Scheduled messages go out within 30 seconds of their time (L118).
 setInterval(() => void runScheduledMessages(ctx).catch((e) => console.error('scheduler failed', e)), 30_000).unref();
 setInterval(() => void runTicketJobs(ctx).catch((e) => console.error('ticket scheduler failed', e)), 30_000).unref();
+setInterval(() => void runGivingJobs(ctx).catch((e) => console.error('regular giving scheduler failed', e)), 30_000).unref();
 setInterval(() => void runKidsJobs(ctx).catch((e) => console.error('children scheduler failed', e)), 30_000).unref();
 setInterval(() => void runShopJobs(ctx).catch((e) => console.error('shop scheduler failed', e)), 30_000).unref();
 setInterval(() => void runBookingJobs(ctx).catch((e) => console.error('booking scheduler failed', e)), 30_000).unref();

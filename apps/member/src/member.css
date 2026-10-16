@@ -769,3 +769,29 @@ h3 { font-size: 17px; }
 .tk-group > .note { margin: 0; }
 .ev-postponed { font-size: 14px; font-weight: 700; color: var(--warn); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .struck-soft { text-decoration: line-through; opacity: .7; }
+
+/* ================= regular giving ================= */
+.rg-intro { margin: 0; font-size: 16px; line-height: 1.5; color: var(--ink-2); }
+.rg-list { display: grid; gap: 12px; }
+.rg-card { width: 100%; display: grid; gap: 6px; text-align: left; cursor: pointer; color: var(--ink); min-width: 0; font: inherit; }
+.rg-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.rg-title { min-width: 0; overflow-wrap: anywhere; font-size: 17px; }
+.rg-card-top .badge { flex: none; }
+.rg-line { font-size: 15px; color: var(--ink-2); }
+.rg-line.warn { color: #9a6a00; font-weight: 600; }
+.rg-line-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rg-muted { margin: 8px 0 0; color: var(--ink-3); }
+.rg-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.rg-runs { display: grid; gap: 8px; margin-top: 8px; }
+.rg-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--paper); min-width: 0; }
+.rg-run-main { display: grid; min-width: 0; }
+.rg-run-amt { display: flex; align-items: center; gap: 8px; flex: none; }
+.rg-check { display: flex; align-items: center; gap: 12px; min-height: 44px; font-size: 16px; }
+.rg-check input { width: 22px; height: 22px; flex: none; }
+.rg-entry, .rg-home-btn { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
+.rg-home-btn.wait { background: #fff4d6; border-color: #e5b93c; color: #3d2c00; }
+.rg-home-ico { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-tint); color: var(--brand); }
+.rg-home-btn.wait .rg-home-ico { background: #f6dc8c; color: #7a5300; }
+.rg-home-text { flex: 1; display: grid; min-width: 0; gap: 2px; }
+.rg-home-text strong { overflow-wrap: anywhere; }
+.rg-list li { border: 0; padding: 0; }

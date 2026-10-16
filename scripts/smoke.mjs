@@ -414,5 +414,26 @@ step('A new date keeps the tickets valid and opens a refund window', s14Moved.js
 const s14Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 14 activity', s14Rec.json.ok === true);
 
+// 22. Slice 15: regular giving.
+const s15Me = (await call('GET', '/me', undefined, janeTok)).json;
+const s15Member = s15Me.memberships[0].id;
+const s15Tomorrow = new Date(new Date((await call('GET', '/health')).json.time).getTime() + 86400_000 + 3 * 3600_000);
+const s15Weekday = ((s15Tomorrow.getUTCDay() + 6) % 7) + 1;
+const s15Card = await call('POST', '/me/giving-plans', { membershipId: s15Member, amount: 1000, purpose: 'TITHE', frequency: 'weekly', weekday: s15Weekday, method: 'card' }, janeTok);
+step('Cards are refused for regular giving', s15Card.status === 400 && s15Card.json.code === 'card_not_supported');
+const s15Plan = await call('POST', '/me/giving-plans', { membershipId: s15Member, amount: 1000, purpose: 'TITHE', frequency: 'weekly', weekday: s15Weekday, time: '10:00', method: 'mpesa' }, janeTok);
+step('A member sets up a regular gift that starts tomorrow at 10:00', s15Plan.status === 200 && s15Plan.json.status === 'active' && !!s15Plan.json.nextRunAt);
+const s15Staff = await call('GET', '/giving-plans', undefined, daniel);
+step('The church sees it, without phone numbers', s15Staff.json.plans?.some((p) => p.member === 'Jane Wanjiku') && !JSON.stringify(s15Staff.json).includes('254711000001'));
+const s15Adv = await call('POST', '/admin/clock/advance', { hours: 48 }, admin);
+step('When the day comes the prompt is sent', s15Adv.json.giving?.created >= 1 && s15Adv.json.giving?.prompted >= 1);
+let s15Run = null;
+for (let i = 0; i < 30 && s15Run?.status !== 'completed'; i++) { await sleep(300); s15Run = (await call('GET', `/me/giving-plans/${s15Plan.json.id}/runs`, undefined, janeTok)).json.runs[0]; }
+step('The member pays and the gift is recorded', s15Run?.status === 'completed');
+const s15Pause = await call('POST', `/me/giving-plans/${s15Plan.json.id}/pause`, undefined, janeTok);
+step('The member can pause, and later stop', s15Pause.json.status === 'paused' && (await call('POST', `/me/giving-plans/${s15Plan.json.id}/cancel`, undefined, janeTok)).json.status === 'cancelled');
+const s15Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 15 activity', s15Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);
