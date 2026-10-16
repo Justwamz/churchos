@@ -49,6 +49,9 @@ export const PERMISSIONS = [
   'events.checkin',
   'kids.checkin',
   'kids.manage',
+  'attendance.view',
+  'attendance.manage',
+  'attendance.checkin',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -85,6 +88,9 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'events.view': { group: 'Community', label: 'See events' },
   'events.checkin': { group: 'Community', label: 'Check people in at the door', hint: 'Scan tickets. Does not show anything else.' },
   'kids.checkin': { group: 'Community', label: 'Check children in and out', hint: 'Sunday school teachers. Scan guardians and hand children over.' },
+  'attendance.view': { group: 'Community', label: 'See attendance and visitors', hint: 'Who came, first-time visitors, regular members who stopped coming, and the Monday report.' },
+  'attendance.manage': { group: 'Community', label: 'Manage services and attendance', hint: 'Set the weekly schedule, add readings and notices, and set the welcome message.' },
+  'attendance.checkin': { group: 'Community', label: 'Record attendance at the door', hint: 'Ushers. Scan members, add visitors and type the headcount.' },
   'kids.manage': { group: 'Community', label: "Manage children's classes", hint: 'Set up classes and teachers, see the check-in log and late pick-ups.' },
   'events.manage': { group: 'Community', label: 'Create and manage events' },
   'adverts.view': { group: 'Community', label: 'See adverts' },
@@ -109,11 +115,12 @@ export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   // Only the organisation owner sees or changes payout destinations (L35).
   'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
   Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
-  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'bookings.view'],
+  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   "Children's Teacher": ['kids.checkin'],
+  Usher: ['attendance.checkin'],
   Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
-  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin', 'kids.checkin', 'kids.manage'],
+  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin'],
 };
 
 export interface Session {

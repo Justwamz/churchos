@@ -435,5 +435,40 @@ step('The member can pause, and later stop', s15Pause.json.status === 'paused' &
 const s15Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 15 activity', s15Rec.json.ok === true);
 
+// 23. Slice 16: attendance.
+const s16Now = new Date((await call('GET', '/health')).json.time).getTime();
+const s16Svc = await call('POST', '/attendance/services', { branchId: 'br_grc001', name: 'Smoke service', startsAt: new Date(s16Now + 10 * 60000).toISOString(), durationMin: 60, streamUrl: 'https://www.youtube.com/watch?v=smoke' }, daniel);
+step('A manager adds a service', s16Svc.status === 200 && !!s16Svc.json.id);
+const s16Id = s16Svc.json.id;
+const s16List = (await call('GET', '/attendance/services', undefined, daniel)).json.services.find((x) => x.id === s16Id);
+step('Its check-in window is open before it starts', s16List?.state === 'open' && !!s16List.liveLink);
+await call('PUT', `/attendance/services/${s16Id}/reading`, { title: 'Psalm 23', ref: 'Psalm 23', body: 'Notices for the week.', release: 'now' }, daniel);
+const s16Check = await call('POST', `/me/services/${s16Id}/check-in`, {}, janeTok);
+step('A member checks in and sees the reading', s16Check.status === 200 && s16Check.json.reading?.title === 'Psalm 23');
+const s16Code = (await call('POST', '/me/attendance/qr', {}, await login('0711000002'))).json.token;
+const s16Scan = await call('POST', `/attendance/services/${s16Id}/scan`, { token: s16Code }, daniel);
+step('An usher scans a member code', s16Scan.json.result === 'ok');
+const s16Vis = await call('POST', `/attendance/services/${s16Id}/visitor`, { name: 'Smoke Visitor', phone: '0712 999 888' }, daniel);
+const s16Sms = (await call('GET', '/admin/sms-outbox', undefined, admin)).json.find((x) => /welcome to Grace Community Church/i.test(x.body) && /Smoke/.test(x.body));
+step('A first-time visitor is welcomed by SMS automatically', s16Vis.json.first === true && !!s16Sms);
+await call('PUT', `/attendance/services/${s16Id}/headcount`, { adults: 60, children: 20, visitors: 3 }, daniel);
+const s16Door = (await call('GET', `/attendance/services/${s16Id}/door`, undefined, daniel)).json;
+const s16Tok = s16Door.url.split('/here/')[1];
+const s16Here = await call('POST', `/public/here/${s16Tok}`, { name: 'Door Visitor', phone: '0723 111 000' });
+step('A visitor scans the door code and is counted', s16Here.json.status === 'recorded' && s16Here.json.first === true);
+const s16Live = await call('POST', `/public/live/${s16List.code}`, { name: 'Online Visitor', phone: '0734 222 111' });
+step('The live link counts a viewer and sends them to YouTube', s16Live.json.counted === true && s16Live.json.url.includes('youtube.com'));
+const s16After = (await call('GET', '/attendance/services', undefined, daniel)).json.services.find((x) => x.id === s16Id);
+step('The service shows members, visitors, online and the headcount', s16After.counts.members === 2 && s16After.counts.visitors === 2 && s16After.counts.online === 1 && s16After.headcount.total === 83);
+const s16Sum = await call('GET', '/attendance/summary', undefined, daniel);
+step('The dashboard has the weeks and last week report', s16Sum.json.weeks.length === 8 && s16Sum.json.lastWeek.services.length > 0);
+const s16Care = await call('GET', '/attendance/care', undefined, daniel);
+step('Regular members who stopped coming are listed', s16Care.json.members.some((x) => x.name === 'Peter Otieno'));
+const s16Mail = await call('POST', '/attendance/report/send-now', {}, daniel);
+step('A manager can send themselves last week\'s report', s16Mail.status === 200 && s16Mail.json.sent === true);
+await call('PATCH', `/attendance/services/${s16Id}`, { status: 'cancelled' }, daniel);
+const s16Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 16 activity', s16Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

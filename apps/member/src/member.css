@@ -795,3 +795,28 @@ h3 { font-size: 17px; }
 .rg-home-text { flex: 1; display: grid; min-width: 0; gap: 2px; }
 .rg-home-text strong { overflow-wrap: anywhere; }
 .rg-list li { border: 0; padding: 0; }
+
+/* ---- Services: check in, reading, bring a friend (Services.tsx) ---- */
+.svc-page .svc-card { display: grid; gap: 10px; min-width: 0; }
+.svc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.svc-title { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; font-size: 17px; }
+.svc-top .badge { flex: none; max-width: 45%; text-align: center; white-space: normal; }
+.svc-when { font-size: 16px; font-weight: 600; color: var(--ink-2); }
+.svc-in { display: inline-flex; align-items: center; gap: 4px; }
+.svc-reading { display: grid; gap: 4px; justify-items: start; padding: 12px; border-radius: 14px; background: var(--paper); min-width: 0; overflow-wrap: anywhere; }
+.svc-wait { margin: 0; }
+.svc-here { gap: 10px; }
+.svc-here > .btn { min-height: 60px; font-size: 19px; }
+.svc-problem { display: grid; gap: 10px; padding: 12px; border-radius: 12px; background: var(--warn-tint); color: var(--ink); font-size: 15px; line-height: 1.4; overflow-wrap: anywhere; }
+.svc-alts { display: flex; flex-wrap: wrap; gap: 8px; }
+.svc-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.svc-actions .btn { flex: 1 1 150px; width: auto; }
+.svc-body { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 17px; line-height: 1.6; }
+.svc-msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 12px; background: var(--paper); font-size: 15px; line-height: 1.45; }
+.svc-invite .btn { text-align: center; }
+.svc-qrbox { display: grid; justify-items: center; gap: 8px; }
+.svc-invite-qr { width: min(240px, 100%); aspect-ratio: 1; height: auto; }
+.svc-usher .fam-qr, .svc-usher .fam-bar { width: min(210px, 100%); }
+@media screen and (min-width: 700px) { .svc-usher .fam-qr, .svc-usher .fam-bar { width: min(300px, 100%); } }
+.svc-actions .btn { white-space: nowrap; padding-inline: 12px; }
+@media screen and (min-width: 700px) { .stack.home > .fam-home { order: 2; } }

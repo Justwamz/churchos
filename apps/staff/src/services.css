@@ -1,0 +1,48 @@
+.sv { display: grid; gap: 14px; }
+.sv-top { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.sv-top select { min-height: 40px; max-width: 100%; }
+.sv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.sv-card { display: grid; gap: 8px; align-content: start; }
+.sv-card.off { opacity: 0.65; }
+.sv-card h3 { margin: 0; overflow-wrap: anywhere; }
+.sv-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.sv-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.sv-day { display: grid; gap: 8px; }
+.sv-day > h3 { font-size: 16px; margin: 8px 0 0; }
+.sv-row { display: grid; grid-template-columns: 1fr auto; gap: 8px 14px; align-items: center; border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--surface); }
+.sv-row.cancelled { opacity: 0.7; background: var(--paper); }
+.sv-row.cancelled .sv-title { text-decoration: line-through; }
+.sv-main { min-width: 0; display: grid; gap: 4px; }
+.sv-name { font-weight: 700; font-size: 16px; overflow-wrap: anywhere; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.sv-meta { display: flex; gap: 6px 12px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); }
+.sv-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; max-width: 330px; }
+@media (max-width: 900px) { .sv-row { grid-template-columns: 1fr; } .sv-btns { justify-content: flex-start; max-width: none; } }
+.sv-btns .btn, .sv-actions .btn { min-height: 38px; }
+.sv-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.sv-days .chip { min-width: 52px; text-align: center; padding: 8px 10px; }
+.sv-sentence { background: var(--brand-tint); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.sv-adv { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.sv-adv summary { cursor: pointer; font-weight: 700; }
+.sv-adv .stack { margin-top: 10px; }
+.sv-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .sv-two { grid-template-columns: 1fr; } }
+.sv-radios { display: grid; gap: 8px; }
+.sv-radio { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; background: var(--surface); }
+.sv-radio.on { border-color: var(--brand); background: var(--brand-tint); }
+.sv-radio input { width: auto; min-height: 0; margin: 0; }
+.sv-check { display: flex; gap: 10px; align-items: center; cursor: pointer; }
+.sv-check input { width: auto; min-height: 0; margin: 0; }
+.sv-modal textarea, .sv-welcome textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.sv-switch { display: flex; gap: 12px; align-items: center; cursor: pointer; position: relative; }
+.sv-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.sv-track { flex: none; width: 48px; height: 28px; border-radius: 999px; background: var(--line); position: relative; transition: background 0.15s; }
+.sv-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: left 0.15s; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.sv-switch input:checked + .sv-track { background: var(--brand); }
+.sv-switch input:checked + .sv-track::after { left: 23px; }
+.sv-switch input:focus-visible + .sv-track { outline: 2px solid var(--brand); outline-offset: 2px; }
+.sv-vars { display: flex; gap: 8px; flex-wrap: wrap; }
+.sv-vars .chip { font-family: ui-monospace, monospace; }
+.sv-preview { background: var(--paper); border: 1px dashed var(--line); border-radius: 12px; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sv-welcome { max-width: 680px; }
+.sv-welcome textarea { min-height: 120px; }
+.sv-count.over { color: var(--warn); font-weight: 700; }

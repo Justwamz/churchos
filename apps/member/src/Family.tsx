@@ -49,7 +49,7 @@ type GeoState = 'looking' | 'ok' | 'denied' | 'unavailable';
 const GEO_MAX_AGE = 2 * 60 * 1000;
 
 /** Watches this phone's location while the screen is shown. Never blocks anything: callers just ask for the latest fresh reading. */
-function useGeo() {
+export function useGeo() {
   const supported = typeof navigator !== 'undefined' && 'geolocation' in navigator;
   const last = useRef<Fix | null>(null);
   const waiters = useRef<Array<() => void>>([]);

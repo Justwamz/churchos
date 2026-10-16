@@ -32,6 +32,9 @@ import { AuditPage } from './Audit';
 import { Team } from './Team';
 import { Shop } from './Shop';
 import { Checkin } from './Checkin';
+import { Services } from './Services';
+import { Usher } from './Usher';
+import { Attendance } from './Attendance';
 import { Children } from './Children';
 
 const HELP_SCREEN: Record<string, string> = {
@@ -59,6 +62,9 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'resources', label: 'Resources', any: ['bookings.view', 'resources.manage'], el: Resources },
   { id: 'shop', label: 'Shop', any: ['shop.view', 'shop.sell', 'shop.manage'], el: Shop },
   { id: 'checkin', label: 'Check-in', any: ['events.checkin'], el: Checkin },
+  { id: 'attendance', label: 'Attendance', any: ['attendance.view'], el: Attendance },
+  { id: 'services', label: 'Services', any: ['attendance.manage'], el: Services },
+  { id: 'usher', label: 'Usher', any: ['attendance.checkin'], el: Usher },
   { id: 'children', label: 'Children', any: ['kids.checkin', 'kids.manage'], el: Children },
   { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: Adverts },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },

@@ -173,3 +173,13 @@ needs a float policy for this.
 - **Pause, skip, change, stop:** open the plan in the app.
 - **What the church sees:** staff app > **Regular giving** (Daniel `0700000001`): plans, expected monthly value, collected and missed this month, CSV.
 - **Not built:** automatic collection (M-Pesa standing order or saved card), which waits for the real payment provider. Cards are not offered for regular gifts for now.
+
+## Attendance (Slice 16)
+
+- **The schedule (staff app > Services, Daniel `0700000001`):** Grace Nairobi already has Sunday 8:00, Sunday 10:30 (with a YouTube link) and Wednesday prayer for the rest of the year, plus six past weeks of check-ins, visitors and headcounts. Create or change schedules for a week, month or year, add a special service, write a reading and choose when members see it (a day before, an hour before, 20 minutes before, or now), and edit the welcome SMS.
+- **Members check in (member app > Services, Jane `0711000001`):** check-in opens 20 minutes before a service. Add a special service starting in 10 minutes under Services to try it. Where the branch has a location (staff app > Children > Branch location) the phone must be inside it, otherwise show the usher code.
+- **At the door (staff app > Usher):** scan a member's code, find a member by name, add a visitor (a first-time visitor is sent the welcome SMS: admin console > SMS outbox), type the headcount, and show the **door screen**. Scan the door QR code with a phone camera to check in as a visitor.
+- **Bring a friend and the live link:** in the member app, Bring a friend gives a link and QR. The public pages are `/here/<code>` and `/live/<service code>` (the church-wide link is `/live/b-GRC001`).
+- **Visitors and the care list (staff app > Attendance):** first-time visitors to follow up, regular members who stopped coming (Peter Otieno in the demo), the weekly trend, and the Monday email switch.
+- **The Monday report:** it is emailed at 7:00 am Nairobi time on Mondays to people who can see attendance. In the admin console > Test tools, move the clock to a Monday after 7:00 am to send it, and read it in the Email outbox; or use "Send me last week's report now".
+- **Not built:** reading of the day from a lectionary, YouTube viewer numbers pulled automatically, and a kiosk mode.

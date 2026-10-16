@@ -25,6 +25,7 @@ import { ticketRoutes } from './routes/tickets';
 import { kidsRoutes } from './routes/kids';
 import { ticketRefundRoutes } from './routes/ticket-refunds';
 import { givingPlanRoutes } from './routes/giving-plans';
+import { attendanceRoutes } from './routes/attendance';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -59,7 +60,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   });
 
   ledger.auditContext = auditContext;
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 6 * 1024 * 1024 });
+  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 6 * 1024 * 1024, maxParamLength: 600 });
   // Every event written while handling a request carries where it came from (L104).
   app.addHook('onRequest', (req, _reply, done) => {
     const app = req.headers['x-churchos-app'];
@@ -103,6 +104,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   kidsRoutes(app, ctx);
   ticketRefundRoutes(app, ctx);
   givingPlanRoutes(app, ctx);
+  attendanceRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Checkout } from './Checkout';
+import { HerePage, LivePage } from './Attend';
 import { EventPage, OrderPage, TicketPage } from './Tickets';
 import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 import { networkMismatch, phoneHint } from '@churchos/shared';
@@ -66,6 +67,8 @@ export function App() {
         <Route path="/checkout/:id" element={<Checkout />} />
         <Route path="/t/:token" element={<TicketPage />} />
         <Route path="/tickets/:secret" element={<OrderPage />} />
+        <Route path="/here/:token" element={<HerePage />} />
+        <Route path="/live/:code" element={<LivePage />} />
         <Route path="/:code" element={<GivePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

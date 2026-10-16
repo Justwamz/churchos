@@ -14,9 +14,10 @@ import type { ShopIntent } from './Shop';
 import { Icon, Sheet, Skeleton } from './ui';
 import { FamilyPage, HomeKids, useFamilies } from './Family';
 import { HomeRegular, RegularGiving } from './RegularGiving';
+import { HomeServices, ServicesPage } from './Services';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
-type Tab = 'home' | 'give' | 'kids' | 'inbox' | 'groups' | 'me';
+type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
 type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets';
 type GiveSub = 'give' | 'pledges' | 'history' | 'regular';
 type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
@@ -24,12 +25,13 @@ type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
 const TABS: { key: Tab; label: string; ico: string }[] = [
   { key: 'home', label: 'Home', ico: 'home' },
   { key: 'give', label: 'Give', ico: 'give' },
+  { key: 'services', label: 'Services', ico: 'calendar' },
   { key: 'kids', label: 'Children', ico: 'family' },
   { key: 'inbox', label: 'Messages', ico: 'chat' },
   { key: 'groups', label: 'Groups', ico: 'groups' },
   { key: 'me', label: 'Me', ico: 'me' },
 ];
-const TITLES: Record<Tab, string> = { home: 'Home', give: 'Give', kids: 'Children', inbox: 'Messages', groups: 'Groups', me: 'Me' };
+const TITLES: Record<Tab, string> = { home: 'Home', give: 'Give', services: 'Services', kids: 'Children', inbox: 'Messages', groups: 'Groups', me: 'Me' };
 
 const METHODS = [
   { key: 'mpesa', label: 'M-Pesa' },
@@ -155,6 +157,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
             <>
               {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <EventsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
+              {tab === 'services' && <ServicesPage hasMembership={!!me.data?.memberships?.length} />}
               {tab === 'kids' && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
               {tab === 'groups' && <Groups />}
@@ -216,6 +219,7 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
       </div>
 
       <AdvertSlider onShop={openShop} />
+      <HomeServices onOpen={() => go('services')} />
       <HomeKids families={families} onOpen={() => go('kids')} />
       <HomeTickets onOpen={() => openSub('tickets')} />
       <HomeRegular onOpen={() => go('give', { sub: 'regular' })} />

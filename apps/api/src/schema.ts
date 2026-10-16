@@ -1039,6 +1039,107 @@ CREATE TABLE IF NOT EXISTS giving_plan_runs (
 );
 CREATE INDEX IF NOT EXISTS giving_plan_runs_due_idx ON giving_plan_runs(status, next_attempt_at);
 ALTER TABLE give_intents ADD COLUMN IF NOT EXISTS plan_run_id text;
+-- Attendance (L204 to L216): the schedule, each service, who came, visitors, and the church's settings.
+CREATE TABLE IF NOT EXISTS service_schedules (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  name text NOT NULL,
+  weekday int NOT NULL,
+  start_time text NOT NULL,
+  duration_min int NOT NULL DEFAULT 90,
+  stream_url text,
+  opens_before_min int NOT NULL DEFAULT 20,
+  closes_after_min int NOT NULL DEFAULT 120,
+  active boolean NOT NULL DEFAULT true,
+  created_by text NOT NULL,
+  created_at text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS services (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  schedule_id text,
+  code text NOT NULL UNIQUE,
+  name text NOT NULL,
+  starts_at text NOT NULL,
+  ends_at text NOT NULL,
+  status text NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','cancelled')),
+  opens_at text NOT NULL,
+  closes_at text NOT NULL,
+  stream_url text,
+  reading_title text,
+  reading_ref text,
+  reading_body text,
+  reading_release text NOT NULL DEFAULT 'day_before' CHECK (reading_release IN ('now','day_before','hour_before','minutes_20')),
+  headcount_adults int,
+  headcount_children int,
+  headcount_visitors int,
+  headcount_by text,
+  headcount_at text,
+  online_peak int,
+  created_by text NOT NULL,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS services_when_idx ON services(org_id, starts_at);
+CREATE TABLE IF NOT EXISTS visitors (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  name text NOT NULL,
+  phone text NOT NULL,
+  invited_by text,
+  first_service_id text,
+  first_seen_at text NOT NULL,
+  last_seen_at text NOT NULL,
+  visits int NOT NULL DEFAULT 1,
+  status text NOT NULL DEFAULT 'new' CHECK (status IN ('new','contacted','returning','member','not_interested')),
+  welcome_status text NOT NULL DEFAULT 'off' CHECK (welcome_status IN ('off','sent','not_sent')),
+  welcome_at text,
+  contacted_by text,
+  contacted_by_name text,
+  contacted_at text,
+  note text,
+  membership_id text,
+  created_at text NOT NULL,
+  UNIQUE (org_id, phone)
+);
+CREATE TABLE IF NOT EXISTS attendance (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  service_id text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('member','visitor')),
+  membership_id text,
+  visitor_id text,
+  name text NOT NULL,
+  mode text NOT NULL DEFAULT 'in_person' CHECK (mode IN ('in_person','online')),
+  via text NOT NULL,
+  invited_by text,
+  location text,
+  at text NOT NULL,
+  by_user text,
+  by_name text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS attendance_member_once ON attendance(service_id, membership_id, mode) WHERE membership_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS attendance_visitor_once ON attendance(service_id, visitor_id, mode) WHERE visitor_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS attendance_service_idx ON attendance(service_id);
+CREATE TABLE IF NOT EXISTS attendance_settings (
+  org_id text PRIMARY KEY,
+  welcome_enabled boolean NOT NULL DEFAULT true,
+  welcome_template text NOT NULL,
+  updated_by text,
+  updated_at text
+);
+CREATE TABLE IF NOT EXISTS attendance_prefs (
+  user_id text PRIMARY KEY,
+  weekly_email boolean NOT NULL DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS attendance_report_runs (
+  key text PRIMARY KEY,
+  sent_at text NOT NULL
+);
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lat double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lng double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_radius_m int;
@@ -1047,7 +1148,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);
