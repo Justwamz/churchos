@@ -495,5 +495,39 @@ step('The whole ledger checks out', (await call('GET', '/giving-ledger/verify', 
 const s17Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 17 activity', s17Rec.json.ok === true);
 
+// 25. Slice 18: prayer, meeting links on bookings, and the suggestion box.
+const s18Pastor = await login('0700000009');
+const s18Peter = await login('0711000002');
+const s18Info = await call('GET', '/me/pastoral/info', undefined, janeTok);
+step('Members see the privacy notice and the helplines', /private/.test(s18Info.json.notice) && s18Info.json.helplines.length >= 3);
+const s18Team = await call('POST', '/me/prayer', { body: 'Smoke test: please pray for my family', audience: 'team', anonymous: true }, janeTok);
+step('A member sends an anonymous prayer request to the prayer team', s18Team.status === 200);
+const s18Seen = (await call('GET', '/prayer', undefined, s18Pastor)).json.requests.find((r) => r.id === s18Team.json.id);
+step('The prayer team reads it as "A member"', s18Seen?.author === 'A member' && s18Seen?.audience === 'team');
+step('Other members cannot see it', !(await call('GET', '/me/prayer', undefined, s18Peter)).json.requests.some((r) => r.id === s18Team.json.id));
+step('A branch admin is not on the prayer team', [403, 404].includes((await call('GET', '/prayer', undefined, await login('0700000003'))).status));
+const s18Church = await call('POST', '/me/prayer', { body: 'Smoke test: for the whole church', audience: 'church' }, janeTok);
+const s18Pray = await call('POST', `/me/prayer/${s18Church.json.id}/pray`, undefined, s18Peter);
+step('People can tap I prayed', s18Pray.json.prayers === 1);
+const s18Sug = await call('POST', '/me/suggestions', { category: 'worship', body: 'Smoke test: could we add a second service on Saturday evening?', anonymous: true }, janeTok);
+const s18Row = (await call('GET', '/suggestions', undefined, daniel)).json.suggestions.find((x) => x.id === s18Sug.json.id);
+step('An anonymous suggestion reaches the church with no name', s18Row?.author === 'Anonymous');
+await call('POST', `/suggestions/${s18Sug.json.id}`, { status: 'done', response: 'We are trying it next month.', publish: true }, daniel);
+const s18Mine = (await call('GET', '/me/suggestions', undefined, janeTok)).json.suggestions.find((x) => x.id === s18Sug.json.id);
+step('The sender still sees the answer', s18Mine?.status === 'done' && /next month/.test(s18Mine.response));
+step('The answer is shared as You said, we did', (await call('GET', '/me/suggestions/published', undefined, s18Peter)).json.suggestions.some((x) => x.id === s18Sug.json.id));
+const s18Day = new Date(new Date((await call('GET', '/health')).json.time).getTime() + 10 * 86400_000 + 3 * 3600_000);
+while (s18Day.getUTCDay() !== 1) s18Day.setUTCDate(s18Day.getUTCDate() + 1);
+const s18Start = new Date(Date.UTC(s18Day.getUTCFullYear(), s18Day.getUTCMonth(), s18Day.getUTCDate(), 10 - 3, 0)).toISOString();
+const s18Book = await call('POST', '/me/bookings', { resourceIds: ['res_pastor'], startsAt: s18Start, endsAt: new Date(Date.parse(s18Start) + 30 * 60000).toISOString(), title: 'Smoke counselling' }, janeTok);
+await call('POST', `/bookings/${s18Book.json.id}/items/res_pastor/decide`, { approve: true }, daniel);
+const s18Link = await call('POST', `/bookings/${s18Book.json.id}/meeting-link`, { url: 'https://meet.google.com/abc-defg-hij' }, daniel);
+const s18Mine2 = (await call('GET', '/me/bookings', undefined, janeTok)).json.find((x) => x.id === s18Book.json.id);
+step('A pastor adds a meeting link and the member sees it', s18Link.status === 200 && s18Mine2?.meetingUrl === 'https://meet.google.com/abc-defg-hij');
+step('Someone else cannot see the link', !JSON.stringify((await call('GET', '/me/bookings', undefined, s18Peter)).json).includes('abc-defg-hij'));
+await call('POST', `/me/bookings/${s18Book.json.id}/cancel`, undefined, janeTok);
+const s18Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 18 activity', s18Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

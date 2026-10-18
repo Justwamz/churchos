@@ -15,6 +15,7 @@ import { runTicketJobs } from './tickets';
 import { runKidsJobs } from './kids';
 import { runGivingJobs } from './giving-plans';
 import { runAttendanceJobs } from './attendance';
+import { runPrayerJobs } from './prayer';
 
 function validSchedule(s: any): s is FeeSchedule {
   const rule = s?.platform;
@@ -180,7 +181,8 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const kids = await runKidsJobs(ctx);
     const giving = await runGivingJobs(ctx);
     const attendance = await runAttendanceJobs(ctx);
-    return { community, bookings, shop, tickets, kids, giving, attendance, now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, messagesSent, ...housekeeping };
+    const prayer = await runPrayerJobs(ctx);
+    return { community, bookings, shop, tickets, kids, giving, attendance, prayer, now: ctx.clock.now().toISOString(), offsetHours: ctx.clock.offsetHours, released, messagesSent, ...housekeeping };
   });
 
   app.post('/admin/provider/fail-next-payout', devAdm, async () => {

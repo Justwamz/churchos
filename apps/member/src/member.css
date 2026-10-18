@@ -838,3 +838,39 @@ h3 { font-size: 17px; }
 .gr-tot li { display: flex; justify-content: space-between; gap: 12px; }
 .gr-neg { color: var(--bad); opacity: 0.85; }
 .gr-rev strong { color: var(--ink-2); }
+
+/* prayer, suggestions, pastoral */
+.pr-top { display: grid; gap: 10px; }
+.pr-help { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.pr-help-head { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; background: none; border: 0; color: var(--ink); font: inherit; cursor: pointer; text-align: left; }
+.pr-chev { display: inline-flex; transition: transform 0.2s; color: var(--ink-3); }
+.pr-chev.open { transform: rotate(90deg); }
+.pr-help-body { padding: 0 14px 14px; display: grid; gap: 10px; }
+.pr-notice { margin: 0; line-height: 1.5; color: var(--ink-2); }
+.pr-lines { display: grid; gap: 8px; }
+.pr-lines li { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pr-line-main { display: grid; min-width: 0; }
+.pr-call { text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+.pr-compose { display: grid; gap: 14px; }
+.pr-compose textarea, .pr-compose select { width: 100%; }
+.pr-count { text-align: right; }
+.pr-aud { display: grid; gap: 4px; }
+.pr-aud select { margin-top: 4px; }
+.pr-list { display: grid; gap: 12px; }
+.pr-card { display: grid; gap: 6px; }
+.pr-muted { color: var(--ink-3); background: var(--brand-tint); box-shadow: none; }
+.pr-top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.pr-meta { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none; max-width: 60%; }
+.pr-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.pr-quote { margin: 4px 0 0; padding: 8px 12px; border-left: 4px solid var(--brand); background: var(--brand-tint); border-radius: 0 10px 10px 0; color: var(--ink); overflow-wrap: anywhere; }
+.pr-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.pr-pray { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.pr-danger { color: #c0392b; }
+.pr-home { display: grid; gap: 14px; }
+.pr-big { font-size: 40px; }
+.bk-join { display: grid; gap: 4px; justify-items: start; }
+.bk-join-btn { text-decoration: none; display: inline-flex; align-items: center; min-height: 48px; font-size: 17px; }
+.bk-link { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.bk-ok { color: var(--brand); font-weight: 600; margin: 0; }
+.pr-call { width: auto; flex: none; padding: 0 16px; min-width: 84px; justify-content: center; }
+.pr-lines li { flex-wrap: nowrap; }

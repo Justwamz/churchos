@@ -2,7 +2,7 @@
 // - The app shell and icons are cached, so the installed app opens instantly and shows its screens offline.
 // - Sign-in, personal data and every non-GET request are never cached.
 // - Public reads (church pages) go network first and fall back to the last copy.
-const VERSION = 'v15';
+const VERSION = 'v16';
 const SHELL_CACHE = `churchos-member-shell-${VERSION}`;
 const PUBLIC_CACHE = `churchos-member-public-${VERSION}`;
 const SHELL = [

@@ -193,3 +193,11 @@ needs a float policy for this.
 - **Cash from known givers (staff app > Cash):** name Jane and David on a count, have a second person (Samuel) sign it off, and the lines appear in their records.
 - **Cannot be changed:** the ledger refuses edits and deletions at the database level; reversals add a new line.
 - **Not built:** an annual statement PDF, and revealing an anonymous gift later (decided against).
+
+## Prayer, pastoral bookings and the suggestion box (Slice 18)
+
+- **No care inbox and no chat, by decision.** Talking to a pastor is a booking: member app > Bookings > book "Pastor Daniel". Approve it (Daniel `0700000001` in the staff app, or the member app's diary), then add a **meeting link** (any https link). Jane sees "Join the meeting". Only she and the people who look after it see the link.
+- **Prayer (member app, staff app > Prayer):** write a request for the prayer team only, a group (Prayer Warriors: Jane and David), the branch or the whole church, with or without your name; tap I prayed; mark answered. Pastor Mary `0700000009` is on the prayer team: she sees the team-only requests (including an anonymous one from Amina, shown as "A member"), can mark answered or hide with a reason. Samuel `0700000003` (branch admin) cannot see the Prayer page.
+- **Suggestion box (member app, staff app > Suggestions):** send a named or anonymous suggestion; staff reply with a status, and can share an answer as "You said, we did". Anonymous means untraceable, yet the sender still sees the reply under My suggestions.
+- **Helplines and the privacy notice:** shown when booking a pastor and on the prayer screen. Edit the numbers under the booking settings (Daniel). The standard ones must be confirmed before launch.
+- **Not built, by decision:** a care inbox, chat, video, safeguarding flags and a "pastor on duty". Counselling for a child on its own is not part of this slice.

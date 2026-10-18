@@ -8,8 +8,10 @@ import { runTicketJobs } from './routes/tickets';
 import { runKidsJobs } from './routes/kids';
 import { runGivingJobs } from './routes/giving-plans';
 import { runAttendanceJobs } from './routes/attendance';
+import { runPrayerJobs } from './routes/prayer';
 import { seedKidsDemo } from './seed-kids';
 import { seedAttendanceDemo } from './seed-attendance';
+import { seedPastoralDemo } from './seed-pastoral';
 import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 
 const port = Number(process.env.PORT ?? 4000);
@@ -17,12 +19,14 @@ const { app, ctx } = await buildApp({ logger: false });
 await seed(ctx);
 await seedKidsDemo(ctx);
 await seedAttendanceDemo(app, ctx);
+await seedPastoralDemo(ctx);
 await runMemberHousekeeping(ctx);
 // Graduation and birthday wishes run hourly. The platform clock can be advanced in development, so this uses it too.
 setInterval(() => void runMemberHousekeeping(ctx).catch((e) => console.error('housekeeping failed', e)), 3600_000).unref();
 // Scheduled messages go out within 30 seconds of their time (L118).
 setInterval(() => void runScheduledMessages(ctx).catch((e) => console.error('scheduler failed', e)), 30_000).unref();
 setInterval(() => void runTicketJobs(ctx).catch((e) => console.error('ticket scheduler failed', e)), 30_000).unref();
+setInterval(() => void runPrayerJobs(ctx).catch((e) => console.error('prayer clean-up failed', e)), 3600_000).unref();
 setInterval(() => void runAttendanceJobs(ctx).catch((e) => console.error('attendance scheduler failed', e)), 60_000).unref();
 setInterval(() => void runGivingJobs(ctx).catch((e) => console.error('regular giving scheduler failed', e)), 30_000).unref();
 setInterval(() => void runKidsJobs(ctx).catch((e) => console.error('children scheduler failed', e)), 30_000).unref();

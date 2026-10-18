@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, ErrorNote, Note, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
 import { Icon, Sheet, Skeleton } from './ui';
+import { PastoralInfo } from './Prayer';
 
 const TZ = 'Africa/Nairobi';
 const EAT_MS = 3 * 3600_000;
@@ -187,6 +188,7 @@ function BookForm({ r, all, onBooked, onSeeMine, onClose }: { r: any; all: any[]
   const [error, setError] = useState<string | undefined>();
   const [result, setResult] = useState<any | null>(null);
   const [tick, setTick] = useState(0);
+  const pastoral = useAsync<any>(() => (r.kind === 'person' ? api.get('/me/pastoral/info') : Promise.resolve(undefined)), [r.id]);
 
   const av = useAsync<any>(() => api.get(`/me/resources/${encodeURIComponent(r.id)}/availability?date=${date}&minutes=${minutes}`), [date, minutes, tick]);
   useEffect(() => { setSlot(null); }, [date, minutes, tick]);
@@ -320,6 +322,7 @@ function BookForm({ r, all, onBooked, onSeeMine, onClose }: { r: any; all: any[]
             )}
           </div>
         )}
+        {r.kind === 'person' && pastoral.data && <PastoralInfo info={pastoral.data} title="Before you book" />}
         {error && <ErrorNote>{error}</ErrorNote>}
       </div>
       <div className="bk-submit">
@@ -363,6 +366,12 @@ function BookingCard({ b, onCancel }: { b: any; onCancel: () => void }) {
       {b.attendees ? <div className="tiny">{b.attendees} people</div> : null}
       {b.price ? <div className="tiny">{money(b.price)}{b.paid ? ' · Paid' : ''}</div> : null}
       {showReason && <Note tone={b.status === 'declined' ? 'bad' : 'info'}>{b.reason}</Note>}
+      {b.meetingUrl && ['awaiting_payment', 'confirmed', 'approved'].includes(b.status) && (
+        <div className="bk-join">
+          <a className="btn primary bk-join-btn" href={b.meetingUrl} target="_blank" rel="noopener noreferrer">Join the meeting</a>
+          <span className="tiny">{dateLong(b.startsAt)}, {timeOf(b.startsAt)}</span>
+        </div>
+      )}
       {b.status === 'awaiting_payment' && (
         <div className="bk-pay">
           {b.holdUntil && <p className="tiny">Time is held until {dateLong(b.holdUntil)}, {timeOf(b.holdUntil)}</p>}
@@ -456,12 +465,44 @@ function DiaryTabView({ rows, reload }: { rows: any[]; reload: () => void }) {
                 <div className="tiny">{whenText(b)}</div>
                 <div className="tiny">{b.requester}{b.attendees ? ` · ${b.attendees} people` : ''}</div>
                 {b.note && <p className="bk-note">{b.note}</p>}
+                {['approved', 'awaiting_payment', 'confirmed'].includes(b.status) && new Date(b.endsAt).getTime() >= Date.now() && <MeetingLink b={b} onDone={reload} />}
               </li>
             ))}
           </ul>
         )}
       </section>
       <DeclineSheet b={decline} onClose={() => setDecline(null)} onDone={reload} />
+    </div>
+  );
+}
+
+function MeetingLink({ b, onDone }: { b: any; onDone: () => void }) {
+  const [url, setUrl] = useState<string>(b.meetingUrl ?? '');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | undefined>();
+  useEffect(() => setUrl(b.meetingUrl ?? ''), [b.meetingUrl]);
+  const save = async (clear: boolean) => {
+    setBusy(true); setMsg(undefined);
+    try {
+      await api.post(`/bookings/${encodeURIComponent(b.id)}/meeting-link`, { url: clear ? null : url.trim() });
+      if (clear) setUrl('');
+      setMsg({ ok: true, text: clear ? 'Link removed.' : 'Link saved. The member can now join.' });
+      onDone();
+    } catch (err: any) { setMsg({ ok: false, text: err?.code === 'bad_link' ? 'The link must start with https://' : errText(err) }); }
+    setBusy(false);
+  };
+  return (
+    <div className="bk-link">
+      <label className="field">
+        <span className="field-label">Meeting link (Google Meet, Zoom, Jitsi...)</span>
+        <input type="url" inputMode="url" value={url} maxLength={300} placeholder="https://" onChange={(e) => setUrl(e.target.value)} />
+        <span className="field-hint">Only the member and you can see this link.</span>
+      </label>
+      {msg && (msg.ok ? <p className="tiny bk-ok">{msg.text}</p> : <ErrorNote>{msg.text}</ErrorNote>)}
+      <div className="bk-actions">
+        <Button disabled={busy || !url.trim() || url.trim() === (b.meetingUrl ?? '')} onClick={() => save(false)}>{busy ? 'Saving…' : 'Save'}</Button>
+        {b.meetingUrl && <Button kind="ghost" disabled={busy} onClick={() => save(true)}>Remove link</Button>}
+      </div>
     </div>
   );
 }

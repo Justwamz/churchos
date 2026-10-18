@@ -30,6 +30,7 @@ const P: Record<string, ReactNode> = {
   send: <path d="M4 12 20 4l-5 16-3.5-6.5z" />,
   bag: (<><path d="M5.5 8h13l-1 12h-11z" /><path d="M9 10.5V7a3 3 0 0 1 6 0v3.5" /></>),
   ticket: <path d="M3.5 8.5A1.5 1.5 0 0 1 5 7h14a1.5 1.5 0 0 1 1.5 1.5v2a2 2 0 0 0 0 4v2A1.5 1.5 0 0 1 19 17H5a1.5 1.5 0 0 1-1.5-1.5v-2a2 2 0 0 0 0-4zM14.5 7v10" />,
+  heart: <path d="M12 20.3s-7.8-4.7-7.8-10.4A4.5 4.5 0 0 1 12 7.3a4.5 4.5 0 0 1 7.8 2.6c0 5.7-7.8 10.4-7.8 10.4z" />,
   pledge: (<><path d="M5 4.5h14v15H5z" /><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" /></>),
 };
 const CLOSED = new Set(['home', 'give', 'chat', 'groups', 'me', 'bell']);

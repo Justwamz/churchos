@@ -53,6 +53,8 @@ export const PERMISSIONS = [
   'attendance.manage',
   'attendance.checkin',
   'giving.ledger',
+  'prayer.respond',
+  'suggestions.view',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -89,6 +91,8 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'events.view': { group: 'Community', label: 'See events' },
   'events.checkin': { group: 'Community', label: 'Check people in at the door', hint: 'Scan tickets. Does not show anything else.' },
   'kids.checkin': { group: 'Community', label: 'Check children in and out', hint: 'Sunday school teachers. Scan guardians and hand children over.' },
+  'prayer.respond': { group: 'Community', label: 'Look after prayer requests', hint: 'Read the requests sent to the prayer team only, mark prayers answered, and hide a request that should not be shown.' },
+  'suggestions.view': { group: 'Community', label: 'Read and answer suggestions', hint: 'See the suggestion box, reply, and publish answers to the church.' },
   'giving.ledger': { group: 'Money', label: "See members' giving records", hint: 'Open the giving record of a named member. Every look is recorded, and the member can see who looked.' },
   'attendance.view': { group: 'Community', label: 'See attendance and visitors', hint: 'Who came, first-time visitors, regular members who stopped coming, and the Monday report.' },
   'attendance.manage': { group: 'Community', label: 'Manage services and attendance', hint: 'Set the weekly schedule, add readings and notices, and set the welcome message.' },
@@ -115,14 +119,15 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'prayer.respond' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
   Treasurer: ['giving.ledger', 'collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
-  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'bookings.view'],
+  Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'prayer.respond', 'suggestions.view', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   "Children's Teacher": ['kids.checkin'],
   Usher: ['attendance.checkin'],
+  'Prayer Team': ['prayer.respond'],
   Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
-  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin'],
+  Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'suggestions.view'],
 };
 
 export interface Session {

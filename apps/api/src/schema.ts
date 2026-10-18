@@ -1106,6 +1106,52 @@ CREATE TABLE IF NOT EXISTS cash_entry_gifts (
   amount bigint NOT NULL,
   PRIMARY KEY (cash_entry_id, membership_id)
 );
+
+-- Prayer, pastoral bookings and the suggestion box (L225 to L231). No care inbox and no chat.
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS meeting_url text;
+CREATE TABLE IF NOT EXISTS prayer_requests (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  body text NOT NULL,
+  audience text NOT NULL CHECK (audience IN ('team','group','branch','church')),
+  group_id text,
+  anonymous boolean NOT NULL DEFAULT false,
+  author_name text,
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','answered','hidden')),
+  answered_at text,
+  answered_note text,
+  hidden_by text,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+-- Who wrote each prayer request. Read only for the author's own list; no church query touches it.
+CREATE TABLE IF NOT EXISTS prayer_owners (prayer_id text PRIMARY KEY, user_id text NOT NULL);
+CREATE TABLE IF NOT EXISTS prayer_prays (prayer_id text NOT NULL, user_id text NOT NULL, at text NOT NULL, PRIMARY KEY (prayer_id, user_id));
+CREATE TABLE IF NOT EXISTS pastoral_settings (
+  org_id text PRIMARY KEY,
+  helplines jsonb NOT NULL,
+  updated_by text,
+  updated_at text
+);
+CREATE TABLE IF NOT EXISTS suggestions (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  membership_id text,
+  author_name text,
+  category text NOT NULL,
+  body text NOT NULL,
+  status text NOT NULL DEFAULT 'new' CHECK (status IN ('new','under_review','done','not_possible')),
+  response text,
+  responded_by text,
+  responded_at text,
+  published boolean NOT NULL DEFAULT false,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+-- Who sent each suggestion. Read only for the sender's own list; no church query touches it, so anonymous means anonymous.
+CREATE TABLE IF NOT EXISTS suggestion_owners (suggestion_id text PRIMARY KEY, user_id text NOT NULL);
 -- Attendance (L204 to L216): the schedule, each service, who came, visitors, and the church's settings.
 CREATE TABLE IF NOT EXISTS service_schedules (
   id text PRIMARY KEY,
@@ -1215,7 +1261,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','cash_entry_gifts','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','cash_entry_gifts','prayer_requests','suggestions','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

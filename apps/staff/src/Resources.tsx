@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
+import { Helplines } from './Helplines';
 import { Modal } from './MemberForm';
 import { toIso } from './communityBits';
 import './bookings.css';
@@ -266,6 +267,7 @@ export function Resources() {
   return (
     <div>
       <PageHead title="Resources" sub="The people, places and things members can ask to book." action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>Add something</Button> : undefined} />
+      <div style={{ marginBottom: 16 }}><Helplines /></div>
       {!!list.data?.length && (
         <div className="chips" role="group" aria-label="How to show the list" style={{ marginBottom: 12 }}>
           <button type="button" className={`chip ${view === 'cards' ? 'on' : ''}`} aria-pressed={view === 'cards'} onClick={() => pick('cards')}>Cards</button>

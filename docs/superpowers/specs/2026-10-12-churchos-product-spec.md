@@ -375,8 +375,18 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L223. Cash from known givers.** When the church counts cash it can name the members who gave, with amounts that add up to no more than the count. The named amounts go into those members' giving ledgers only after a second person signs off the count.
 - **L224. The member's own record.** A member sees their giving ledger, totals by year and by purpose, their anonymous gifts marked as anonymous, and who has opened their record, when, and why.
 
+### 4.37 Prayer, pastoral bookings and the suggestion box (decided in discussion; supersedes P1 to P8 where they differ)
 
-### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
+- **L225. Talking to a pastor or a counsellor is a booking.** A member books a person from the bookings that already exist (L49). The person it is booked with, or a manager, can add a meeting link (Meet, Zoom, Jitsi or any https link) to the booking, which only the member and the people who look after it can see. There is no video provider, no recording and no video adapter.
+- **L226. No care inbox and no chat.** There is no shared pastoral inbox and no chat of any kind. Requests for counselling, visits and calls are bookings, so they appear where those people already see their bookings.
+- **L227. Prayer requests.** A member writes a request and chooses who sees it: the prayer team only, a group they belong to, their branch, or the whole church. They can send it as "A member" without their name. People tap "I prayed". The author or the prayer team marks it answered, and the prayer team can hide a request that should not be shown. A request is shown for 60 days (14 days after it is answered), and its text is removed after 12 months.
+- **L228. Who can read the prayer team's requests.** Requests for the prayer team only can be read by the author and by people with the right "Look after prayer requests" in that branch. Administrators without that right, and ChurchOS staff, cannot. An anonymous request is never shown with a name to anyone but its author.
+- **L229. A notice and helplines.** When a member books a person, and on the prayer screen, they see a plain notice of what is private and the limits of confidentiality, and emergency numbers and helplines. The church can edit the helplines. The standard ones must be confirmed before launch.
+- **L230. Children.** Children have no accounts. A parent books for themselves, and a pastor speaks with a child in person with the parent present. Counselling a child on its own is not part of this slice.
+- **L231. Suggestion box.** A member sends a suggestion to their church, named or anonymous, with a category. The church sees an anonymous one with no link to the person. People with the right "Read and answer suggestions" can mark it under review, done or not possible, with a reply. The member sees the status and reply of their own suggestions, anonymous or not. The church can publish a suggestion and its answer to its branch as "You said, we did".
+
+
+### 4.26 Pastoral care: prayer, talking to a pastor and counselling (P1 to P8 were proposals; see 4.37 for what was decided)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).
 - **P1. Order of work:** bookings and assets first, then prayer and pastoral requests, then live sessions with video and chat.
 - **P2. Prayer requests** build on groups and walls (L74, L136). The person chooses who sees a request: the pastoral team only, a group, or the whole church. Leaders can mark one answered.

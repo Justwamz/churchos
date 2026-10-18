@@ -5,6 +5,7 @@ import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
 import { eat } from './Resources';
 import './bookings.css';
+import './pastoral.css';
 
 const ITEM: Record<string, { text: string; tone: 'warn' | 'good' | 'bad' }> = { requested: { text: 'Waiting', tone: 'warn' }, approved: { text: 'Approved', tone: 'good' }, declined: { text: 'Declined', tone: 'bad' } };
 const STATUS: Record<string, { text: string; tone: 'warn' | 'good' | 'bad' | 'info' | 'muted' }> = {
@@ -49,7 +50,41 @@ function ReasonDialog({ title, note, label, button, onClose, run }: { title: str
   );
 }
 
-function BookingCard({ b, canManage, onApprove, onDecline, onCancel, onComplete }: { b: any; canManage: boolean; onApprove: (it: any) => void; onDecline: (it: any) => void; onCancel: () => void; onComplete: (o: 'completed' | 'no_show') => void }) {
+function MeetingLink({ b, onChanged }: { b: any; onChanged: () => void }) {
+  const s = useSession();
+  const toast = useToast();
+  const [url, setUrl] = useState<string>(b.meetingUrl ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { setUrl(b.meetingUrl ?? ''); }, [b.meetingUrl]);
+  if (!['awaiting_payment', 'confirmed'].includes(b.status)) return null;
+  const send = async (value: string | null) => {
+    if (value !== null && !/^https:\/\/\S+$/i.test(value)) return setErr('Please paste a link that starts with https://');
+    setBusy(true); setErr('');
+    try { await api.post(`/bookings/${b.id}/meeting-link` + s.qs({ branch: undefined }), { url: value }); toast.show(value ? 'Meeting link saved' : 'Meeting link removed'); onChanged(); }
+    catch (e: any) { setErr(e?.code === 'bad_link' ? 'That does not look like a safe link. It must start with https://' : e?.code === 'wrong_state' ? 'A meeting link can be added once the booking is approved.' : friendly(e?.message)); }
+    setBusy(false);
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(b.meetingUrl); toast.show('Link copied'); } catch { toast.show('Could not copy. Select the link and copy it.', 'bad'); } };
+  return (
+    <div className="bk-link">
+      <label className="field" style={{ margin: 0 }}>
+        <span className="field-label">Meeting link</span>
+        <input type="url" inputMode="url" placeholder="https://meet.google.com/..." maxLength={300} value={url} onChange={(e) => { setUrl(e.target.value); setErr(''); }} />
+        <span className="field-hint">For a call or video meeting. Paste a Google Meet, Zoom or Jitsi link. Only the member and the people who look after this booking can see it.</span>
+      </label>
+      {err && <ErrorNote>{err}</ErrorNote>}
+      <div className="row">
+        <Button small disabled={busy || !url.trim() || url.trim() === (b.meetingUrl ?? '')} onClick={() => send(url.trim())}>{busy ? 'Saving...' : 'Save link'}</Button>
+        {b.meetingUrl && <Button small kind="ghost" onClick={copy}>Copy</Button>}
+        {b.meetingUrl && <Button small kind="ghost" disabled={busy} onClick={() => send(null)}>Remove</Button>}
+      </div>
+      {toast.node}
+    </div>
+  );
+}
+
+function BookingCard({ b, canManage, onChanged, onApprove, onDecline, onCancel, onComplete }: { b: any; canManage: boolean; onChanged: () => void; onApprove: (it: any) => void; onDecline: (it: any) => void; onCancel: () => void; onComplete: (o: 'completed' | 'no_show') => void }) {
   const st = STATUS[b.status] ?? { text: b.status, tone: 'muted' as const };
   const started = Date.parse(b.startsAt) <= Date.now();
   const open = ['requested', 'awaiting_payment', 'confirmed'].includes(b.status);
@@ -82,6 +117,7 @@ function BookingCard({ b, canManage, onApprove, onDecline, onCancel, onComplete 
       )}
       {b.note && <Note>Note: {b.note}</Note>}
       {['declined', 'cancelled'].includes(b.status) && b.reason && <Note tone="warn">{b.status === 'declined' ? 'Declined' : 'Cancelled'}: {b.reason}</Note>}
+      <MeetingLink b={b} onChanged={onChanged} />
       {(canComplete || canCancel) && (
         <div className="row">
           {canComplete && <><Button small onClick={() => onComplete('completed')}>Mark as done</Button><Button small kind="ghost" onClick={() => onComplete('no_show')}>No show</Button></>}
@@ -213,7 +249,7 @@ export function Bookings() {
                         <td style={{ minWidth: 140 }}>{b.title}<div className="tiny">Code {b.code}{b.attendees ? `, ${b.attendees} people` : ''}</div></td>
                         <td>{b.requester}</td>
                         <td>{b.items.map((it: any) => <div key={it.resourceId}>{it.name} {b.items.length > 1 && <Badge tone={(ITEM[it.status] ?? ITEM.requested).tone}>{(ITEM[it.status] ?? ITEM.requested).text}</Badge>}</div>)}</td>
-                        <td><Badge tone={st.tone}>{st.text}</Badge>{b.status === 'awaiting_payment' && b.holdUntil && <div className="tiny">until {day(b.holdUntil)}, {clock(b.holdUntil)}</div>}</td>
+                        <td><Badge tone={st.tone}>{st.text}</Badge>{b.meetingUrl && <div><Badge tone="info">Video link added</Badge></div>}{b.status === 'awaiting_payment' && b.holdUntil && <div className="tiny">until {day(b.holdUntil)}, {clock(b.holdUntil)}</div>}</td>
                         <td>{b.price == null ? 'Free' : <>{kes(b.price)}<div className="tiny">{b.paid ? 'Paid' : 'Not paid'}</div></>}</td>
                         <td><div className="row">
                           {mine.length === 1 && <Button small onClick={() => post(`/bookings/${b.id}/items/${mine[0].resourceId}/decide`, { approve: true, reason: '' }, `Approved ${mine[0].name}`)}>Approve</Button>}
@@ -230,7 +266,7 @@ export function Bookings() {
       </div>
       {open && (
         <Modal title={open.title} onClose={() => setOpen(null)}>
-          <BookingCard b={list.data?.find((x) => x.id === open.id) ?? open} canManage={canManage}
+          <BookingCard b={list.data?.find((x) => x.id === open.id) ?? open} canManage={canManage} onChanged={reload}
             onApprove={(it) => post(`/bookings/${open.id}/items/${it.resourceId}/decide`, { approve: true, reason: '' }, `Approved ${it.name}`)}
             onDecline={(it) => setDeciding({ b: open, it })} onCancel={() => setCancelling(open)}
             onComplete={(o) => post(`/bookings/${open.id}/complete`, { outcome: o }, o === 'completed' ? 'Marked as done' : 'Marked as no show')} />

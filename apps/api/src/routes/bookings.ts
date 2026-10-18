@@ -363,6 +363,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
       note: includeNote && (mine || mayDecide) ? b.note : undefined,
       items: items.map((i) => ({ resourceId: i.resource_id, name: i.name, kind: i.kind, status: i.status, reason: i.reason, mine: viewer.canDecide(i) })),
       canCancel: mine && ['requested', 'awaiting_payment', 'confirmed'].includes(b.status) && hoursToStart >= CANCEL_CUTOFF_HOURS,
+      meetingUrl: mine || mayDecide ? b.meeting_url ?? null : undefined,
       payUrl: b.status === 'awaiting_payment' && mine ? `${ctx.givingUrl}/?booking=${b.code}` : null,
       payCode: b.status === 'awaiting_payment' ? `BK-${b.code}` : null,
     };
@@ -576,6 +577,26 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     const reason = text((req.body as any)?.reason, 200, 'reason', true);
     await cancelBooking(b, req.session!.uid, true, reason);
     return { id: b.id, status: 'cancelled' };
+  });
+
+  /**
+   * The person a booking is with, or a manager, adds a meeting link (any https link) for a call or video session. Only the member and the
+   * people who look after the booking can see it. There is no video provider and nothing is recorded (L225).
+   */
+  app.post('/bookings/:id/meeting-link', auth, async (req) => {
+    const uid = req.session!.uid;
+    const b = (await ctx.db.query<any>(`SELECT * FROM bookings WHERE id=$1`, [(req.params as any).id]))[0];
+    if (!b) throw new HttpError(404, 'booking not found', 'not_found');
+    const can = await deciderCheck(uid, b.org_id);
+    if (!(await itemsOf(b.id)).some((i) => can(i))) throw new HttpError(404, 'booking not found', 'not_found');
+    if (!['approved', 'awaiting_payment', 'confirmed'].includes(b.status)) throw new HttpError(409, 'A meeting link can be added once the booking is approved', 'wrong_state');
+    const raw = (req.body as any)?.url;
+    const url = raw === null || raw === '' || raw === undefined ? null : String(raw).trim();
+    if (url !== null && !/^https:\/\/[^\s]{4,290}$/i.test(url)) throw new HttpError(400, 'The meeting link must start with https://', 'bad_link');
+    await ctx.db.query(`UPDATE bookings SET meeting_url=$2, updated_at=$3 WHERE id=$1`, [b.id, url, nowIso()]);
+    await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actor: uid, action: 'booking.meeting_link', entity: 'booking', entityId: b.id, summary: url ? `Added a meeting link to the booking "${b.title}"` : `Removed the meeting link from the booking "${b.title}"` });
+    if (url) await notify(b.org_id, [b.requester_id], 'Your meeting link is ready', `The link for "${b.title}" is now in your booking. Open Bookings to join at the time.`);
+    return { ok: true, meetingUrl: url };
   });
 
   /** After the time has passed, staff record whether it happened (L145). */

@@ -1,6 +1,6 @@
 # ChurchOS pastoral care: plan only (not yet built)
 
-**Status:** proposal for review. Nothing here is locked in the spec until confirmed. See the proposed decisions P1 to P8 in spec section 4.26.
+**Status:** partly decided. The decisions that were taken are in spec section 4.37 (L225 to L231) and replace P1 to P8 where they differ. Decided: no video provider and no chat (meeting links on bookings only), no care inbox (talking to a pastor is a booking), prayer requests (team, group, branch or church, with or without a name), and a suggestion box. Built as Slice 18. Not built: a care inbox, chat, video, safeguarding flags and drop-in "pastor on duty".
 
 **What was asked:** members should be able to talk to a pastor, pray together, and have counselling sessions, possibly by video or live chat.
 
