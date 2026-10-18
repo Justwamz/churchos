@@ -26,6 +26,7 @@ import { kidsRoutes } from './routes/kids';
 import { ticketRefundRoutes } from './routes/ticket-refunds';
 import { givingPlanRoutes } from './routes/giving-plans';
 import { attendanceRoutes } from './routes/attendance';
+import { givingLedgerRoutes } from './routes/giving-ledger';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -105,6 +106,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   ticketRefundRoutes(app, ctx);
   givingPlanRoutes(app, ctx);
   attendanceRoutes(app, ctx);
+  givingLedgerRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

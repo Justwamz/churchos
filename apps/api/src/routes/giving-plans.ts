@@ -90,7 +90,7 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
     return {
       id: p.id, church: p.org_name ?? undefined, branch: p.branch_name ?? undefined, branchCode: p.branch_code ?? undefined, membershipId: p.membership_id,
       amount: Number(p.amount), youPay: fee.amountPaid, purpose: p.purpose, purposeLabel: purposeLabel(p), projectId: p.project_id,
-      frequency: p.frequency, frequencyLabel: FREQ_LABEL[p.frequency], weekday: p.weekday, monthDay: p.month_day, time: p.time_of_day,
+      anonymous: !!p.anonymous, frequency: p.frequency, frequencyLabel: FREQ_LABEL[p.frequency], weekday: p.weekday, monthDay: p.month_day, time: p.time_of_day,
       startDate: p.start_date, endDate: p.end_date, method: p.method, phone: p.phone ? `0${String(p.phone).slice(3, 6)} *** ${String(p.phone).slice(-3)}` : null,
       status: p.status, skipNext: p.skip_next, nextRunAt: p.next_run_at, completed: p.completed_count, missed: p.missed_count, totalGiven: Number(sums.given),
       runs: runs.map((r) => ({ id: r.id, dueDate: r.due_date, scheduledFor: r.scheduled_for, status: r.status, attempt: r.attempt, amount: Number(r.amount), kind: r.kind, note: r.note, completedAt: r.completed_at })),
@@ -182,9 +182,9 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
     if (f.endDate && first > f.endDate) throw new HttpError(400, 'The end date comes before the first gift', 'bad_date');
     const id = ctx.newId('gpl');
     await ctx.db.query(
-      `INSERT INTO giving_plans (id, org_id, branch_id, membership_id, user_id, phone, amount, method, purpose, project_id, frequency, weekday, month_day, anchor_date, time_of_day, start_date, end_date, next_run_at, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19)`,
-      [id, m.org_id, m.branch_id, m.id, req.session!.uid, f.phone, f.amount, f.method, purpose, projectId, frequency, weekday, monthDay, first, f.time, startDate, f.endDate, dueAt(first, f.time), nowIso()],
+      `INSERT INTO giving_plans (id, org_id, branch_id, membership_id, user_id, phone, amount, method, purpose, project_id, frequency, weekday, month_day, anchor_date, time_of_day, start_date, end_date, next_run_at, created_at, updated_at, anonymous)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$19,$20)`,
+      [id, m.org_id, m.branch_id, m.id, req.session!.uid, f.phone, f.amount, f.method, purpose, projectId, frequency, weekday, monthDay, first, f.time, startDate, f.endDate, dueAt(first, f.time), nowIso(), !!b.anonymous],
     );
     const plan = (await ctx.db.query<any>(`${SELECT_PLAN} WHERE p.id=$1`, [id]))[0];
     await ctx.ledger.audit({ orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'giving.plan_created', entity: 'giving_plan', entityId: id, summary: `${m.full_name} set up a ${FREQ_LABEL[frequency]} gift of ${kes(f.amount)} (${purposeLabel(plan)})` });
@@ -199,6 +199,7 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.patch('/me/giving-plans/:id', auth, async (req) => {
+    if ((req.body as any)?.anonymous !== undefined) await ctx.db.query(`UPDATE giving_plans SET anonymous=$2 WHERE id=$1 AND user_id=$3`, [(req.params as any).id, !!(req.body as any).anonymous, req.session!.uid]);
     const p = await loadMine(req, (req.params as any).id);
     if (p.status === 'cancelled' || p.status === 'ended') throw new HttpError(409, 'This regular gift has ended', 'wrong_state');
     const b = (req.body ?? {}) as any;
@@ -301,9 +302,10 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
       const { providerTxId } = await ctx.provider.initiateStkPush({ phone: p.phone, amount: fee.amountPaid, reference, method });
       intentId = ctx.newId('int');
       await ctx.db.query(
-        `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at, plan_run_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [intentId, providerTxId, p.org_id, p.branch_id, p.purpose, p.project_id, p.phone, method, Number(r.amount), fee.amountPaid, JSON.stringify(fee), nowIso(), r.id],
+        `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at, plan_run_id, anonymous) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [intentId, providerTxId, p.org_id, p.branch_id, p.purpose, p.project_id, p.anonymous ? '' : p.phone, method, Number(r.amount), fee.amountPaid, JSON.stringify(fee), nowIso(), r.id, !!p.anonymous],
       );
+      if (p.anonymous) await ctx.db.query(`INSERT INTO anonymous_gifts (intent_id, user_id, phone, created_at) VALUES ($1,$2,$3,$4)`, [intentId, p.user_id, p.phone, nowIso()]);
     } catch {
       intentId = null;
     }

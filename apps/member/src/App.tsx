@@ -14,6 +14,7 @@ import type { ShopIntent } from './Shop';
 import { Icon, Sheet, Skeleton } from './ui';
 import { FamilyPage, HomeKids, useFamilies } from './Family';
 import { HomeRegular, RegularGiving } from './RegularGiving';
+import { AnonSwitch, GivingRecord } from './GivingRecord';
 import { HomeServices, ServicesPage } from './Services';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
@@ -329,6 +330,8 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
   const [intent, setIntent] = useState<{ id: string; message: string } | null>(null);
   const [result, setResult] = useState<Receipt | null>(null);
   const [slow, setSlow] = useState(false);
+  const [anon, setAnon] = useState(false);
+  const [doneAnon, setDoneAnon] = useState(false);
 
   const purposes: any[] = church.data?.purposes ?? [];
   useEffect(() => {
@@ -365,12 +368,16 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
     return () => { alive = false; clearInterval(timer); };
   }, [intent]);
 
-  const reset = () => { setResult(null); setSlow(false); setAmount(''); setError(undefined); setIntent(null); };
+  const anonOk = !!user && !!m && String(m.category ?? '').toLowerCase() !== 'child';
+  const anonPurposeOk = purpose === 'TITHE' || purpose === 'OFFERING' || purpose.startsWith('PROJ-');
+  const anonNow = anon && anonOk && anonPurposeOk;
+  const reset = () => { setAnon(false); setResult(null); setSlow(false); setAmount(''); setError(undefined); setIntent(null); };
 
   const give = async () => {
     setBusy(true); setError(undefined);
     try {
-      const r = await api.post('/public/give', { code, phone, amount: n, method, purpose });
+      const r = anonNow ? await api.post('/me/give', { code, phone, amount: n, method, purpose, anonymous: true }) : await api.post('/public/give', { code, phone, amount: n, method, purpose });
+      setDoneAnon(anonNow);
       // A card is paid on the payment provider's own page, which sends the person back here with the receipt in Messages.
       if (r.checkoutUrl) { window.location.assign(`${r.checkoutUrl}&return=${encodeURIComponent(`${location.origin}/#inbox`)}`); return; }
       setIntent({ id: r.intentId, message: r.message });
@@ -443,6 +450,7 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
             </div>
           </div>
           <Field label={hint.label} hint={hint.help} error={mismatch ?? undefined}><input type="tel" inputMode="tel" autoComplete="tel" placeholder={hint.placeholder} value={phone} onChange={(e) => setPhone(e.target.value)} aria-invalid={!!mismatch} /></Field>
+          {anonOk && <AnonSwitch on={anon && anonPurposeOk} onChange={setAnon} disabled={!anonPurposeOk} note={anonPurposeOk ? undefined : 'Only tithe, offering and project gifts can be given anonymously.'} />}
           {bearerMember && valid && fee > 0 && <Note tone="info">A service fee of {kes(fee)} is added. You will pay {kes(Math.round(n * 100) + fee)} in total.</Note>}
           {error && <ErrorNote>{error}</ErrorNote>}
         </div>
@@ -453,15 +461,15 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
         <Icon name="chev" size={20} />
       </button>
       <div className="sticky-cta">
-        <Button disabled={!online || busy || !valid || phone.trim().length < 9 || !!mismatch} onClick={give}>{busy ? (method === 'card' ? 'Opening card page…' : 'Sending…') : valid ? `${method === 'card' ? 'Pay by card' : 'Give'} ${kes(Math.round(n * 100))}` : 'Give'}</Button>
+        <Button disabled={!online || busy || !valid || phone.trim().length < 9 || !!mismatch} onClick={give}>{busy ? (method === 'card' ? 'Opening card page…' : 'Sending…') : valid ? `${method === 'card' ? 'Pay by card' : anonNow ? 'Give anonymously' : 'Give'} ${kes(Math.round(n * 100))}` : 'Give'}</Button>
       </div>
 
-      <GiftSuccess r={result && result.status === 'completed' ? result : null} onClose={reset} onMessages={() => { reset(); go('inbox'); }} />
+      <GiftSuccess anonymous={doneAnon} r={result && result.status === 'completed' ? result : null} onClose={reset} onMessages={() => { reset(); go('inbox'); }} />
     </div>
   );
 }
 
-function GiftSuccess({ r, onClose, onMessages }: { r: Receipt | null; onClose: () => void; onMessages: () => void }) {
+function GiftSuccess({ r, onClose, onMessages, anonymous }: { anonymous?: boolean; r: Receipt | null; onClose: () => void; onMessages: () => void }) {
   return (
     <Sheet open={!!r} onClose={onClose} full title="Thank you" label="Thank you, your gift was received">
       {r && (
@@ -477,6 +485,7 @@ function GiftSuccess({ r, onClose, onMessages }: { r: Receipt | null; onClose: (
             <div><dt>Purpose</dt><dd>{purposeLabel(r.purpose)}</dd></div>
             {r.receipt && <div><dt>Receipt</dt><dd>{r.receipt}</dd></div>}
           </dl>
+          {anonymous && <p className="tiny"><strong>Given anonymously.</strong> Your receipt is for you only. Your church cannot see who gave.</p>}
           <p className="tiny">We also sent a confirmation to your Messages.</p>
           <div className="thanks-actions">
             <Button onClick={onClose}>Done</Button>
@@ -540,6 +549,8 @@ function purposeLabel(p: string | null) {
 function History() {
   const g = useAsync<any>(() => api.get('/me/giving'));
   const [statement, setStatement] = useState(false);
+  const [record, setRecord] = useState(false);
+  if (record) return <GivingRecord onBack={() => setRecord(false)} />;
   if (g.loading) return <Loading />;
   if (g.error) return <Failed error={g.error} retry={g.reload} />;
   const rows: any[] = g.data?.rows ?? [];
@@ -571,6 +582,11 @@ function History() {
         <strong>{kes(g.data?.total ?? 0)}</strong>
         <small>{rows.length ? `${rows.length} gift${rows.length === 1 ? '' : 's'}` : 'Your first gift will show here'}</small>
       </div>
+      <button type="button" className="rg-entry" onClick={() => setRecord(true)}>
+        <span className="rg-home-ico"><Icon name="receipt" size={22} /></span>
+        <span className="rg-home-text"><strong>My giving record</strong><span className="tiny">Your totals, and who has looked at your record</span></span>
+        <Icon name="chev" size={20} />
+      </button>
       <Button kind="ghost" onClick={() => setStatement(true)} disabled={!rows.length}>Giving statement</Button>
       <Card title="My giving">
         {!rows.length ? <Empty>No gifts yet. When you give, your receipts will appear here.</Empty> : (
@@ -578,7 +594,8 @@ function History() {
             {rows.map((r) => (
               <li key={r.id}>
                 <div className="row"><strong>{purposeLabel(r.purpose)}</strong><span className="amt">{kes(r.amount)}</span></div>
-                <div className="row"><span className="tiny">{shortDate(r.date)} · {r.church ?? 'Church'}</span>{friendlyStatus(r.status)}</div>
+                <div className="row"><span className="tiny">{shortDate(r.date)} · {r.church ?? 'Church'}</span><span className="gr-chips">{r.anonymous && <Badge tone="info">Anonymous</Badge>}{friendlyStatus(r.status)}</span></div>
+                {r.anonymous && <div className="tiny">Given anonymously</div>}
                 {r.receipt && <div className="tiny">Receipt {r.receipt}</div>}
               </li>
             ))}

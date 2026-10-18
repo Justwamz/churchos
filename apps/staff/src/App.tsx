@@ -14,6 +14,7 @@ import { Collections } from './Collections';
 import { RegularGiving } from './RegularGiving';
 import { Settlements } from './Settlements';
 import { Cash } from './Cash';
+import { GivingRecords } from './GivingRecord';
 import { Members, Transfers } from './Members';
 import { Projects } from './Projects';
 import { Help } from './Help';
@@ -46,6 +47,7 @@ const HELP_SCREEN: Record<string, string> = {
 const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
   { id: 'dashboard', label: 'Dashboard', any: ['collections.view'], el: Dashboard },
   { id: 'collections', label: 'Collections', any: ['collections.view'], el: Collections },
+  { id: 'giving-records', label: 'Giving records', any: ['giving.ledger'], el: GivingRecords },
   { id: 'regular-giving', label: 'Regular giving', any: ['collections.view'], el: RegularGiving },
   { id: 'settlements', label: 'Settlements', any: ['settlements.view'], el: Settlements },
   { id: 'cash', label: 'Cash', any: ['cash.count', 'cash.approve'], el: Cash },

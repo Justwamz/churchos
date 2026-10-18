@@ -1,4 +1,5 @@
 import { planRunPaid } from './giving-plans';
+import { appendGift } from './giving-ledger';
 import { advertPaid } from './adverts';
 import { bookingPaid } from './bookings';
 import { shopPaid } from './shop';
@@ -53,8 +54,16 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
       projectId = proj?.id ?? null;
     }
     // A regular gift counts for the member who set it up, even when they pay from a different number.
-    const planMember = intent?.plan_run_id ? (await ctx.db.query<any>(`SELECT p.membership_id FROM giving_plan_runs r JOIN giving_plans p ON p.id=r.plan_id WHERE r.id=$1`, [intent.plan_run_id]))[0]?.membership_id : null;
-    await ctx.db.query(`UPDATE payments SET member_id = $2, project_id = $3 WHERE id = $1`, [result.paymentId, planMember ?? m?.id ?? null, projectId]);
+    const anon = !!intent?.anonymous;
+    const planMember = !anon && intent?.plan_run_id ? (await ctx.db.query<any>(`SELECT p.membership_id FROM giving_plan_runs r JOIN giving_plans p ON p.id=r.plan_id WHERE r.id=$1`, [intent.plan_run_id]))[0]?.membership_id : null;
+    await ctx.db.query(`UPDATE payments SET member_id = $2, project_id = $3 WHERE id = $1`, [result.paymentId, anon ? null : planMember ?? m?.id ?? null, projectId]);
+    if (anon) {
+      // The church never sees who gave: the number is removed from the payment and kept only in anonymous_gifts.
+      await ctx.db.query(`UPDATE payments SET anonymous=true, payer_phone=NULL WHERE id=$1`, [result.paymentId]);
+      await ctx.db.query(`UPDATE anonymous_gifts SET payment_id=$2 WHERE intent_id=$1`, [intent.id, result.paymentId]);
+    } else {
+      await appendGift(ctx, result.paymentId);
+    }
     if (String(p.purpose ?? '').startsWith('CERT-')) {
       const rec = (await ctx.db.query<any>(`SELECT id, subject_name FROM sacramental_records WHERE serial=$1`, [String(p.purpose).slice(5)]))[0];
       const issue = rec ? (await ctx.db.query<any>(`SELECT id, requested_by FROM record_issues WHERE record_id=$1 AND status='awaiting_payment' ORDER BY created_at DESC LIMIT 1`, [rec.id]))[0] : null;

@@ -364,6 +364,17 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L215. Regular members who stopped coming.** A member who attended in at least three of six weeks, and not in the last three, is shown to people with the right so they can be visited. It is based on check-ins, so it is only as good as the check-in coverage, which the report states.
 - **L216. Privacy.** Individual attendance is only for people with the attendance view right, and a member sees only their own. Visitor phone numbers are shown to them so they can call. Coordinates of a phone are never stored for attendance.
 
+### 4.36 Anonymous giving and the member giving ledger (decided in discussion)
+
+- **L217. Anonymous giving.** A signed-in member can give anonymously in the app: tithe, offering and project gifts, one-off or regular. The church never learns who gave. It is for members of the church and the app only: the public giving page ignores the setting. The giver sees their own anonymous gifts, marked as such, and the receipt goes only to them.
+- **L218. What anonymous means.** The payer's phone number is removed from the payment and kept only in a private record that no church screen can read. ChurchOS can look up the giver for a refund, a fraud check or a legal request, but only with a written reason, and each look is recorded. The payment network still knows the number. The giver can still ask for a wrong-church reversal. An anonymous gift cannot be revealed later, does not count toward a pledge, and is never in a member's giving ledger.
+- **L219. Daily totals.** The church sees anonymous gifts only as one total for each day, branch and purpose, in collections, settlements and exports. Individual anonymous gifts are not in the recent-gifts list or the live feed, so the amount and time cannot be matched to a person.
+- **L220. The giving ledger.** Every gift the church can tie to a member, and cash the church records for a named member, becomes a line in that member's giving ledger: date, how, what for, amount given (not the service fee), and reference. A reversed gift is cancelled by a new reversal line. Lines are append-only and chained by a hash. The database refuses changes and deletions, and a check shows the chain is intact.
+- **L221. Who can open it.** Only people with the right "See members' giving records", for members in their own branches. The owner and treasurer have it by default. The branch admin, pastor and secretary do not, and nobody can hand out a right they do not hold.
+- **L222. Every look is recorded.** Opening or exporting a member's giving record needs a reason (a statement was requested, pastoral visit, audit or review, reconciling the books, or another reason with a note). Each look and export is written to the audit log and to a list the member can read.
+- **L223. Cash from known givers.** When the church counts cash it can name the members who gave, with amounts that add up to no more than the count. The named amounts go into those members' giving ledgers only after a second person signs off the count.
+- **L224. The member's own record.** A member sees their giving ledger, totals by year and by purpose, their anonymous gifts marked as anonymous, and who has opened their record, when, and why.
+
 
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (PROPOSED, not yet locked)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).

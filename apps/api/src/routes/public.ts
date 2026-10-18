@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { networkMismatch } from '@churchos/shared';
 import { buildReference, computeFee, normalizeMethod, toCents } from './helpers';
 import { normalizePhone } from '../auth';
-import { HttpError, type Ctx } from '../ctx';
+import { HttpError, requireSession, type Ctx } from '../ctx';
+import { isGivingPurpose } from './giving-ledger';
 
 const MIN_CENTS = 1000; // KES 10
 const MAX_CENTS = 15_000_000; // KES 150,000 per transaction
@@ -51,8 +52,8 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     return { bearer: b.fee_bearer, amountPaid: fee.amountPaid, memberFee: b.fee_bearer === 'member' ? fee.totalFee : 0 };
   });
 
-  app.post('/public/give', async (req) => {
-    const body = (req.body ?? {}) as any;
+  /** A gift. When `anon` is set the giver stays unknown to the church: the link to them lives only in anonymous_gifts (L217, L218). */
+  async function giveCore(body: any, anon: { userId: string } | null) {
     const b = await churchByCode(ctx, body.code);
     if (!b) throw new HttpError(404, 'We could not find a church with that code', 'unknown_church');
     const phone = normalizePhone(body.phone);
@@ -72,6 +73,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
 
     const purpose = String(body.purpose ?? 'OFFERING').trim().toUpperCase();
+    if (anon && !isGivingPurpose(purpose)) throw new HttpError(400, 'Only tithe, offering and project gifts can be given anonymously', 'anonymous_purpose');
     let projectId: string | null = null;
     if (purpose.startsWith('PROJ-')) {
       const p = (await ctx.db.query<any>(`SELECT id FROM projects WHERE branch_id=$1 AND code=$2 AND status='open'`, [b.id, purpose.slice(5)]))[0];
@@ -106,10 +108,11 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
       : await ctx.provider.initiateStkPush({ phone, amount: fee.amountPaid, reference, method });
     const intentId = ctx.newId('int');
     await ctx.db.query(
-      `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [intentId, providerTxId, b.org_id, b.id, purpose, projectId, phone, method, base, fee.amountPaid, JSON.stringify(fee), ctx.clock.now().toISOString()],
+      `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at, anonymous)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [intentId, providerTxId, b.org_id, b.id, purpose, projectId, anon ? '' : phone, method, base, fee.amountPaid, JSON.stringify(fee), ctx.clock.now().toISOString(), !!anon],
     );
+    if (anon) await ctx.db.query(`INSERT INTO anonymous_gifts (intent_id, user_id, phone, created_at) VALUES ($1,$2,$3,$4)`, [intentId, anon.userId, phone, ctx.clock.now().toISOString()]);
     if (isCard) {
       return {
         intentId, status: 'initiated', method: 'card',
@@ -126,6 +129,18 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
       amountPaid: fee.amountPaid,
       memberFee: b.fee_bearer === 'member' ? fee.totalFee : 0,
     };
+  }
+
+  app.post('/public/give', async (req) => giveCore((req.body ?? {}) as any, null));
+
+  /** A signed-in member gives, optionally anonymously: the church never learns who (L217). Members of the church only. */
+  app.post('/me/give', { preHandler: requireSession }, async (req) => {
+    const body = (req.body ?? {}) as any;
+    const b = await churchByCode(ctx, body.code);
+    if (!b) throw new HttpError(404, 'We could not find a church with that code', 'unknown_church');
+    const m = (await ctx.db.query<any>(`SELECT id FROM memberships WHERE user_id=$1 AND org_id=$2 AND status='active' AND category='adult'`, [req.session!.uid, b.org_id]))[0];
+    if (!m) throw new HttpError(403, 'Anonymous giving is for members of this church', 'not_a_member');
+    return giveCore({ ...body, phone: body.phone ? body.phone : req.session!.phone }, body.anonymous ? { userId: req.session!.uid } : null);
   });
 
   app.get('/public/give/:id', async (req) => {

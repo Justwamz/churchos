@@ -119,11 +119,12 @@ describe('adding people and giving access', () => {
     expect((await mk('Treasurer', { type: 'branch', id: 'br_grc002' })).json().code).toBe('forbidden'); // another branch
     expect((await mk('Auditor', { type: 'branch', id: 'br_grc001' })).json().code).toBe('cannot_escalate'); // audit export is not his
     expect((await mk('Organisation Owner', { type: 'branch', id: 'br_grc001' })).json().code).toBe('cannot_escalate');
+    expect((await mk('Treasurer', { type: 'branch', id: 'br_grc001' })).json().code).toBe('cannot_escalate'); // members' giving records are not his to hand out
     expect((await ctx.db.query<any>(`SELECT 1 FROM users WHERE phone='254722777888'`)).length).toBe(0);
-    const ok = await mk('Treasurer', { type: 'branch', id: 'br_grc001' });
+    const ok = await mk('Pastor', { type: 'branch', id: 'br_grc001' });
     expect(ok.statusCode).toBe(200);
     const added = (await team(ADMIN)).people.find((p: any) => p.name === 'Helper One');
-    expect(added.assignments[0]).toMatchObject({ role: 'Treasurer', scope: 'Grace Nairobi', canRemove: true });
+    expect(added.assignments[0]).toMatchObject({ role: 'Pastor', scope: 'Grace Nairobi', canRemove: true });
     expect((await call(TREAS, 'POST', '/team/members', { name: 'X Y', phone: '0722999000', roleId: roleId(t, 'Pastor'), scope: { type: 'branch', id: 'br_grc001' } })).statusCode).toBe(403);
   });
 

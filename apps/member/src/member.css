@@ -820,3 +820,21 @@ h3 { font-size: 17px; }
 @media screen and (min-width: 700px) { .svc-usher .fam-qr, .svc-usher .fam-bar { width: min(300px, 100%); } }
 .svc-actions .btn { white-space: nowrap; padding-inline: 12px; }
 @media screen and (min-width: 700px) { .stack.home > .fam-home { order: 2; } }
+
+/* anonymous giving and giving record */
+.anon-box { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; background: var(--surface); display: grid; gap: 6px; }
+.anon-box.on { border-color: var(--brand); background: var(--brand-tint); }
+.anon-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.anon-label { font-weight: 600; font-size: 16px; }
+.anon-text { margin: 0; color: var(--ink-2); line-height: 1.45; }
+.switch { flex: none; position: relative; width: 52px; height: 32px; border-radius: 999px; border: 0; background: var(--line); cursor: pointer; padding: 0; transition: background 0.2s; }
+.switch i { position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.3); transition: transform 0.2s; }
+.switch[aria-checked="true"] { background: var(--brand); }
+.switch[aria-checked="true"] i { transform: translateX(20px); }
+.switch:disabled { opacity: 0.45; cursor: not-allowed; }
+.switch:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+.gr-chips { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.gr-tot { display: grid; gap: 6px; margin-top: 6px; }
+.gr-tot li { display: flex; justify-content: space-between; gap: 12px; }
+.gr-neg { color: var(--bad); opacity: 0.85; }
+.gr-rev strong { color: var(--ink-2); }

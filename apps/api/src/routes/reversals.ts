@@ -1,5 +1,6 @@
 import { HttpError, inList, type Ctx } from '../ctx';
 import { maskPhoneSql } from './helpers';
+import { appendReversal } from './giving-ledger';
 
 /** Reversals above this amount need two different approvers (D1, KES 50,000). */
 export const SECOND_APPROVER_ABOVE = 5_000_000;
@@ -28,6 +29,7 @@ export async function createReversalRequest(
     orgId?: string;
     branchIds?: string[];
     payerPhone?: string;
+    userId?: string;
     /** Ticket refunds are agreed with the church well after the usual reversal window (L193). */
     force?: boolean;
   },
@@ -38,7 +40,8 @@ export async function createReversalRequest(
   if (!payment) throw new HttpError(404, 'We could not find that payment. Paste the full confirmation message, including the transaction code.', 'payment_not_found');
 
   // Verify the requester is entitled to ask: members only for payments from their own phone, staff only inside their scope.
-  if (a.source === 'member' && payment.payer_phone !== a.payerPhone) {
+  const anonOwner = payment.anonymous ? (await ctx.db.query<any>(`SELECT user_id FROM anonymous_gifts WHERE payment_id=$1`, [payment.id]))[0]?.user_id : null;
+  if (a.source === 'member' && (payment.anonymous ? !anonOwner || anonOwner !== a.userId : payment.payer_phone !== a.payerPhone)) {
     throw new HttpError(403, 'That payment was not made from your phone number', 'not_your_payment');
   }
   if (a.source === 'staff' && payment.stage !== 'suspense' && !(a.branchIds ?? []).includes(payment.branch_id)) {
@@ -85,6 +88,7 @@ export async function decideReversal(ctx: Ctx, requestId: string, adminId: strin
 
   try {
     await ctx.ledger.reverse(payment.id, { reason: r.reason, actor: adminId, force: !!r.force });
+    await appendReversal(ctx, payment.id, r.reason);
   } catch (e: any) {
     await ctx.db.query(`UPDATE reversal_requests SET status='failed', failure=$2 WHERE id=$1`, [requestId, e.message]);
     throw new HttpError(409, e.message, e.code ?? 'reversal_failed');
@@ -97,7 +101,7 @@ export async function decideReversal(ctx: Ctx, requestId: string, adminId: strin
 
 export async function listReversalRequests(ctx: Ctx, status?: string) {
   return ctx.db.query<any>(
-    `SELECT r.*, p.amount_paid, p.provider_tx_id, p.stage AS payment_stage, p.reference, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch_name, u.name AS requested_by_name
+    `SELECT r.*, p.amount_paid, p.provider_tx_id, p.stage AS payment_stage, p.anonymous, p.reference, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch_name, u.name AS requested_by_name
        FROM reversal_requests r JOIN payments p ON p.id=r.payment_id LEFT JOIN branches b ON b.id=p.branch_id LEFT JOIN users u ON u.id=r.requested_by
       ${status ? `WHERE r.status IN (${inList(1, status.split(',').length)})` : ''} ORDER BY r.created_at DESC LIMIT 200`,
     status ? status.split(',') : [],

@@ -96,7 +96,7 @@ function Load<T>({ s, children }: { s: { data?: T; error?: string; loading: bool
 
 // ---------------- Masked phone with logged reveal ----------------
 
-function RevealPhone({ paymentId, masked, toast }: { paymentId: string; masked: string; toast: PageProps['toast'] }) {
+function RevealPhone({ paymentId, masked, anonymous, toast }: { paymentId: string; masked: string; anonymous?: boolean; toast: PageProps['toast'] }) {
   const [real, setReal] = useState<string>();
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
@@ -117,18 +117,19 @@ function RevealPhone({ paymentId, masked, toast }: { paymentId: string; masked: 
   };
   return (
     <>
-      <span>{real ? phonePretty(real) : (masked || 'Not recorded')}</span>{' '}
-      {masked && (real
+      <span>{real ? phonePretty(real) : anonymous ? 'Anonymous gift' : (masked || 'Not recorded')}</span>{' '}
+      {(masked || anonymous) && (real
         ? <Button kind="ghost" small onClick={hide}>Hide</Button>
-        : <Button kind="ghost" small onClick={() => setAsking(true)}>Show number</Button>)}
+        : <Button kind="ghost" small onClick={() => setAsking(true)}>{anonymous ? 'Look up the giver' : 'Show number'}</Button>)}
       {asking && (
         <div className="modal-scrim" role="dialog" aria-modal="true" onClick={() => setAsking(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>Showing a number is recorded in the audit log</h2>
             <p className="muted">The number is shown for 30 seconds, then hidden again.</p>
-            <Field label="Reason (optional)"><input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Member called about this payment" /></Field>
+            {anonymous && <p className="muted">The giver chose to stay anonymous to the church. Look them up only for a refund, a fraud check or a legal request, and say which.</p>}
+            <Field label={anonymous ? 'Reason (required)' : 'Reason (optional)'}><input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Member called about this payment" /></Field>
             <div className="row" style={{ marginTop: 12 }}>
-              <Button onClick={reveal} disabled={busy}>{busy ? 'Working…' : 'Show the number'}</Button>
+              <Button onClick={reveal} disabled={busy || (!!anonymous && reason.trim().length < 8)}>{busy ? 'Working…' : 'Show the number'}</Button>
               <Button kind="ghost" onClick={() => setAsking(false)}>Cancel</Button>
             </div>
           </div>
@@ -433,7 +434,7 @@ function Suspense({ toast }: PageProps) {
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td>{r.reference ? <code>{r.reference}</code> : <span className="tiny">(empty)</span>}<div className="tiny">{r.provider_tx_id}</div></td>
-                  <td><RevealPhone paymentId={r.id} masked={r.payer_phone} toast={toast} /></td>
+                  <td><RevealPhone paymentId={r.id} masked={r.payer_phone} anonymous={r.anonymous} toast={toast} /></td>
                   <td className="num">{kes(r.amount_paid)}</td>
                   <td>{shortDate(r.received_at)}</td>
                   <td><Badge tone={new Date(r.expiresAt).getTime() <= now ? 'bad' : 'warn'}>{countdown(new Date(r.expiresAt).getTime() - now)}</Badge><div className="tiny">{shortDate(r.expiresAt)}</div></td>
@@ -524,7 +525,7 @@ function Reversals({ toast, user }: PageProps) {
                     <div><div className="tiny">Reason</div>{x.reason}</div>
                     <div><div className="tiny">Asked by</div>{x.requested_by_name ?? 'Unknown'} <Badge tone="muted">{x.source === 'staff' ? 'Church staff' : 'Member'}</Badge></div>
                     <div><div className="tiny">Asked on</div>{shortDate(x.created_at)}</div>
-                    {x.payment_id && <div><div className="tiny">Payer phone</div><RevealPhone paymentId={x.payment_id} masked={x.payer_phone} toast={toast} /></div>}
+                    {x.payment_id && <div><div className="tiny">Payer phone</div><RevealPhone paymentId={x.payment_id} masked={x.payer_phone} anonymous={x.anonymous} toast={toast} /></div>}
                   </div>
                   {x.message && <details style={{ marginTop: 8 }}><summary className="tiny" style={{ cursor: 'pointer' }}>Pasted confirmation message</summary><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', background: 'var(--paper)', padding: 10, borderRadius: 8 }}>{x.message}</pre></details>}
                   {x.failure && <div style={{ marginTop: 8 }}><ErrorNote>{x.failure}</ErrorNote></div>}
@@ -576,7 +577,7 @@ function Payments({ toast }: PageProps) {
                   <td>{shortDate(r.received_at)}</td><td><code>{r.provider_tx_id}</code></td>
                   <td>{r.branch_name ?? <span className="tiny">Unmatched</span>}</td><td>{METHOD_LABEL[r.method] ?? r.method}</td>
                   <td>{r.reference}</td>
-                  <td><RevealPhone paymentId={r.id} masked={r.payer_phone} toast={toast} /></td>
+                  <td><RevealPhone paymentId={r.id} masked={r.payer_phone} anonymous={r.anonymous} toast={toast} /></td>
                   <td className="num">{kes(r.amount_paid)}</td><td className="num">{kes(r.platform_fee)}</td><td className="num">{kes(r.psp_cost)}</td><td className="num">{kes(r.net)}</td>
                   <td><StatusBadge status={r.stage} /></td>
                 </tr>

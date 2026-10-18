@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Button, Card, Empty, Field, Note, Stat, StatusBadge, Table, kes, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Badge, Button, Card, Empty, Field, Note, Stat, StatusBadge, Table, kes, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, label, methodLabel, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { maskedPretty } from './Reveal';
+import './giving-record.css';
 
 const METHODS = ['mpesa', 'airtel', 'card', 'tkash', 'cash'];
 
@@ -103,19 +104,20 @@ export function Collections() {
                     <tr key={r.id}>
                       <td>{shortDate(r.date)}</td>
                       <td>{r.branch}</td>
-                      <td>{methodLabel(r.method)}</td>
+                      <td>{r.method === 'anonymous' ? <Badge tone="muted">Anonymous</Badge> : methodLabel(r.method)}</td>
                       <td>{label(r.purpose)}</td>
-                      <td>{r.member ? <>{r.member} <span className="tiny">{r.member_number}</span></> : maskedPretty(r.phone) || '-'}</td>
+                      <td>{r.method === 'anonymous' ? (r.member ?? 'Anonymous') : r.member ? <>{r.member} <span className="tiny">{r.member_number}</span></> : maskedPretty(r.phone) || '-'}</td>
                       <td className="num">{kes(r.gross)}</td>
                       <td className="num">{kes(r.fee)}</td>
                       <td className="num">{kes(r.net)}</td>
                       <td><StatusBadge status={r.status} /></td>
-                      <td>{s.can('reversals.request') && r.method !== 'cash' && r.status !== 'reversed' &&
+                      <td>{s.can('reversals.request') && r.method !== 'cash' && r.method !== 'anonymous' && r.status !== 'reversed' &&
                         <Button kind="ghost" small onClick={() => { setReport(r); setReason(''); }}>Report a problem</Button>}</td>
                     </tr>
                   ))}
                 </Table>
               )}
+              {x.rows.some((r: any) => r.method === 'anonymous') && <p className="tiny" style={{ marginTop: 8 }}>Anonymous gifts are shown as one total for each day. The church cannot see who gave them.</p>}
             </Card>
           </div>
         )}

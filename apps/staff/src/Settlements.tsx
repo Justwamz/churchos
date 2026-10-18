@@ -54,6 +54,7 @@ export function Settlements() {
                           <tr key={p.id}><td>{shortDate(p.received_at)}</td><td>{methodLabel(p.method)}</td><td>{label(p.purpose)}</td><td className="num">{kes(p.gross)}</td><td className="num">{kes(p.fee)}</td><td className="num">{kes(p.net)}</td></tr>
                         ))}
                       </Table>
+                      {detail.data.payments.some((p: any) => p.method === 'anonymous') && <p className="tiny">Anonymous gifts are shown as one total for each day. The church cannot see who gave them.</p>}
                     </>
                   )}
                 </Load>

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { computeFee, toCents } from '@churchos/shared';
 import { branchesFor, loadGrants, PERMISSIONS, type Permission } from '../auth';
+import { appendCashGifts, isGivingPurpose } from './giving-ledger';
 import { HttpError, inList, requireSession, staffScope, startOfDayEat, bearer, type Ctx } from '../ctx';
 import { verifyToken } from '../auth';
 import { csv, maskPhoneSql } from './helpers';
@@ -59,7 +60,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       )[0];
       const recent = await q.query<any>(
         `SELECT p.id, p.method, p.purpose, p.amount_paid, p.net, (p.platform_fee + p.psp_cost) AS fee, p.stage, p.received_at, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch
-           FROM payments p JOIN branches b ON b.id = p.branch_id WHERE ${where.replace(/branch_id/, 'p.branch_id').replace('stage', 'p.stage')}
+           FROM payments p JOIN branches b ON b.id = p.branch_id WHERE ${where.replace(/branch_id/, 'p.branch_id').replace('stage', 'p.stage')} AND NOT p.anonymous
           ORDER BY p.received_at DESC LIMIT 20`,
         ids,
       );
@@ -99,7 +100,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       const p = (
         await ctx.db.query<any>(
           `SELECT p.id, p.method, p.purpose, p.amount_paid, p.net, (p.platform_fee + p.psp_cost) AS fee, p.stage, p.received_at, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch, p.branch_id
-             FROM payments p JOIN branches b ON b.id = p.branch_id WHERE p.id=$1`,
+             FROM payments p JOIN branches b ON b.id = p.branch_id WHERE p.id=$1 AND NOT p.anonymous`,
           [e.paymentId],
         )
       )[0];
@@ -135,9 +136,23 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
         `SELECT p.id, p.received_at AS date, b.code AS branch, p.method, p.purpose, ${maskPhoneSql('p.payer_phone')} AS phone, m.full_name AS member, m.member_number,
                 p.amount_paid AS gross, (p.platform_fee + p.psp_cost) AS fee, p.net, p.stage AS status, p.provider_tx_id AS receipt
            FROM payments p JOIN branches b ON b.id = p.branch_id LEFT JOIN memberships m ON m.id = p.member_id
-          WHERE ${where} ORDER BY p.received_at DESC LIMIT 1000`,
+          WHERE ${where} AND NOT p.anonymous ORDER BY p.received_at DESC LIMIT 1000`,
         params,
       );
+      // Anonymous gifts reach the church only as one line for each day, branch and purpose (L219).
+      const anonRaw = q.method ? [] : await db.query<any>(
+        `SELECT p.received_at, b.code AS branch, p.purpose, p.amount_paid AS gross, (p.platform_fee + p.psp_cost) AS fee, p.net FROM payments p JOIN branches b ON b.id = p.branch_id WHERE ${where} AND p.anonymous ORDER BY p.received_at DESC LIMIT 5000`,
+        params,
+      );
+      const anonDays = new Map<string, any>();
+      for (const r of anonRaw) {
+        const day = new Date(new Date(r.received_at).getTime() + 3 * 3600_000).toISOString().slice(0, 10);
+        const k = `${day}|${r.branch}|${r.purpose}`;
+        const cur = anonDays.get(k) ?? { id: `anonymous:${k}`, date: new Date(Date.parse(`${day}T00:00:00Z`) - 3 * 3600_000).toISOString(), branch: r.branch, method: 'anonymous', purpose: r.purpose, phone: null, member: null, member_number: null, gross: 0, fee: 0, net: 0, status: 'recorded', receipt: null, n: 0 };
+        cur.gross += Number(r.gross); cur.fee += Number(r.fee); cur.net += Number(r.net); cur.n += 1;
+        anonDays.set(k, cur);
+      }
+      const anonRows = [...anonDays.values()].map((r) => ({ ...r, member: `Anonymous (${r.n} ${r.n === 1 ? 'gift' : 'gifts'})` }));
       const cashParams: unknown[] = [...ids];
       let cashWhere = `c.branch_id IN (${inList(1, ids.length)}) AND c.status='approved'`;
       if (q.from) { cashParams.push(new Date(q.from).toISOString()); cashWhere += ` AND c.approved_at >= $${cashParams.length}`; }
@@ -151,7 +166,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
                  FROM cash_entries c JOIN branches b ON b.id = c.branch_id WHERE ${cashWhere} ORDER BY c.approved_at DESC`,
               cashParams,
             );
-      return [...pay, ...cash].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      return [...pay, ...anonRows, ...cash].sort((a, b) => String(b.date).localeCompare(String(a.date)));
     });
     if (q.format === 'csv') {
       reply.header('content-type', 'text/csv').header('content-disposition', 'attachment; filename="collections.csv"');
@@ -209,9 +224,20 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       const po = (await db.query<any>(`SELECT * FROM payouts WHERE id=$1`, [(req.params as any).id]))[0];
       if (!po || !scope.branchIds.includes(po.branch_id)) throw new HttpError(404, 'settlement not found', 'not_found');
       const payments = await db.query<any>(
-        `SELECT id, received_at, method, purpose, amount_paid AS gross, (platform_fee + psp_cost) AS fee, net FROM payments WHERE payout_id=$1 ORDER BY received_at`,
+        `SELECT id, received_at, method, purpose, amount_paid AS gross, (platform_fee + psp_cost) AS fee, net FROM payments WHERE payout_id=$1 AND NOT anonymous ORDER BY received_at`,
         [po.id],
       );
+      const anon = await db.query<any>(`SELECT received_at, purpose, amount_paid AS gross, (platform_fee + psp_cost) AS fee, net FROM payments WHERE payout_id=$1 AND anonymous`, [po.id]);
+      const days = new Map<string, any>();
+      for (const r of anon) {
+        const day = new Date(new Date(r.received_at).getTime() + 3 * 3600_000).toISOString().slice(0, 10);
+        const k = `${day}|${r.purpose}`;
+        const cur = days.get(k) ?? { id: `anonymous:${k}`, received_at: new Date(Date.parse(`${day}T00:00:00Z`) - 3 * 3600_000).toISOString(), method: 'anonymous', purpose: r.purpose, gross: 0, fee: 0, net: 0, n: 0 };
+        cur.gross += Number(r.gross); cur.fee += Number(r.fee); cur.net += Number(r.net); cur.n += 1;
+        days.set(k, cur);
+      }
+      payments.push(...[...days.values()]);
+      payments.sort((a, b) => String(a.received_at).localeCompare(String(b.received_at)));
       return { payout: po, payments };
     });
   });
@@ -222,7 +248,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     const scope = await staffScope(ctx, req, 'cash.count', (req.query as any).branch);
     return ctx.db.asOrg(scope.orgId, (db) =>
       db.query<any>(
-        `SELECT c.*, b.name AS branch_name, u1.name AS counted_by_name, u2.name AS approved_by_name
+        `SELECT c.*, b.name AS branch_name, u1.name AS counted_by_name, u2.name AS approved_by_name, (SELECT COUNT(*)::int FROM cash_entry_gifts g WHERE g.cash_entry_id=c.id) AS known_gifts, (SELECT COALESCE(SUM(g.amount),0) FROM cash_entry_gifts g WHERE g.cash_entry_id=c.id) AS known_total
            FROM cash_entries c JOIN branches b ON b.id=c.branch_id LEFT JOIN users u1 ON u1.id=c.counted_by LEFT JOIN users u2 ON u2.id=c.approved_by
           WHERE c.branch_id IN (${inList(1, scope.branchIds.length)}) ORDER BY c.created_at DESC LIMIT 100`,
         scope.branchIds,
@@ -238,11 +264,29 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter the counted amount', 'bad_amount'); }
     if (!(amount > 0)) throw new HttpError(400, 'The counted amount must be more than zero', 'bad_amount');
     const purpose = String(b.purpose ?? 'OFFERING').toUpperCase();
+    // Cash given by members the church knows can be attached, so it lands in their giving record once the count is signed off (L222).
+    const named: { membershipId: string; amount: number }[] = [];
+    if (Array.isArray(b.gifts) && b.gifts.length) {
+      if (!isGivingPurpose(purpose)) throw new HttpError(400, 'Gifts from named members can be attached only to tithe, offering or a project', 'gifts_purpose');
+      let total = 0;
+      for (const g of b.gifts) {
+        let amt: number;
+        try { amt = toCents(g?.amount); } catch { throw new HttpError(400, 'Enter a valid amount for each member', 'bad_amount'); }
+        if (!(amt > 0)) throw new HttpError(400, 'Each member amount must be more than zero', 'bad_amount');
+        const m = (await ctx.db.query<any>(`SELECT id FROM memberships WHERE id=$1 AND org_id=$2 AND status='active'`, [String(g?.membershipId ?? ''), scope.orgId]))[0];
+        if (!m) throw new HttpError(404, 'One of the members was not found', 'unknown_member');
+        const have = named.find((x) => x.membershipId === m.id);
+        if (have) have.amount += amt; else named.push({ membershipId: m.id, amount: amt });
+        total += amt;
+      }
+      if (total > amount) throw new HttpError(400, 'The amounts for the named members add up to more than the cash counted', 'gifts_too_much');
+    }
     const id = ctx.newId('cash');
     await ctx.db.query(
       `INSERT INTO cash_entries (id, org_id, branch_id, amount, purpose, note, status, counted_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,'counted',$7,$8)`,
       [id, scope.orgId, b.branchId, amount, purpose, b.note ?? null, req.session!.uid, ctx.clock.now().toISOString()],
     );
+    for (const g of named) await ctx.db.query(`INSERT INTO cash_entry_gifts (cash_entry_id, org_id, membership_id, amount) VALUES ($1,$2,$3,$4)`, [id, scope.orgId, g.membershipId, g.amount]);
     await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'cash.count', entity: 'cash', entityId: id, summary: `Counted KES ${(amount / 100).toLocaleString('en-KE')} of cash for ${purpose.toLowerCase()}, waiting for a second person`, changes: [{ field: 'amount', label: 'Counted amount (cents)', before: null, after: amount }, { field: 'purpose', label: 'Purpose', before: null, after: purpose }], links: { cashId: id } });
     return { id, status: 'counted' };
   });
@@ -268,6 +312,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       await q.query(`UPDATE cash_entries SET status='approved', approved_by=$2, approved_at=$3, fee=$4 WHERE id=$1`, [id, req.session!.uid, ctx.clock.now().toISOString(), fee]);
       await ctx.ledger.chargeCashFee(q, row.branch_id, id, fee);
     });
+    await appendCashGifts(ctx, id);
     await ctx.ledger.audit({ orgId: row.org_id, branchId: row.branch_id, actor: req.session!.uid, action: 'cash.approve', entity: 'cash', entityId: id, summary: `Signed off a cash count of KES ${(Number(row.amount) / 100).toLocaleString('en-KE')}, fee KES ${(fee / 100).toLocaleString('en-KE')} charged`, links: { cashId: id, ledgerEntry: `cashfee:${id}` }, meta: { amount: Number(row.amount), fee, countedBy: row.counted_by } });
     return { id, status: 'approved', fee };
   });

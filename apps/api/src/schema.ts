@@ -1039,6 +1039,73 @@ CREATE TABLE IF NOT EXISTS giving_plan_runs (
 );
 CREATE INDEX IF NOT EXISTS giving_plan_runs_due_idx ON giving_plan_runs(status, next_attempt_at);
 ALTER TABLE give_intents ADD COLUMN IF NOT EXISTS plan_run_id text;
+-- Anonymous giving and the member giving ledger (L217 to L224).
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS anonymous boolean NOT NULL DEFAULT false;
+ALTER TABLE give_intents ADD COLUMN IF NOT EXISTS anonymous boolean NOT NULL DEFAULT false;
+ALTER TABLE giving_plans ADD COLUMN IF NOT EXISTS anonymous boolean NOT NULL DEFAULT false;
+-- Who gave an anonymous gift. Only the giver and ChurchOS can ever read this; no church query touches it.
+CREATE TABLE IF NOT EXISTS anonymous_gifts (
+  intent_id text PRIMARY KEY,
+  payment_id text UNIQUE,
+  user_id text NOT NULL,
+  phone text NOT NULL,
+  created_at text NOT NULL
+);
+CREATE OR REPLACE FUNCTION append_only_guard() RETURNS trigger AS $fn$
+BEGIN
+  RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
+END;
+$fn$ LANGUAGE plpgsql;
+CREATE TABLE IF NOT EXISTS giving_ledger (
+  seq bigserial PRIMARY KEY,
+  id text NOT NULL UNIQUE,
+  org_id text NOT NULL,
+  branch_id text,
+  membership_id text NOT NULL,
+  at text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('gift','cash_gift','reversal')),
+  amount bigint NOT NULL,
+  method text,
+  purpose text,
+  project_id text,
+  payment_id text,
+  cash_entry_id text,
+  ref text,
+  reverses text,
+  note text,
+  recorded_by text,
+  prev_hash text,
+  hash text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS giving_ledger_member_idx ON giving_ledger(membership_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS giving_ledger_gift_once ON giving_ledger(payment_id) WHERE kind='gift';
+CREATE UNIQUE INDEX IF NOT EXISTS giving_ledger_reversal_once ON giving_ledger(reverses) WHERE kind='reversal';
+CREATE UNIQUE INDEX IF NOT EXISTS giving_ledger_cash_once ON giving_ledger(cash_entry_id, membership_id) WHERE kind='cash_gift';
+DROP TRIGGER IF EXISTS giving_ledger_no_change ON giving_ledger;
+CREATE TRIGGER giving_ledger_no_change BEFORE UPDATE OR DELETE ON giving_ledger FOR EACH ROW EXECUTE FUNCTION append_only_guard();
+DROP TRIGGER IF EXISTS giving_ledger_no_truncate ON giving_ledger;
+CREATE TRIGGER giving_ledger_no_truncate BEFORE TRUNCATE ON giving_ledger FOR EACH STATEMENT EXECUTE FUNCTION append_only_guard();
+CREATE TABLE IF NOT EXISTS giving_ledger_access (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  membership_id text NOT NULL,
+  at text NOT NULL,
+  staff_id text NOT NULL,
+  staff_name text NOT NULL,
+  action text NOT NULL CHECK (action IN ('viewed','exported')),
+  reason text NOT NULL,
+  note text
+);
+CREATE INDEX IF NOT EXISTS giving_ledger_access_member_idx ON giving_ledger_access(membership_id, at);
+DROP TRIGGER IF EXISTS giving_ledger_access_no_change ON giving_ledger_access;
+CREATE TRIGGER giving_ledger_access_no_change BEFORE UPDATE OR DELETE ON giving_ledger_access FOR EACH ROW EXECUTE FUNCTION append_only_guard();
+CREATE TABLE IF NOT EXISTS cash_entry_gifts (
+  cash_entry_id text NOT NULL,
+  org_id text NOT NULL,
+  membership_id text NOT NULL,
+  amount bigint NOT NULL,
+  PRIMARY KEY (cash_entry_id, membership_id)
+);
 -- Attendance (L204 to L216): the schedule, each service, who came, visitors, and the church's settings.
 CREATE TABLE IF NOT EXISTS service_schedules (
   id text PRIMARY KEY,
@@ -1148,7 +1215,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','cash_entry_gifts','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

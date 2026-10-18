@@ -45,5 +45,5 @@ export function friendly(msg: string | undefined): string {
 }
 
 export const label = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase().replace(/_/g, ' ') : '-');
-export const METHOD_LABEL: Record<string, string> = { mpesa: 'M-Pesa', airtel: 'Airtel Money', card: 'Card', tkash: 'T-Kash', cash: 'Recorded cash' };
+export const METHOD_LABEL: Record<string, string> = { mpesa: 'M-Pesa', airtel: 'Airtel Money', card: 'Card', tkash: 'T-Kash', cash: 'Recorded cash', anonymous: 'Anonymous' };
 export const methodLabel = (m: string) => METHOD_LABEL[m] ?? label(m);

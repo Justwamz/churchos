@@ -81,7 +81,7 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const q = req.query as any;
     const stage = q.stage ? String(q.stage) : null;
     return ctx.db.query<any>(
-      `SELECT p.id, p.provider_tx_id, p.received_at, p.method, p.reference, p.purpose, ${maskPhoneSql('p.payer_phone')} AS payer_phone, p.amount_paid, p.net, p.platform_fee, p.psp_cost, p.stage,
+      `SELECT p.id, p.provider_tx_id, p.received_at, p.method, p.reference, p.purpose, ${maskPhoneSql('p.payer_phone')} AS payer_phone, p.amount_paid, p.net, p.platform_fee, p.psp_cost, p.stage, p.anonymous,
               b.name AS branch_name, b.code AS branch_code
          FROM payments p LEFT JOIN branches b ON b.id=p.branch_id ${stage ? 'WHERE p.stage=$1' : ''} ORDER BY p.received_at DESC LIMIT 200`,
       stage ? [stage] : [],
@@ -90,8 +90,16 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
 
   /** Shows the real payer number of one payment to a platform admin. Always logged (L109). */
   app.post('/admin/payments/:id/reveal', adm, async (req) => {
-    const p = (await ctx.db.query<any>('SELECT id, org_id, branch_id, payer_phone, provider_tx_id FROM payments WHERE id=$1', [(req.params as any).id]))[0];
+    const p = (await ctx.db.query<any>('SELECT id, org_id, branch_id, payer_phone, provider_tx_id, anonymous FROM payments WHERE id=$1', [(req.params as any).id]))[0];
     if (!p) throw new HttpError(404, 'payment not found', 'not_found');
+    // An anonymous gift: the giver is known only to ChurchOS, for refunds, fraud and the law. A written reason is needed and the look is recorded (L218).
+    if (p.anonymous) {
+      const reason = String((req.body as any)?.reason ?? '').trim();
+      if (reason.length < 8) throw new HttpError(400, 'Write why you need to see who made this anonymous gift', 'reason_required');
+      const g = (await ctx.db.query<any>(`SELECT phone, user_id FROM anonymous_gifts WHERE payment_id=$1`, [p.id]))[0];
+      await ctx.ledger.audit({ orgId: p.org_id, branchId: p.branch_id, actor: req.session!.uid, action: 'access.reveal_anonymous', category: 'access', entity: 'payment', entityId: p.id, summary: `Looked up the giver of an anonymous gift (${p.provider_tx_id})`, reason });
+      return { payer_phone: g?.phone ?? null, anonymous: true };
+    }
     await ctx.ledger.audit({ orgId: p.org_id, branchId: p.branch_id, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'payment', entityId: p.id, summary: `Revealed the payer phone of payment ${p.provider_tx_id}`, reason: (req.body as any)?.reason ? String((req.body as any).reason).slice(0, 200) : null, meta: { fields: ['payer_phone'] } });
     return { payer_phone: p.payer_phone };
   });

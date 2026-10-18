@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Note, phonePretty, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
 import { Icon, Sheet, Skeleton } from './ui';
+import { AnonSwitch } from './GivingRecord';
 
 // ---------------- helpers ----------------
 
@@ -128,7 +129,7 @@ export function RegularGiving({ me, user, online }: { me: any; user: any; online
             {q.plans.map((p) => (
               <li key={p.id}>
                 <button type="button" className="card rg-card" onClick={() => setOpen(p.id)}>
-                  <span className="rg-card-top"><strong className="rg-title">{planTitle(p)}</strong><StatusChip p={p} /></span>
+                  <span className="rg-card-top"><strong className="rg-title">{planTitle(p)}</strong><span className="gr-chips">{p.anonymous && <Badge tone="info">Anonymous</Badge>}<StatusChip p={p} /></span></span>
                   {several && <span className="tiny">{p.church}{p.branch ? ` · ${p.branch}` : ''}</span>}
                   {waiting(p) ? <span className="rg-line warn">A gift is waiting for your PIN. Check your phone.</span>
                     : p.status === 'active' && p.nextRunAt ? <span className="rg-line">{p.skipNext ? 'Skipping the next gift' : `Next prompt: ${dayShort(p.nextRunAt)}, ${timeOf(p.nextRunAt)}`}</span>
@@ -189,9 +190,10 @@ function Detail({ plan, onClose, reload, online, user, several }: { plan: any | 
             {plan.youPay !== plan.amount && <span>You pay {kesCents(plan.youPay)} each time, with the service fee</span>}
             {plan.endDate && <span>Ends {dayOf(plan.endDate)}</span>}
           </div>
-          <div className="rg-line-row"><StatusChip p={plan} />
+          <div className="rg-line-row"><StatusChip p={plan} />{plan.anonymous && <Badge tone="info">Anonymous</Badge>}
             {plan.status === 'active' && plan.nextRunAt && <span className="tiny">{plan.skipNext ? 'Skipping the next gift' : `Next prompt: ${dayShort(plan.nextRunAt)}, ${timeOf(plan.nextRunAt)}`}</span>}
           </div>
+          {plan.anonymous && <p className="tiny" style={{ margin: 0 }}>Anonymous regular gifts never count toward a pledge, and your church cannot see who gave.</p>}
           {waiting(plan) && <Note tone="warn">A gift is waiting for your PIN. Check your phone.</Note>}
           <p className="tiny" style={{ margin: 0 }}>Given so far {kesCents(plan.totalGiven)} ({plan.completed} {plan.completed === 1 ? 'gift' : 'gifts'}){plan.missed > 0 ? ` · ${plan.missed} missed` : ''}</p>
 
@@ -241,6 +243,7 @@ function Edit({ plan, user, onBack, onSaved }: { plan: any; user: any; onBack: (
   const [method, setMethod] = useState(plan.method);
   const [phone, setPhone] = useState('');
   const [end, setEnd] = useState(plan.endDate ?? '');
+  const [anon, setAnon] = useState(!!plan.anonymous);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const n = Number(amount);
@@ -255,6 +258,7 @@ function Edit({ plan, user, onBack, onSaved }: { plan: any; user: any; onBack: (
     if (method !== plan.method) body.method = method;
     if (phone.trim()) body.phone = phone.trim();
     if ((end || null) !== (plan.endDate ?? null)) body.endDate = end || null;
+    if (anon !== !!plan.anonymous) body.anonymous = anon;
     if (method !== plan.method && !phone.trim()) body.phone = phonePretty(user?.phone);
     try {
       if (Object.keys(body).length) await patch(`/me/giving-plans/${plan.id}`, body);
@@ -281,6 +285,8 @@ function Edit({ plan, user, onBack, onSaved }: { plan: any; user: any; onBack: (
         <input type="tel" inputMode="tel" placeholder={hint.placeholder} value={phone} onChange={(e) => setPhone(e.target.value)} />
       </Field>
       <Field label="Stop after (optional)"><input type="date" value={end} min={todayStr()} onChange={(e) => setEnd(e.target.value)} /></Field>
+      <AnonSwitch on={anon} onChange={setAnon} />
+      <p className="tiny rg-muted">Anonymous regular gifts never count toward a pledge.</p>
       {error && <ErrorNote>{error}</ErrorNote>}
       <Button disabled={busy || !valid || !!mismatch} onClick={save}>{busy ? 'Saving…' : 'Save changes'}</Button>
       <Button kind="ghost" onClick={onBack}>Back</Button>
@@ -307,6 +313,7 @@ function Setup({ open, onClose, memberships, user, onDone }: { open: boolean; on
   const [phone, setPhone] = useState(phonePretty(user?.phone));
   const [end, setEnd] = useState('');
   const [firstNow, setFirstNow] = useState(false);
+  const [anon, setAnon] = useState(false);
   const [fee, setFee] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -344,15 +351,17 @@ function Setup({ open, onClose, memberships, user, onDone }: { open: boolean; on
   const todayFirst = firstNow && start === todayStr();
   const what = purposes.find((p) => p.key === purpose)?.label ?? 'tithe';
   const whenText = freq === 'monthly' ? (monthDay === 'last' ? 'monthly on the last day' : `monthly on the ${ordinal(Number(monthDay))}`) : freqText(freq, weekday, null);
+  const anonOk = purpose === 'TITHE' || purpose === 'OFFERING' || purpose.startsWith('PROJ-');
+  const anonNow = anon && anonOk;
   const submit = async () => {
     setBusy(true); setError(undefined);
     try {
       const r = await api.post('/me/giving-plans', {
         membershipId: m.id, amount: n, purpose, frequency: freq,
         ...(freq === 'monthly' ? { monthDay: monthDay === 'last' ? 'last' : Number(monthDay) } : { weekday }),
-        time, startDate: start, ...(end ? { endDate: end } : {}), method, phone: phone.trim(), firstNow,
+        time, startDate: start, ...(end ? { endDate: end } : {}), method, phone: phone.trim(), firstNow, ...(anonNow ? { anonymous: true } : {}),
       });
-      setAmount(''); setFirstNow(false); setEnd('');
+      setAmount(''); setFirstNow(false); setEnd(''); setAnon(false);
       onDone(r?.firstGift?.prompted ? 'Your regular gift is set up. Check your phone for the prompt.' : 'Your regular gift is set up. We will send the first prompt on the day.');
     } catch (e) { setError(planErr(e)); }
     setBusy(false);
@@ -412,6 +421,8 @@ function Setup({ open, onClose, memberships, user, onDone }: { open: boolean; on
           </div>
           <Field label={hint.label} hint={hint.help} error={mismatch ?? undefined}><input type="tel" inputMode="tel" autoComplete="tel" placeholder={hint.placeholder} value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
           <Field label="Stop after (optional)"><input type="date" value={end} min={start} onChange={(e) => setEnd(e.target.value)} /></Field>
+          <AnonSwitch on={anonNow} onChange={setAnon} disabled={!anonOk} note={anonOk ? undefined : 'Only tithe, offering and project gifts can be given anonymously.'} />
+          {anonNow && <p className="tiny rg-muted">Anonymous regular gifts never count toward a pledge.</p>}
           <label className="rg-check"><input type="checkbox" checked={firstNow} onChange={(e) => setFirstNow(e.target.checked)} /><span>Give the first gift now</span></label>
           {todayFirst && <Note tone="info">Your first gift is sent now. The regular prompts start after today.</Note>}
           <div className="bk-sum">

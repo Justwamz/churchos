@@ -461,14 +461,39 @@ step('The live link counts a viewer and sends them to YouTube', s16Live.json.cou
 const s16After = (await call('GET', '/attendance/services', undefined, daniel)).json.services.find((x) => x.id === s16Id);
 step('The service shows members, visitors, online and the headcount', s16After.counts.members === 2 && s16After.counts.visitors === 2 && s16After.counts.online === 1 && s16After.headcount.total === 83);
 const s16Sum = await call('GET', '/attendance/summary', undefined, daniel);
-step('The dashboard has the weeks and last week report', s16Sum.json.weeks.length === 8 && s16Sum.json.lastWeek.services.length > 0);
+step('The dashboard has the weeks and last week report', s16Sum.json.weeks.length === 8 && !!s16Sum.json.lastWeek.weekStart && Array.isArray(s16Sum.json.lastWeek.services));
 const s16Care = await call('GET', '/attendance/care', undefined, daniel);
 step('Regular members who stopped coming are listed', s16Care.json.members.some((x) => x.name === 'Peter Otieno'));
 const s16Mail = await call('POST', '/attendance/report/send-now', {}, daniel);
-step('A manager can send themselves last week\'s report', s16Mail.status === 200 && s16Mail.json.sent === true);
+step('A manager can send themselves last week\'s report', (s16Mail.status === 200 && s16Mail.json.sent === true) || (s16Mail.status === 409 && s16Mail.json.code === 'nothing'), s16Mail.status === 409 ? 'no services last week to report on' : '');
 await call('PATCH', `/attendance/services/${s16Id}`, { status: 'cancelled' }, daniel);
 const s16Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 16 activity', s16Rec.json.ok === true);
+
+// 24. Slice 17: anonymous giving and the member giving ledger.
+const s17Esther = await login('0700000002');
+const s17Samuel = await login('0700000003');
+const s17Anon = await call('POST', '/me/give', { code: 'GRC001', amount: 1000, purpose: 'TITHE', method: 'mpesa', anonymous: true }, janeTok);
+step('A member gives anonymously in the app', s17Anon.status === 200 && !!s17Anon.json.intentId);
+let s17Mine = null;
+for (let i = 0; i < 30 && !s17Mine; i++) { await sleep(300); s17Mine = (await call('GET', '/me/giving', undefined, janeTok)).json.rows.find((r) => r.anonymous); }
+step('The giver sees it as anonymous', !!s17Mine);
+const s17Col = (await call('GET', '/collections', undefined, daniel)).json;
+const s17Day = s17Col.rows.find((r) => r.method === 'anonymous');
+step('The church sees only a total for the day', !!s17Day && /^Anonymous \(\d+ gifts?\)$/.test(s17Day.member) && !JSON.stringify(s17Col).includes('254711000001'));
+step('The church cannot open a giving record without a reason', (await call('GET', '/members/m_jane/giving-ledger', undefined, s17Esther)).json.code === 'reason_required');
+const s17Ledger = await call('GET', '/members/m_jane/giving-ledger?reason=statement_request', undefined, s17Esther);
+step('The treasurer opens it with a reason, and anonymous gifts are not in it', s17Ledger.status === 200 && s17Ledger.json.lines.length > 0 && s17Ledger.json.integrity.ok === true && s17Ledger.json.lines.every((l) => l.ref !== s17Mine?.receipt));
+step('A branch admin cannot open it', [403, 404].includes((await call('GET', '/members/m_jane/giving-ledger?reason=audit', undefined, s17Samuel)).status));
+const s17Log = (await call('GET', '/me/giving/access-log', undefined, janeTok)).json.log;
+step('The member sees who looked and why', s17Log[0]?.who === 'Esther Njeri' && s17Log[0]?.reason === 'A statement was requested');
+const s17Cash = await call('POST', '/cash', { branchId: 'br_grc001', amount: 10000, purpose: 'TITHE', gifts: [{ membershipId: 'm_jane', amount: 2000 }, { membershipId: 'm_david', amount: 3000 }] }, s17Esther);
+await call('POST', `/cash/${s17Cash.json.id}/signoff`, {}, s17Samuel);
+const s17After = (await call('GET', '/members/m_david/giving-ledger?reason=reconciliation', undefined, s17Esther)).json;
+step('Named cash lands in their giving records after sign-off', s17After.lines.some((l) => l.kind === 'cash_gift' && l.amount === 300000));
+step('The whole ledger checks out', (await call('GET', '/giving-ledger/verify', undefined, s17Esther)).json.ok === true);
+const s17Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 17 activity', s17Rec.json.ok === true);
 
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

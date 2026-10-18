@@ -183,3 +183,13 @@ needs a float policy for this.
 - **Visitors and the care list (staff app > Attendance):** first-time visitors to follow up, regular members who stopped coming (Peter Otieno in the demo), the weekly trend, and the Monday email switch.
 - **The Monday report:** it is emailed at 7:00 am Nairobi time on Mondays to people who can see attendance. In the admin console > Test tools, move the clock to a Monday after 7:00 am to send it, and read it in the Email outbox; or use "Send me last week's report now".
 - **Not built:** reading of the day from a lectionary, YouTube viewer numbers pulled automatically, and a kiosk mode.
+
+## Anonymous giving and members' giving records (Slice 17)
+
+- **Give anonymously (member app > Give, Jane `0711000001`):** switch on "Give anonymously" on a tithe, offering or project gift, or on a regular gift. In dev the simulated phone pays in about 3 seconds. Jane sees it in her own history marked Anonymous; the church sees it only as one total for the day under staff app > Collections ("Anonymous, n gifts").
+- **ChurchOS can look up the giver:** admin console > Payments (or Reversal requests), "Look up the giver", with a written reason that is recorded.
+- **Giving records (staff app > Members > a member > Giving record):** Esther `0700000002` (treasurer) and Daniel `0700000001` (owner) can open one. Choose a reason each time; the record, the CSV and "Check the whole ledger" are all there. Samuel `0700000003` (branch admin) cannot, and a Branch Admin can no longer appoint a Treasurer.
+- **Who looked (member app > Give > My giving record):** Jane sees each look and download, who did it, and why.
+- **Cash from known givers (staff app > Cash):** name Jane and David on a count, have a second person (Samuel) sign it off, and the lines appear in their records.
+- **Cannot be changed:** the ledger refuses edits and deletions at the database level; reversals add a new line.
+- **Not built:** an annual statement PDF, and revealing an anonymous gift later (decided against).

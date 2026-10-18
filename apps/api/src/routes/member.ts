@@ -41,9 +41,9 @@ export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get('/me/giving', auth, async (req) => {
     const rows = await ctx.db.query<any>(
-      `SELECT p.id, p.received_at AS date, p.method, p.purpose, p.amount_paid AS amount, p.stage AS status, p.provider_tx_id AS receipt, b.name AS church
-         FROM payments p LEFT JOIN branches b ON b.id=p.branch_id WHERE p.payer_phone=$1 ORDER BY p.received_at DESC LIMIT 200`,
-      [req.session!.phone],
+      `SELECT p.id, p.received_at AS date, p.method, p.purpose, p.amount_paid AS amount, p.stage AS status, p.provider_tx_id AS receipt, b.name AS church, p.anonymous
+         FROM payments p LEFT JOIN branches b ON b.id=p.branch_id WHERE p.payer_phone=$1 OR p.id IN (SELECT payment_id FROM anonymous_gifts WHERE user_id=$2 AND payment_id IS NOT NULL) ORDER BY p.received_at DESC LIMIT 200`,
+      [req.session!.phone, req.session!.uid],
     );
     const total = rows.filter((r) => r.status !== 'reversed' && r.status !== 'refunded').reduce((t, r) => t + r.amount, 0);
     return { rows, total };
@@ -99,6 +99,6 @@ export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
   /** "I paid the wrong church": paste the confirmation SMS (L11). */
   app.post('/me/reversal-request', auth, async (req) => {
     const b = (req.body ?? {}) as any;
-    return createReversalRequest(ctx, { requestedBy: req.session!.uid, source: 'member', message: b.message, reason: b.reason, payerPhone: req.session!.phone });
+    return createReversalRequest(ctx, { requestedBy: req.session!.uid, source: 'member', message: b.message, reason: b.reason, payerPhone: req.session!.phone, userId: req.session!.uid });
   });
 }

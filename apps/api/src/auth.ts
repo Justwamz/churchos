@@ -52,6 +52,7 @@ export const PERMISSIONS = [
   'attendance.view',
   'attendance.manage',
   'attendance.checkin',
+  'giving.ledger',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -88,6 +89,7 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'events.view': { group: 'Community', label: 'See events' },
   'events.checkin': { group: 'Community', label: 'Check people in at the door', hint: 'Scan tickets. Does not show anything else.' },
   'kids.checkin': { group: 'Community', label: 'Check children in and out', hint: 'Sunday school teachers. Scan guardians and hand children over.' },
+  'giving.ledger': { group: 'Money', label: "See members' giving records", hint: 'Open the giving record of a named member. Every look is recorded, and the member can see who looked.' },
   'attendance.view': { group: 'Community', label: 'See attendance and visitors', hint: 'Who came, first-time visitors, regular members who stopped coming, and the Monday report.' },
   'attendance.manage': { group: 'Community', label: 'Manage services and attendance', hint: 'Set the weekly schedule, add readings and notices, and set the welcome message.' },
   'attendance.checkin': { group: 'Community', label: 'Record attendance at the door', hint: 'Ushers. Scan members, add visitors and type the headcount.' },
@@ -113,8 +115,8 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
-  Treasurer: ['collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
+  Treasurer: ['giving.ledger', 'collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
   Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   "Children's Teacher": ['kids.checkin'],
