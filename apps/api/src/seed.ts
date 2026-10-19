@@ -2,7 +2,7 @@ import { ROLE_TEMPLATES } from './auth';
 import type { Ctx } from './ctx';
 import { todayEat } from './members';
 import { ensureWallets } from './wallets';
-import { startOfDayEat } from './ctx';
+import { isMock, startOfDayEat } from './ctx';
 import { gradientPng } from './artwork';
 import { issueTicketsFor } from './routes/tickets';
 
@@ -158,7 +158,7 @@ export async function seed(ctx: Ctx) {
 
   // A few gifts so dashboards are not empty. They go through the real intake path.
   const give = (ref: string, amount: number, phone: string, method: 'mpesa' | 'airtel' | 'card' = 'mpesa') =>
-    ctx.provider.simulatePaybill({ phone, amount, reference: ref, method });
+    isMock(ctx.provider) ? ctx.provider.simulatePaybill({ phone, amount, reference: ref, method }) : undefined; // demo gifts exist only with the simulator
   // Grace has SMS credit (KES 500) so receipts go out by SMS. Hope's wallet is empty, so it falls back to in-app only (L59).
   // ---------- messaging: wallets, integrations, consent, groups, a scheduled message (L111 to L122) ----------
   // Grace runs each branch as its own cost centre. Hope Chapel shares one wallet. New Hope has not set anything up yet.

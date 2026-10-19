@@ -1,0 +1,70 @@
+/* Phone shell (<= 760px). Everything here is scoped to .phone or a max-width query, so desktop is unchanged. */
+.today-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (min-width: 761px) { .today-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); } }
+.today-card { display: grid; gap: 2px; text-align: left; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; min-height: 112px; cursor: pointer; box-shadow: var(--shadow); align-content: start; min-width: 0; }
+.today-count { font-family: var(--serif); font-size: 2rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.today-title { font-weight: 650; overflow-wrap: anywhere; }
+.today-hint { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.today-card.on { border-color: var(--gold); background: var(--gold-tint); }
+.today-card.on .today-count { color: var(--warn); }
+.today-card.calm { background: var(--paper); box-shadow: none; }
+.today-card.calm .today-count { color: var(--ink-3); font-size: 1.5rem; }
+.today-card.calm .today-title { color: var(--ink-2); font-weight: 600; }
+.today-card.calm .today-hint { color: var(--ink-3); }
+.today-h { font-size: 1.15rem; margin: 22px 0 10px; }
+.today-list { display: grid; gap: 8px; }
+.today-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; text-align: left; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; min-height: 56px; cursor: pointer; }
+.today-row-main { display: grid; gap: 2px; min-width: 0; }
+.today-row .badge { flex: none; }
+.today-empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--radius); }
+.today-error { display: grid; gap: 8px; justify-items: start; margin-bottom: 12px; }
+.today-offline { margin-bottom: 12px; }
+.today-at { margin-top: 16px; text-align: center; }
+.install-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--brand-tint); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 14px; }
+.install-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.install-x { background: none; border: 0; color: var(--ink-2); font-size: 24px; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer; }
+.install-box { margin: 4px 0 10px; }
+
+/* Phone shell */
+.phone.shell { display: block; min-height: 100vh; }
+.phone .topbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 10px; padding: calc(8px + env(safe-area-inset-top)) 14px 8px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.phone .topbar-title { flex: 1; min-width: 0; }
+.phone .topbar .brand { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.phone .avatar-wrap { position: relative; }
+.phone .avatar { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line); background: var(--brand); color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+@media (prefers-color-scheme: dark) { .phone .avatar { color: #06201c; } }
+.phone .bell-btn { min-height: 44px; min-width: 44px; }
+.avatar-scrim { position: fixed; inset: 0; z-index: 55; }
+.avatar-menu { position: absolute; right: 0; top: 50px; z-index: 56; min-width: 220px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 8px; display: grid; gap: 2px; }
+.avatar-who { padding: 8px 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.avatar-menu button { text-align: left; font: inherit; color: var(--ink); background: none; border: 0; border-radius: 10px; padding: 12px 10px; min-height: 44px; cursor: pointer; }
+.avatar-menu button:hover { background: var(--brand-tint); }
+.phone .content { padding: 16px 14px calc(88px + env(safe-area-inset-bottom)); max-width: none; }
+.phone .phone-hide { display: none; }
+.phone .phone-pick select { flex: 1; min-width: 0; }
+.phone .page-head { margin-bottom: 14px; }
+.phone .page-head h1 { font-size: 1.4rem; }
+.phone .btn { min-height: 44px; }
+.phone .btn.small { min-height: 40px; }
+.phone .chip, .phone .nav-link { min-height: 44px; }
+.tabs-bottom { position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; display: flex; background: var(--surface); border-top: 1px solid var(--line); padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); }
+.tabs-bottom button { flex: 1; min-width: 0; min-height: 52px; display: grid; gap: 1px; justify-items: center; align-content: center; background: none; border: 0; font: inherit; font-size: 12px; color: var(--ink-2); cursor: pointer; border-radius: 10px; padding: 4px 2px; }
+.tabs-bottom .ti { font-size: 20px; line-height: 1; }
+.tabs-bottom button.active { color: var(--brand); font-weight: 700; background: var(--brand-tint); }
+/* keep the floating help button and toasts above the tab bar */
+.phone ~ .help-fab, .shell.phone .help-fab { bottom: calc(76px + env(safe-area-inset-bottom)); }
+.phone .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
+
+.more h1 { margin-bottom: 12px; }
+.more-group { margin-bottom: 18px; }
+.more-group h2 { font-size: 0.8rem; font-family: var(--sans); text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); margin-bottom: 8px; }
+.more-list { display: grid; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.more-item { display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; font: inherit; font-size: 16px; color: var(--ink); background: none; border: 0; border-bottom: 1px solid var(--line); padding: 0 16px; min-height: 52px; cursor: pointer; }
+.more-list .more-item:last-child { border-bottom: 0; }
+.more-item span { color: var(--ink-3); font-size: 20px; }
+.more-signout { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); color: var(--bad); font-weight: 600; margin-top: 8px; }
+
+@media (max-width: 760px) {
+  .content, .content table { max-width: 100%; }
+  .modal { max-height: calc(100dvh - 24px); overflow-y: auto; padding: 20px; }
+}

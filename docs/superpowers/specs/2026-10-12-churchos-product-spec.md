@@ -410,6 +410,32 @@ Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. The
 - **P7. Safety:** emergency and helpline numbers on counselling screens, and a way for a counsellor to flag a safeguarding concern to a named senior person.
 - **P8. Money:** free by default. An optional offering or fee goes through the normal giving flow. Who pays for video minutes is open.
 
+### 4.39 Annual giving statement, on demand (decided in discussion; completes L219 to L224)
+
+- **L245. On demand only.** A member asks for a statement for a year from the app, or a treasurer makes one on request. Nothing is ever sent or produced automatically.
+- **L246. What it holds.** The gifts the church can link to the member for the year (payments through ChurchOS and cash counted and signed off against their name), reversals netted off, by purpose and project, with every gift listed. Anonymous gifts are not on it, and the statement says so.
+- **L247. Kept as issued.** Each request is its own numbered statement, stored exactly as issued, so the same PDF can be fetched again. The number can be checked on a public page that shows only the church, the year, the total and the member's initials.
+- **L248. Treasurers.** A person with the giving-record right can make a statement for a member with a reason, as with opening the record. The reason and the person are recorded, shown to the member, and the member is told.
+- **L249. Church details.** The church can add its registration number, KRA PIN, a signatory and a footer to its statements. ChurchOS makes no claim about tax treatment.
+
+### 4.40 The lectionary, check-in and the boundary (decided in discussion)
+
+- **L250. The church enters the lectionary.** Staff who manage attendance enter, for each Sunday or feast, its name, season, year (A, B or C), colour and the scripture references of the Revised Common Lectionary. ChurchOS ships no lectionary text and no copied list, and a church can paste a whole season in one go.
+- **L251. A day belongs to the church.** A day applies to the services of that church held on that date.
+- **L252. Reference, not text.** Only references are held. A church's own reading text or notices stay as before.
+- **L253. Opened by checking in.** A member sees that a reading is waiting, but the reading itself, and the lectionary day, open only after they check in, at the church or online. A visitor opens it the same way. The release time still applies.
+- **L254. Weeks in a row.** The app shows the readings a member has opened and the weeks in a row they have come.
+- **L255. The boundary.** A branch has a location and a distance, and a service can have its own place (a crusade ground, a hall for the day) that replaces the branch location. A phone must be inside it to check in at the church. A phone that cannot say where it is, or is too vague, is stopped, and can choose online or ask an usher.
+- **L256. Seeing how it works.** Staff see, for each branch, how many check-ins were verified by location, how many had no location set, how many were scanned by staff, and a list of the check-ins that were stopped, with distances, so they can set the distance well.
+
+### 4.41 Event credit (decided in discussion)
+
+- **L257. Credit instead of a refund.** A buyer can keep the money of their tickets as event credit. It stays with the church, belongs to the buyer, never expires, and can be spent at checkout on any ticketed event of the same church. The service fee is not part of it.
+- **L258. Instant, and no money moves.** Credit needs no approval because no money leaves the church; the tickets are cancelled and the seats are free again. A member's credit is in their account and is used automatically. A guest buyer gets a credit code, shown once and emailed.
+- **L259. Spending.** Credit pays first and only the rest goes to the phone or card, with the service fee worked out on the rest. An order covered by credit needs no payment. An order waiting for payment holds its credit, and the credit goes back if the order lapses or is cancelled.
+- **L260. Credit first, then refund.** When an event is cancelled or postponed, buyers are offered credit above the refund option, and the church can turn one order or every paid order into credit. A buyer can still ask for a refund, and the church still approves each one.
+- **L261. Refunds of credit orders.** A refund returns the card or phone part to the buyer's phone or card, and the credit part to their credit.
+
 ## 5. Money engine
 
 This section details the model adopted as **L20**. It is the most important part of the platform, and the one that must be right the first time.

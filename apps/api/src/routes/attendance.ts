@@ -6,7 +6,7 @@ import { grantsFor, inStaffScope } from '../scope';
 import { notify } from '../sms';
 import { sendEmail } from '../wallets';
 import { csv } from './helpers';
-import { checkLocation, parseGeo } from './kids';
+import { MAX_ACCURACY_M, metresBetween, parseGeo } from './kids';
 import { qrSvg } from './tickets';
 
 /** Attendance (L204 to L216): the weekly schedule, check-ins, visitors, the live link and the Monday report. */
@@ -27,6 +27,12 @@ const timeOk = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
 const when = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const dayText = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-KE', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
 const streamOk = (u: string | null) => !u || /^https:\/\/[^\s]+$/i.test(u);
+
+/** The lectionary day that falls on the date of a service, if the church entered one (Slice 22). */
+const LECT_COLS = `ld.title AS lect_title, ld.season AS lect_season, ld.cycle AS lect_cycle, ld.colour AS lect_colour, ld.readings AS lect_readings, ld.note AS lect_note`;
+const LECT_JOIN = `LEFT JOIN lectionary_days ld ON ld.org_id=s.org_id AND ld.active AND ld.date = ((s.starts_at::timestamptz + interval '3 hours')::date)::text`;
+
+type ReadingMode = 'staff' | 'locked' | 'open';
 
 /** When members may see the reading or notices of a service (L211). */
 export function readingPublishAt(startsAt: string, release: string): number {
@@ -56,7 +62,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
   // ======================= helpers =======================
 
   async function serviceRow(id: string) {
-    const s = (await ctx.db.query<any>(`SELECT s.*, b.name AS branch_name, b.code AS branch_code, o.name AS church FROM services s JOIN branches b ON b.id=s.branch_id JOIN organisations o ON o.id=s.org_id WHERE s.id=$1`, [id]))[0];
+    const s = (await ctx.db.query<any>(`SELECT s.*, b.name AS branch_name, b.code AS branch_code, o.name AS church, ${LECT_COLS} FROM services s JOIN branches b ON b.id=s.branch_id JOIN organisations o ON o.id=s.org_id ${LECT_JOIN} WHERE s.id=$1`, [id]))[0];
     if (!s) throw new HttpError(404, 'not found', 'not_found');
     return s;
   }
@@ -73,10 +79,21 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     return n < Date.parse(s.opens_at) ? 'before' : n > Date.parse(s.closes_at) ? 'closed' : 'open';
   };
 
-  const readingOf = (s: any, staff: boolean) => {
-    if (!s.reading_title && !s.reading_body && !s.reading_ref) return null;
-    const visible = staff || nowMs() >= readingPublishAt(s.starts_at, s.reading_release);
-    return visible ? { title: s.reading_title, ref: s.reading_ref, body: s.reading_body, release: s.reading_release, published: nowMs() >= readingPublishAt(s.starts_at, s.reading_release) } : { published: false, release: s.reading_release, releasesAt: new Date(readingPublishAt(s.starts_at, s.reading_release)).toISOString() };
+  const lectOf = (s: any) => (s.lect_title ? { title: s.lect_title, season: s.lect_season ?? null, cycle: s.lect_cycle ?? null, colour: s.lect_colour ?? null, readings: JSON.parse(s.lect_readings || '[]') as { label: string; ref: string }[], note: s.lect_note ?? null } : null);
+
+  /**
+   * The reading of a service. Members and visitors get it only after they have checked in (Slice 22); before that they are told it is waiting.
+   * 'staff' sees everything, 'locked' sees that a reading exists, 'open' sees the reading itself.
+   */
+  const readingOf = (s: any, mode: ReadingMode | boolean) => {
+    const m: ReadingMode = mode === true ? 'staff' : mode === false ? 'locked' : mode;
+    const lect = lectOf(s);
+    if (!s.reading_title && !s.reading_body && !s.reading_ref && !lect) return null;
+    const at = readingPublishAt(s.starts_at, s.reading_release);
+    const published = nowMs() >= at;
+    if (m !== 'staff' && !published) return { published: false, release: s.reading_release, releasesAt: new Date(at).toISOString() };
+    if (m === 'locked') return { published: true, locked: true, release: s.reading_release };
+    return { title: s.reading_title, ref: s.reading_ref, body: s.reading_body, release: s.reading_release, published, locked: false, lectionary: lect };
   };
 
   const liveLink = (s: any) => `${ctx.givingUrl}/live/${s.code}`;
@@ -102,13 +119,13 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const inPerson = (c?.members ?? 0) + (c?.visitors ?? 0);
     return {
       id: s.id, code: s.code, name: s.name, branchId: s.branch_id, branch: s.branch_name, church: s.church, scheduleId: s.schedule_id, startsAt: s.starts_at, endsAt: s.ends_at, status: s.status, state: state(s),
-      opensAt: s.opens_at, closesAt: s.closes_at, streamUrl: s.stream_url, liveLink: s.stream_url ? liveLink(s) : null, reading: readingOf(s, staff), readingRelease: s.reading_release,
+      opensAt: s.opens_at, closesAt: s.closes_at, streamUrl: s.stream_url, liveLink: s.stream_url ? liveLink(s) : null, place: staff && s.geo_lat !== null && s.geo_lat !== undefined ? { name: s.place_name ?? null, lat: Number(s.geo_lat), lng: Number(s.geo_lng), radiusM: s.geo_radius_m } : null, reading: readingOf(s, staff), readingRelease: s.reading_release,
       counts: { members: c?.members ?? 0, visitors: c?.visitors ?? 0, online: c?.online ?? 0, inPerson }, headcount: hc, onlinePeak: s.online_peak,
       coverage: hc && hc.total > 0 ? Math.round((inPerson / hc.total) * 100) : null,
     };
   }
 
-  const SELECT_SERVICE = `SELECT s.*, b.name AS branch_name, b.code AS branch_code, o.name AS church FROM services s JOIN branches b ON b.id=s.branch_id JOIN organisations o ON o.id=s.org_id`;
+  const SELECT_SERVICE = `SELECT s.*, b.name AS branch_name, b.code AS branch_code, o.name AS church, ${LECT_COLS} FROM services s JOIN branches b ON b.id=s.branch_id JOIN organisations o ON o.id=s.org_id ${LECT_JOIN}`;
 
   async function genCode() {
     for (let i = 0; i < 20; i++) {
@@ -182,10 +199,10 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ======================= recording who came =======================
 
-  async function record(s: any, a: { kind: 'member' | 'visitor'; membershipId?: string | null; visitorId?: string | null; name: string; mode: 'in_person' | 'online'; via: string; invitedBy?: string | null; location?: string | null; byUser?: string | null; byName?: string | null }) {
+  async function record(s: any, a: { kind: 'member' | 'visitor'; membershipId?: string | null; visitorId?: string | null; name: string; mode: 'in_person' | 'online'; via: string; invitedBy?: string | null; location?: string | null; distanceM?: number | null; accuracyM?: number | null; byUser?: string | null; byName?: string | null }) {
     const r = await ctx.db.query<any>(
-      `INSERT INTO attendance (id, org_id, branch_id, service_id, kind, membership_id, visitor_id, name, mode, via, invited_by, location, at, by_user, by_name) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING RETURNING id`,
-      [ctx.newId('att'), s.org_id, s.branch_id, s.id, a.kind, a.membershipId ?? null, a.visitorId ?? null, a.name, a.mode, a.via, a.invitedBy ?? null, a.location ?? null, nowIso(), a.byUser ?? null, a.byName ?? null],
+      `INSERT INTO attendance (id, org_id, branch_id, service_id, kind, membership_id, visitor_id, name, mode, via, invited_by, location, at, by_user, by_name, distance_m, accuracy_m) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT DO NOTHING RETURNING id`,
+      [ctx.newId('att'), s.org_id, s.branch_id, s.id, a.kind, a.membershipId ?? null, a.visitorId ?? null, a.name, a.mode, a.via, a.invitedBy ?? null, a.location ?? null, nowIso(), a.byUser ?? null, a.byName ?? null, a.distanceM ?? null, a.accuracyM ?? null],
     );
     return !!r[0];
   }
@@ -511,6 +528,20 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     return ctx.db.query<any>(`SELECT m.id, m.org_id, m.branch_id, m.full_name FROM memberships m WHERE m.user_id=$1 AND m.status='active' AND m.category='adult' ORDER BY m.joined_at`, [uid]);
   }
 
+  /** Is the phone at the place of this service? A service can have its own place (a crusade ground, a hall for the day); otherwise the branch location is used. */
+  async function checkPlace(s: any, geo: { lat: number; lng: number; acc: number } | null) {
+    const own = s.geo_lat !== null && s.geo_lat !== undefined;
+    const b = own ? { place: s.place_name || s.name, lat: Number(s.geo_lat), lng: Number(s.geo_lng), radius: Number(s.geo_radius_m) } : await (async () => {
+      const r = (await ctx.db.query<any>(`SELECT name, geo_lat, geo_lng, geo_radius_m FROM branches WHERE id=$1`, [s.branch_id]))[0];
+      return r && r.geo_lat !== null && r.geo_lat !== undefined ? { place: r.name as string, lat: Number(r.geo_lat), lng: Number(r.geo_lng), radius: Number(r.geo_radius_m) } : null;
+    })();
+    if (!b) return { status: 'unchecked' as const, distanceM: null as number | null, radiusM: null as number | null, place: s.branch_name as string };
+    const g = geo && geo.acc <= MAX_ACCURACY_M ? geo : null;
+    if (!g) return { status: 'unknown' as const, distanceM: null, radiusM: b.radius, place: b.place };
+    const d = Math.round(metresBetween(g, { lat: b.lat, lng: b.lng }));
+    return { status: (d - Math.min(g.acc, 100) > b.radius ? 'away' : 'ok') as 'away' | 'ok', distanceM: d, radiusM: b.radius, place: b.place };
+  }
+
   app.get('/me/services', auth, async (req) => {
     const ms = await myMemberships(req.session!.uid);
     if (!ms.length) return { services: [] };
@@ -527,7 +558,8 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const out = rows.map((s) => {
       const v = serviceView(s, null, false);
       const m = ms.find((x) => x.branch_id === s.branch_id)!;
-      return { ...v, membershipId: m.id, counts: undefined, headcount: undefined, coverage: undefined, mine: mine.get(s.id) ?? { inPerson: false, online: false }, branchLiveLink: s.stream_url ? branchLiveLink(s) : null };
+      const mineHere = mine.get(s.id);
+      return { ...v, reading: readingOf(s, mineHere?.inPerson || mineHere?.online ? 'open' : 'locked'), membershipId: m.id, counts: undefined, headcount: undefined, coverage: undefined, mine: mine.get(s.id) ?? { inPerson: false, online: false }, branchLiveLink: s.stream_url ? branchLiveLink(s) : null };
     });
     return { services: out };
   });
@@ -544,14 +576,22 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     if (st === 'closed') throw new HttpError(409, 'Check-in for this service has closed', 'closed');
     const mode = b.mode === 'online' ? 'online' : 'in_person';
     let location: string | null = null;
+    let distanceM: number | null = null;
+    let accuracyM: number | null = null;
     if (mode === 'in_person') {
-      const loc = await checkLocation(ctx, s.branch_id, parseGeo(b.geo), null);
+      const geo = parseGeo(b.geo);
+      const loc = await checkPlace(s, geo);
       location = loc.status;
-      if (loc.status === 'away') throw new HttpError(409, `You are about ${loc.distanceM! >= 1000 ? `${(loc.distanceM! / 1000).toFixed(1)} km` : `${loc.distanceM} m`} from ${s.branch_name}. Check in when you are at the church, or choose "I am watching online".`, 'away_from_branch');
+      distanceM = loc.distanceM;
+      accuracyM = geo?.acc ?? null;
+      if (loc.status === 'away' || loc.status === 'unknown') {
+        await ctx.db.query(`INSERT INTO attendance_blocked (id, org_id, branch_id, service_id, membership_id, name, status, distance_m, accuracy_m, at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [ctx.newId('abl'), s.org_id, s.branch_id, s.id, m.id, m.full_name, loc.status, distanceM, accuracyM, nowIso()]);
+      }
+      if (loc.status === 'away') throw new HttpError(409, `You are about ${loc.distanceM! >= 1000 ? `${(loc.distanceM! / 1000).toFixed(1)} km` : `${loc.distanceM} m`} from ${loc.place}. Check in when you are there, or choose "I am watching online".`, 'away_from_branch');
       if (loc.status === 'unknown') throw new HttpError(409, "We can't tell where you are. Allow location for the app, or ask an usher to scan your code.", 'location_needed');
     }
-    const created = await record(s, { kind: 'member', membershipId: m.id, name: m.full_name, mode, via: 'app', location });
-    return { ok: true, already: !created, mode, reading: readingOf(s, false) };
+    const created = await record(s, { kind: 'member', membershipId: m.id, name: m.full_name, mode, via: 'app', location, distanceM, accuracyM });
+    return { ok: true, already: !created, mode, reading: readingOf(s, 'open') };
   });
 
   /** "Watch live": a member is counted online and sent to the stream. */
@@ -630,7 +670,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const v = visitorBody(b);
     const mode = b.mode === 'online' && s.stream_url ? 'online' : 'in_person';
     const r = await identify(s, { ...v, mode, via: kind === 'invite' ? 'invite' : 'door', invitedBy: kind === 'invite' ? String(p.m) : null });
-    return { status: r.already ? 'already' : 'recorded', kind: r.kind, name: r.name.split(' ')[0], first: r.first, returning: r.returning, reading: readingOf(s, false), streamUrl: mode === 'online' ? s.stream_url : null };
+    return { status: r.already ? 'already' : 'recorded', kind: r.kind, name: r.name.split(' ')[0], first: r.first, returning: r.returning, reading: readingOf(s, 'open'), streamUrl: mode === 'online' ? s.stream_url : null };
   });
 
   async function liveService(code: string) {

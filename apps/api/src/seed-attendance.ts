@@ -15,6 +15,20 @@ export async function seedAttendanceDemo(app: FastifyInstance, ctx: Ctx) {
   await post('/attendance/schedules', { ...common, name: 'Sunday Service, 10:30', weekdays: [7], startTime: '10:30', durationMin: 120, streamUrl: 'https://www.youtube.com/@gracecommunitychurch/live' });
   await post('/attendance/schedules', { ...common, name: 'Wednesday Prayer', weekdays: [3], startTime: '18:00', durationMin: 75 });
 
+  // Slice 22: sample readings for the coming Sundays. The church enters its own; these only show how it works.
+  const sets = [
+    ['Daniel 7:9-10, 13-14', 'Psalm 93', 'Revelation 1:4b-8', 'John 18:33-37'],
+    ['Isaiah 2:1-5', 'Psalm 122', 'Romans 13:11-14', 'Matthew 24:36-44'],
+    ['Isaiah 11:1-10', 'Psalm 72:1-7, 18-19', 'Romans 15:4-13', 'Matthew 3:1-12'],
+    ['Isaiah 35:1-10', 'Luke 1:46b-55', 'James 5:7-10', 'Matthew 11:2-11'],
+  ];
+  let sunday = eatToday(ctx.clock.now());
+  while (new Date(`${sunday}T00:00:00Z`).getUTCDay() !== 0) sunday = addDays(sunday, 1);
+  for (let i = 0; i < 6; i++) {
+    await app.inject({ method: 'PUT', url: `/lectionary/${sunday}`, payload: { title: 'Sunday readings (sample)', readings: sets[i % sets.length], note: 'Sample references. Enter your own from the lectionary.' } as any, headers: { authorization: `Bearer ${token}` } });
+    sunday = addDays(sunday, 7);
+  }
+
   const now = ctx.clock.now().toISOString();
   const monday = weekStartOf(eatToday(ctx.clock.now()));
   const q = (sql: string, p: unknown[]) => ctx.db.query(sql, p);

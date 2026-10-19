@@ -5,7 +5,7 @@ import { bookingPaid } from './bookings';
 import { shopPaid } from './shop';
 import { ticketsPaid } from './tickets';
 import type { FastifyInstance } from 'fastify';
-import { maskPhone } from '@churchos/shared';
+import { buildReference, maskPhone } from '@churchos/shared';
 import { normalizePhone, signToken } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
 import { notify } from '../sms';
@@ -19,7 +19,30 @@ const attempts = new Map<string, { n: number; until: number }>();
 /** Called for every inbound PSP notification: verify, post to the ledger, link to member and project, notify live dashboards. */
 export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<string, string | undefined>) {
   if (!ctx.provider.verifyWebhook(headers, rawBody)) throw new HttpError(401, 'invalid signature', 'bad_signature');
-  const parsed = ctx.provider.parseWebhook(rawBody);
+  const parsed = ctx.provider.parseWebhook(rawBody, headers);
+  // A live provider sends events that are not a received payment (failed prompts, transfer results): acknowledged and ignored.
+  if (!parsed) return { status: 'ignored' as const };
+  const intent = (await ctx.db.query<any>(`SELECT * FROM give_intents WHERE provider_tx_id = $1`, [parsed.providerTxId]))[0];
+  // M-Pesa STK and Airtel callbacks carry no church reference (Airtel no amount or phone either), so they are matched back to what we
+  // asked for when the prompt was sent, the same way a simulated payment arrives with its reference.
+  if (!parsed.reference || parsed.amount <= 0) {
+    const asked = (await ctx.db.query<any>(`SELECT reference, amount FROM psp_refs WHERE provider_tx_id = $1`, [parsed.providerTxId]))[0];
+    if (!parsed.reference) {
+      if (asked) parsed.reference = asked.reference;
+      else if (intent) {
+        const br = (await ctx.db.query<any>(`SELECT code FROM branches WHERE id = $1`, [intent.branch_id]))[0];
+        if (br) parsed.reference = buildReference(br.code, intent.purpose);
+      }
+    }
+    if (parsed.amount <= 0) {
+      const amt = asked ? Number(asked.amount) : intent ? Number(intent.amount_paid) : 0;
+      if (amt <= 0) return { status: 'ignored' as const }; // a success callback we never asked for
+      parsed.amount = amt;
+    }
+    if (!parsed.phone && intent?.phone) parsed.phone = intent.phone;
+  }
+  // Callbacks that cannot be signed (Airtel) or carry no amount are checked with the provider itself before any money is posted.
+  if (ctx.provider.confirmInbound && !(await ctx.provider.confirmInbound(headers, parsed))) return { status: 'ignored' as const };
   const inb = { ...parsed, phone: normalizePhone(parsed.phone) ?? parsed.phone };
   // A reference starting with SMS# or WA# is a messaging wallet top-up, never a church collection (L58, L116).
   const ref = inb.reference.trim().toUpperCase();
@@ -39,7 +62,6 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
     }
     // Unknown wallet code: falls through and is held in suspense like any unmatched payment.
   }
-  const intent = (await ctx.db.query<any>(`SELECT * FROM give_intents WHERE provider_tx_id = $1`, [inb.providerTxId]))[0];
   const result = await ctx.ledger.receivePayment(inb, intent?.fee);
   if (result.status === 'duplicate') return result;
 

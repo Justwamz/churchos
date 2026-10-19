@@ -62,6 +62,8 @@ const EXPLAIN = 'The church will look at your request and tell you by email. You
 /** What happened to an order's refund, plus the cancel / ask-for-refund button. */
 function RefundPanel({ order, onDone }: { order: any; onDone: () => void }) {
   const refund = order?.refund;
+  // an order paid entirely with event credit: cancelling puts the credit back
+  const covered = !!refund?.freeCancel && Number(order?.credit?.amount ?? 0) > 0;
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -84,14 +86,16 @@ function RefundPanel({ order, onDone }: { order: any; onDone: () => void }) {
       {r?.status === 'failed' && <Note tone="warn">The refund could not be sent to your number or card. The church will be in touch.</Note>}
       {refund.allowed && (!r || r.status === 'declined') && (
         <>
+          <span className="tiny tk-or">{covered ? 'Changed your mind?' : 'Or ask for your money back'}</span>
+          {covered && <span className="tiny">You paid with event credit. Cancelling puts it back in your account.</span>}
           {refund.until && !refund.freeCancel && <span className="tiny">You can ask until {dateShort(refund.until)}, {timeOf(refund.until)}.</span>}
-          <Button kind="ghost" small onClick={() => setOpen(true)}>{refund.freeCancel ? 'Cancel my tickets' : 'Cancel and ask for a refund'}</Button>
+          <Button kind="ghost" small onClick={() => setOpen(true)}>{refund.freeCancel ? (covered ? 'Cancel and get my credit back' : 'Cancel my tickets') : 'Cancel and ask for a refund'}</Button>
         </>
       )}
-      {!refund.allowed && !r && refund.why && !/cancelled/.test(refund.why) && <span className="tiny">{refund.why}</span>}
+      {!refund.allowed && !r && refund.why && <span className="tiny">{refund.why}</span>}
       <Sheet open={open} onClose={() => { if (!busy) setOpen(false); }} title={refund.freeCancel ? 'Cancel my tickets?' : 'Cancel and ask for a refund'}>
         <div className="stack">
-          {refund.freeCancel ? <p>These tickets are free, so they are cancelled right away.</p> : (
+          {refund.freeCancel ? <p>{covered ? 'The tickets are cancelled right away and your event credit goes back into your account.' : 'These tickets are free, so they are cancelled right away.'}</p> : (
             <>
               <p>{EXPLAIN}</p>
               <Field label="Reason (optional)"><textarea rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
@@ -99,6 +103,47 @@ function RefundPanel({ order, onDone }: { order: any; onDone: () => void }) {
           )}
           {error && <ErrorNote>{error}</ErrorNote>}
           <Button disabled={busy} onClick={send}>{busy ? 'One moment…' : refund.freeCancel ? 'Yes, cancel my tickets' : 'Send my request'}</Button>
+          <Button kind="ghost" disabled={busy} onClick={() => setOpen(false)}>Keep my tickets</Button>
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+const KEEP = 'Use it on any event at this church, any time. It never expires. The service fee (not included) is not refunded.';
+
+/** Offer to keep the money of a paid order as event credit. Shown above the refund panel. */
+function CreditPanel({ order, onDone }: { order: any; onDone: () => void }) {
+  const c = order?.credit;
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [added, setAdded] = useState<number | null>(null);
+  if (added != null) return <div className="tk-refund"><Note tone="good"><strong>{kes(added)} added to your event credit.</strong></Note></div>;
+  if (!c) return null;
+  if (!c.allowed) return c.why && !/cancelled|credit|refund request/.test(c.why) ? <span className="tiny tk-grey">{c.why}</span> : null;
+  const go = async () => {
+    setBusy(true); setError('');
+    try {
+      const r = await api.post(`/me/tickets/orders/${order.id}/credit`, {});
+      setAdded(r?.amount ?? c.amount); setOpen(false);
+      window.dispatchEvent(new Event('churchos:credit-changed'));
+      onDone();
+    } catch (e) { setError(errText(e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="tk-credit-card">
+      <strong>Not able to come? Keep your money as event credit</strong>
+      <span className="tk-credit-amt">{kes(c.amount)}</span>
+      <span className="tiny">{KEEP}</span>
+      <Button small onClick={() => setOpen(true)}>Keep as event credit</Button>
+      <Sheet open={open} onClose={() => { if (!busy) setOpen(false); }} title="Keep as event credit?">
+        <div className="stack">
+          <p><strong>{kes(c.amount)}</strong> will be added to your event credit and all the tickets in this order will be cancelled. This cannot be undone.</p>
+          <p className="tiny">{KEEP}</p>
+          {error && <ErrorNote>{error}</ErrorNote>}
+          <Button disabled={busy} onClick={go}>{busy ? 'One moment…' : 'Yes, keep it as credit'}</Button>
           <Button kind="ghost" disabled={busy} onClick={() => setOpen(false)}>Keep my tickets</Button>
         </div>
       </Sheet>
@@ -128,7 +173,10 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
   const [qty, setQty] = useState<Record<string, number>>({});
   const [method, setMethod] = useState('mpesa');
   const [phone, setPhone] = useState(phonePretty(user?.phone));
-  const [quote, setQuote] = useState<{ count: number; subtotal: number; serviceFee: number; total: number; free: boolean } | null>(null);
+  const [quote, setQuote] = useState<{ count: number; subtotal: number; serviceFee: number; total: number; free: boolean; credit?: number; creditUsed?: number; covered?: boolean } | null>(null);
+  const [useCredit, setUseCredit] = useState(true);
+  const [creditBal, setCreditBal] = useState(0);
+  useEffect(() => { api.get('/me/credit').then((r: any) => setCreditBal(Number(r?.total ?? 0))).catch(() => undefined); }, []);
   const [quoting, setQuoting] = useState(false);
   const [phase, setPhase] = useState<'form' | 'waiting' | 'done' | 'slow' | 'lapsed'>('form');
   const [busy, setBusy] = useState(false);
@@ -149,12 +197,12 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
     setQuoting(true);
     let live = true;
     const t = setTimeout(() => {
-      api.post('/public/tickets/quote', { code, method, lines })
+      api.post('/me/tickets/quote', { code, method, lines, useCredit })
         .then((r: any) => { if (live) { setQuote(r); setQuoting(false); } })
         .catch(() => { if (live) setQuoting(false); });
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [JSON.stringify(lines), method, code]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(lines), method, code, useCredit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const maxFor = (t: Type) => {
     const others = count - (qty[t.id] ?? 0);
@@ -163,9 +211,11 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
   const set = (t: Type, n: number) => { setError(''); setQty((q) => ({ ...q, [t.id]: Math.max(0, Math.min(maxFor(t), n)) })); };
 
   const free = !!quote?.free;
+  const covered = !free && !!quote?.covered;
+  const noPay = free || covered;
   const hint = phoneHint(method);
-  const mismatch = free || method === 'card' ? null : networkMismatch(method, phone);
-  const ready = count > 0 && !!quote && !quoting && (free || method === 'card' || (phone.trim().length >= 9 && !mismatch));
+  const mismatch = noPay || method === 'card' ? null : networkMismatch(method, phone);
+  const ready = count > 0 && !!quote && !quoting && (noPay || method === 'card' || (phone.trim().length >= 9 && !mismatch));
 
   const loadTickets = async (o: any) => {
     try {
@@ -184,7 +234,7 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
   const pay = async () => {
     setBusy(true); setError('');
     try {
-      const o = await api.post('/me/tickets/orders', { eventId, method, phone: free || method === 'card' ? undefined : phone, lines, advertId });
+      const o = await api.post('/me/tickets/orders', { eventId, method, phone: noPay || method === 'card' ? undefined : phone, lines, advertId, useCredit });
       if (!alive.current) return;
       if (o.status === 'paid') { await finish(o); return; }
       if (method === 'card' && o.payUrl) {
@@ -271,13 +321,23 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
                       <>
                         <div className="tk-sum-row"><span>{quote.count} {quote.count === 1 ? 'ticket' : 'tickets'}</span><span>{kes(quote.subtotal)}</span></div>
                         <div className="tk-sum-row"><span>Service fee</span><span>{kes(quote.serviceFee)}</span></div>
-                        <div className="tk-sum-row grand"><span>Total</span><strong>{kes(quote.total)}</strong></div>
+                        {creditBal > 0 && (
+                          <>
+                            <div className="tk-sum-row"><span>Your event credit</span><span>{kes(creditBal)}</span></div>
+                            <label className="tk-credit-switch">
+                              <input type="checkbox" role="switch" checked={useCredit} onChange={(ev2) => setUseCredit(ev2.target.checked)} />
+                              <span>Use my credit</span>
+                            </label>
+                            {useCredit && (quote.creditUsed ?? 0) > 0 && <div className="tk-sum-row credit"><span>Credit used</span><span>-{kes(quote.creditUsed!)}</span></div>}
+                          </>
+                        )}
+                        <div className="tk-sum-row grand"><span>{creditBal > 0 && useCredit && (quote.creditUsed ?? 0) > 0 ? 'To pay now' : 'Total'}</span><strong>{kes(quote.total)}</strong></div>
                       </>
                     )}
                   </div>
                 )}
 
-                {count > 0 && !free && (
+                {count > 0 && !noPay && (
                   <>
                     <div>
                       <div className="field-label" id="tk-meth">Pay with</div>
@@ -295,7 +355,7 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
                 <p className="tiny tk-name">The tickets will be in your name.</p>
                 {error && <ErrorNote>{error}</ErrorNote>}
                 <Button disabled={busy || !ready || postponed} onClick={pay}>
-                  {busy ? (method === 'card' && !free ? 'Opening card page…' : 'One moment…') : !count ? 'Choose your tickets' : free ? 'Get free tickets' : quote ? `Pay ${kes(quote.total)}` : 'Pay'}
+                  {busy ? (method === 'card' && !noPay ? 'Opening card page…' : 'One moment…') : !count ? 'Choose your tickets' : free ? 'Get free tickets' : covered ? 'Get tickets with my credit' : quote ? `Pay ${kes(quote.total)}` : 'Pay'}
                 </Button>
               </>
             )}
@@ -396,10 +456,46 @@ function TicketView({ t, onClose }: { t: any | null; onClose: () => void }) {
   );
 }
 
+function CreditSheet({ open, data, onClose }: { open: boolean; data: any; onClose: () => void }) {
+  const credits: any[] = data?.credits ?? [];
+  const spent: any[] = data?.spent ?? [];
+  return (
+    <Sheet open={open} onClose={onClose} title="Event credit">
+      <div className="stack">
+        <p>You have <strong>{kes(data?.total ?? 0)}</strong>. Use it on any event at this church, any time. It never expires.</p>
+        {credits.length > 0 && (
+          <>
+            <div className="field-label">Where it came from</div>
+            <ul className="tk-credit-list">
+              {credits.map((c) => (
+                <li key={c.id}><span><strong>{c.church}</strong><span className="tiny">{c.event ? `${c.event} · ` : ''}{c.at ? dateShort(c.at) : ''} · was {kes(c.amount)}</span></span><strong>{kes(c.balance)}</strong></li>
+              ))}
+            </ul>
+          </>
+        )}
+        {spent.length > 0 && (
+          <>
+            <div className="field-label">What you used it for</div>
+            <ul className="tk-credit-list">
+              {spent.map((c, i) => (
+                <li key={i}><span><strong>{c.event ?? 'Tickets'}</strong><span className="tiny">{c.at ? dateShort(c.at) : ''}</span></span><span>-{kes(c.amount)}</span></li>
+              ))}
+            </ul>
+          </>
+        )}
+        <Button kind="ghost" onClick={onClose}>Close</Button>
+      </div>
+    </Sheet>
+  );
+}
+
 export function TicketsPage({ onEvents }: { onEvents: () => void }) {
   const q = useAsync<any>(() => api.get('/me/tickets'));
   const [open, setOpen] = useState<any | null>(null);
   const [err, setErr] = useState('');
+  const credit = useAsync<any>(() => api.get('/me/credit'));
+  const [creditOpen, setCreditOpen] = useState(false);
+  useEffect(() => { const f = () => credit.reload(); window.addEventListener('churchos:credit-changed', f); return () => window.removeEventListener('churchos:credit-changed', f); }, []); // eslint-disable-line
   const tickets: any[] = q.data?.tickets ?? [];
   const pending: any[] = q.data?.pending ?? [];
   const reload = useRef(q.reload);
@@ -465,6 +561,7 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
                 );
               })}
             </ul>
+            <CreditPanel order={its[0].order} onDone={q.reload} />
             <RefundPanel order={its[0].order} onDone={q.reload} />
             </div>
             ))}
@@ -477,6 +574,12 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
   return (
     <div className="stack tk-page">
       {err && <ErrorNote>{err}</ErrorNote>}
+      {(credit.data?.total ?? 0) > 0 && (
+        <button type="button" className="tk-credit-chip" onClick={() => setCreditOpen(true)}>
+          <span>Event credit: <strong>{kes(credit.data.total)}</strong></span><Icon name="chev" size={18} />
+        </button>
+      )}
+      <CreditSheet open={creditOpen} data={credit.data} onClose={() => setCreditOpen(false)} />
       {pending.length > 0 && (
         <section className="tk-group-wrap">
           <h3 className="agenda-month">Waiting for payment</h3>
@@ -486,7 +589,8 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
                 <div className="order-top"><span className="badge warn">Waiting for payment</span><span className="tiny">{o.code}</span></div>
                 <strong>{o.event?.title}</strong>
                 <ul className="order-items">{(o.lines ?? []).map((l: any, i: number) => <li key={i}><span>{l.qty} x {l.name}</span><span>{kes(l.qty * l.unitPrice)}</span></li>)}</ul>
-                <div className="order-total"><span>Total</span><strong>{kes(o.total)}</strong></div>
+                {Number(o.creditUsed) > 0 && <div className="order-total"><span>Event credit used</span><span>-{kes(o.creditUsed)}</span></div>}
+                <div className="order-total"><span>{Number(o.creditUsed) > 0 ? 'To pay now' : 'Total'}</span><strong>{kes(o.total)}</strong></div>
                 <div className="order-actions">
                   {o.payUrl
                     ? <button type="button" className="btn primary small" onClick={() => { try { localStorage.setItem(TICKET_PENDING_KEY, JSON.stringify({ orderId: o.id })); } catch { /* ignore */ } window.location.assign(returnUrl(o.payUrl)); }}>Pay now</button>

@@ -1,6 +1,7 @@
 import { Badge, Button, Card, Empty, ErrorNote, Note, useAsync } from '@churchos/ui';
 import { api } from './api';
 import { Skeleton } from './ui';
+import { Statements } from './Statements';
 
 const TZ = 'Africa/Nairobi';
 const kesC = (c: number | null | undefined) => {
@@ -51,6 +52,8 @@ export function GivingRecord({ onBack }: { onBack: () => void }) {
       <Card title="My giving record">
         <p className="muted" style={{ margin: 0 }}>This is the record your church keeps of your named giving. It cannot be changed or deleted: corrections are added as new lines. Only a few people at your church with a special right can open it, and every time they do it is recorded.</p>
       </Card>
+
+      <Statements />
 
       {led.loading && !d ? <div className="card"><Skeleton lines={4} /></div> : led.error && !d ? <div className="stack"><ErrorNote>{led.error}</ErrorNote><Button kind="ghost" onClick={led.reload}>Try again</Button></div> : (
         <>

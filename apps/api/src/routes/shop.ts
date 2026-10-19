@@ -5,7 +5,7 @@ import { maskPhone } from '@churchos/shared';
 import { normalizePhone, type Permission } from '../auth';
 import { imageSize } from '../artwork';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
-import { HttpError, requireSession, staffScope, type Ctx } from '../ctx';
+import { checkoutLink, HttpError, requireSession, staffScope, type Ctx } from '../ctx';
 import { normalizeMethod } from './helpers';
 
 const HOLD_MINUTES = 30;
@@ -243,8 +243,9 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     if (method !== 'cash' && fee) {
       const reference = buildReference(branch.code, `SHOP-${code}`);
       if (method === 'card') {
-        providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId;
-        checkoutUrl = `${ctx.givingUrl}/checkout/${providerTxId}`;
+        const card = await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined });
+        providerTxId = card.providerTxId;
+        checkoutUrl = checkoutLink(ctx, card);
       } else {
         providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
       }
@@ -497,7 +498,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     const code = newCode();
     const reference = buildReference(branch.code, `SHOP-${code}`);
     let providerTxId: string;
-    if (method === 'card') providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId;
+    if (method === 'card') providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId; // payUrl is rebuilt from the id on later views
     else providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
     const id = ctx.newId('sal');
     const now = nowIso();

@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Cents, PaymentMethod } from '@churchos/shared';
-import type { InboundPayment, PaymentProvider, PayoutDestination } from './provider';
+import type { InboundPayment, PayoutDestination, Provider } from './provider';
 
 export type Deliver = (rawBody: string, headers: Record<string, string>) => Promise<void>;
 
@@ -15,7 +15,8 @@ export interface MockOptions {
  * Simulated PSP for local development and tests. It keeps its own wallet balance, so the
  * ledger's reconciliation check compares two genuinely independent numbers.
  */
-export class MockProvider implements PaymentProvider {
+export class MockProvider implements Provider {
+  readonly kind = 'mock' as const;
   private wallet: Cents = 0;
   private secret: string;
   private stkDelayMs: number;
@@ -31,6 +32,9 @@ export class MockProvider implements PaymentProvider {
     this.deliver = opts.deliver;
   }
 
+  setStkDelay(ms: number) {
+    this.stkDelayMs = ms;
+  }
   setDeliver(d: Deliver) {
     this.deliver = d;
   }

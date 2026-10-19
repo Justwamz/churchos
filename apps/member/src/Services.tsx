@@ -19,7 +19,94 @@ function stateOf(s: any, now = Date.now()): 'before' | 'open' | 'closed' {
   if (s.opensAt && s.closesAt) return now < +new Date(s.opensAt) ? 'before' : now > +new Date(s.closesAt) ? 'closed' : 'open';
   return s.state ?? 'before';
 }
-const published = (s: any) => !!(s.reading && s.reading.published && s.reading.title);
+const opened = (s: any) => !!(s.reading && s.reading.published && s.reading.locked === false);
+const locked = (s: any) => !!(s.reading && s.reading.published && s.reading.locked);
+
+const COLOURS: Record<string, string> = { white: '#f4f1e8', red: '#c0392b', green: '#2e8b57', purple: '#6d3fa0', rose: '#e58aa8', blue: '#2f6fb5', gold: '#d4a017', black: '#222222' };
+
+/** Asks the browser for the phone's place right now (high accuracy, 8 seconds). Gives nothing if it is off or slow. */
+function whereAmI(): Promise<{ lat: number; lng: number; acc: number } | undefined> {
+  return new Promise((res) => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return res(undefined);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (p) => res({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
+        () => res(undefined),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+      );
+    } catch { res(undefined); }
+  });
+}
+
+function LockIcon() {
+  return <svg className="ico" width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="9.5" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>;
+}
+
+/** The reading of a service the member has checked in to. References only; the church's own words follow. */
+export function ReadingView({ r }: { r: any }) {
+  const l = r?.lectionary;
+  const colour = l?.colour ? String(l.colour).toLowerCase() : '';
+  return (
+    <div className="stack rdg-view">
+      {l && (
+        <div className="rdg-day">
+          <strong className="rdg-day-title">{l.title}</strong>
+          {(l.season || colour || l.cycle) && (
+            <span className="rdg-chip">
+              {colour && <i className="rdg-dot" style={{ background: COLOURS[colour] ?? 'var(--muted)' }} aria-hidden="true" />}
+              {[l.season, l.cycle ? `Year ${l.cycle}` : '', colour ? colour.charAt(0).toUpperCase() + colour.slice(1) : ''].filter(Boolean).join(' · ')}
+            </span>
+          )}
+          {!!l.readings?.length && <ul className="rdg-refs">{l.readings.map((x: any, i: number) => <li key={i}><span>{x.label}</span> <strong>{x.ref}</strong></li>)}</ul>}
+          {l.note && <p className="tiny muted" style={{ margin: 0 }}>{l.note}</p>}
+        </div>
+      )}
+      {(r?.title || r?.ref || r?.body) && (
+        <div className="rdg-church">
+          {r.title && <strong>{r.title}</strong>}
+          {r.ref && <span className="tiny">{r.ref}</span>}
+          {r.body && <div className="svc-body">{r.body}</div>}
+        </div>
+      )}
+      {!l && !r?.title && !r?.ref && !r?.body && <p className="muted" style={{ margin: 0 }}>The church has not added readings for this service yet.</p>}
+    </div>
+  );
+}
+
+// ---------------- my readings ----------------
+
+function MyReadings() {
+  const q = useAsync<any>(() => api.get('/me/readings'));
+  const [open, setOpen] = useState<number | null>(null);
+  if (q.loading && !q.data) return <Skeleton lines={4} />;
+  if (q.error && !q.data) return <div className="stack"><ErrorNote>{q.error}</ErrorNote><Button kind="ghost" onClick={q.reload}>Try again</Button></div>;
+  const d = q.data ?? {};
+  const streak = Number(d.streak ?? 0);
+  const n = Number(d.opened ?? 0);
+  const recent: any[] = d.recent ?? [];
+  return (
+    <div className="stack rdg-mine">
+      <div className="rdg-streak">
+        <strong>{streak > 0 ? `You have come ${streak} ${streak === 1 ? 'week' : 'weeks'} in a row` : 'Check in at your next service to start'}</strong>
+        <span className="tiny">{n} {n === 1 ? 'reading' : 'readings'} opened</span>
+      </div>
+      {!recent.length ? <Empty>The readings you open when you check in will be kept here.</Empty> : (
+        <ul className="list rdg-list">
+          {recent.map((x, i) => (
+            <li key={i}>
+              <button type="button" className="rdg-row" aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}>
+                <span className="rdg-row-main"><strong>{x.service?.name}</strong><span className="tiny">{x.service?.startsAt ? whenOf(x.service.startsAt) : ''}{x.service?.branch ? ` · ${x.service.branch}` : ''}</span>
+                  <span className="tiny">{x.lectionary?.title ?? x.title ?? ''}{x.lectionary?.readings?.length ? ` · ${x.lectionary.readings.map((y: any) => y.ref).join(', ')}` : x.ref ? ` · ${x.ref}` : ''}</span></span>
+                <Icon name="chev" size={18} />
+              </button>
+              {open === i && <div className="rdg-open"><ReadingView r={x} /></div>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /** The coming services, refreshed every 30 seconds while the app is visible. */
 export function useServices() {
@@ -98,6 +185,7 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
   const [problems, setProblems] = useState<Record<string, Problem>>({});
   const [done, setDone] = useState<Record<string, string>>({});
   const [reading, setReading] = useState<any | null>(null);
+  const [mine, setMine] = useState(false);
   const [inviting, setInviting] = useState<any | null>(null);
 
   const setProblem = (id: string, p?: Problem) => setProblems((m) => { const n = { ...m }; if (p) n[id] = p; else delete n[id]; return n; });
@@ -106,11 +194,11 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
     setBusy(s.id + mode); setProblem(s.id);
     try {
       let g;
-      if (mode === 'in_person') { await geo.first(4000); g = geo.get(); }
+      if (mode === 'in_person') { g = (await whereAmI()) ?? geo.get(); }
       const r = await api.post(`/me/services/${encodeURIComponent(s.id)}/check-in`, { ...(g ? { geo: g } : {}), mode });
       setDone((d) => ({ ...d, [s.id]: r.mode === 'online' ? 'You are counted as watching online. Thank you!' : 'You are checked in. Welcome!' }));
       svc.reload(); att.reload();
-      if (r.reading?.title || r.reading?.body) setReading({ ...r.reading, name: s.name });
+      if (r.reading && r.reading.locked === false) setReading({ ...r.reading, name: s.name });
     } catch (e: any) {
       setProblem(s.id, { code: e?.code, message: errText(e) });
     }
@@ -150,7 +238,6 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
             const st = stateOf(s);
             const mine = s.mine ?? {};
             const problem = problems[s.id];
-            const pub = published(s);
             const rd = s.reading;
             return (
               <section className="card svc-card" key={s.id}>
@@ -164,9 +251,11 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
                 )}
                 {done[s.id] && <Note tone="good">{done[s.id]}</Note>}
 
-                {pub
-                  ? <div className="svc-reading"><span className="tiny muted">Reading of the day</span><strong>{rd.title}</strong>{rd.ref && <span className="tiny">{rd.ref}</span>}<Button kind="ghost" small onClick={() => setReading({ ...rd, name: s.name })}>Read</Button></div>
-                  : rd && rd.published === false && rd.releasesAt ? <p className="tiny muted svc-wait">Reading and notices will appear {soonOf(rd.releasesAt)}</p> : null}
+                {opened(s)
+                  ? <div className="svc-reading"><span className="tiny muted">Reading of the day</span><ReadingView r={rd} /></div>
+                  : locked(s)
+                    ? <div className="rdg-lock"><LockIcon /><div><strong>A reading is waiting for you.</strong><span>Check in to open it.</span></div></div>
+                    : rd && rd.published === false && rd.releasesAt ? <p className="tiny muted svc-wait">The reading will be ready {soonOf(rd.releasesAt)}</p> : null}
 
                 {st === 'open' && !mine.inPerson && (
                   <div className="stack svc-here">
@@ -182,7 +271,7 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
                             <Button kind="ghost" small disabled={!!busy} onClick={() => checkIn(s, 'online')}>{busy === s.id + 'online' ? 'One moment…' : 'I am watching online'}</Button>
                           )}
                           {problem.code === 'location_needed' && <Button kind="ghost" small onClick={goUsher}>Show my usher code</Button>}
-                          {problem.code === 'location_needed' && <Button kind="ghost" small onClick={() => { geo.retry(); setProblem(s.id); }}>Try again</Button>}
+                          {problem.code === 'location_needed' && <Button kind="ghost" small disabled={!!busy} onClick={() => { geo.retry(); checkIn(s, 'in_person'); }}>Try again</Button>}
                         </div>
                       </div>
                     )}
@@ -199,6 +288,7 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
             );
           })}
 
+          <Button kind="ghost" onClick={() => setMine(true)}><Icon name="pledge" size={18} />My readings</Button>
           {att.data && (weeks > 0 || invited > 0 || recent.length > 0) && (
             <Card title="Your attendance">
               <div className="stack">
@@ -210,15 +300,15 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
         </div>
       </div>
 
-      <Sheet open={!!reading} onClose={() => setReading(null)} title={reading?.title ?? 'Reading'}>
+      <Sheet open={!!reading} onClose={() => setReading(null)} title={reading?.name ? `Reading: ${reading.name}` : 'Reading'}>
         {reading && (
           <div className="stack">
-            {reading.ref && <strong>{reading.ref}</strong>}
-            {reading.body && <div className="svc-body">{reading.body}</div>}
+            <ReadingView r={reading} />
             <Button kind="ghost" onClick={() => setReading(null)}>Close</Button>
           </div>
         )}
       </Sheet>
+      <Sheet open={mine} onClose={() => setMine(false)} title="My readings">{mine && <MyReadings />}</Sheet>
       <Sheet open={!!inviting} onClose={() => setInviting(null)} title="Bring a friend">
         {inviting && <Invite s={inviting} onToast={toast.show} onSent={att.reload} />}
       </Sheet>
@@ -279,7 +369,7 @@ export function HomeServices({ onOpen }: { onOpen: () => void }) {
   const { services } = useServices();
   const now = Date.now();
   const open = services.find((s) => stateOf(s, now) === 'open' && !s.mine?.inPerson && !s.mine?.online);
-  const rd = services.find((s) => published(s) && +new Date(s.startsAt) < now + 24 * 3600 * 1000 && +new Date(s.endsAt ?? s.startsAt) > now);
+  const rd = services.find((s) => (opened(s) || locked(s)) && +new Date(s.startsAt) < now + 24 * 3600 * 1000 && +new Date(s.endsAt ?? s.startsAt) > now);
   if (!open && !rd) return null;
   return (
     <>
@@ -293,7 +383,7 @@ export function HomeServices({ onOpen }: { onOpen: () => void }) {
       {rd && (
         <button type="button" className="fam-home svc-read-home" onClick={onOpen}>
           <span className="msg-ico"><Icon name="pledge" size={18} /></span>
-          <span className="fam-name"><strong>Today's reading: {rd.reading.title}</strong><span className="tiny">{rd.reading.ref ? `${rd.reading.ref} · ` : ''}{rd.name}, {whenOf(rd.startsAt)}</span></span>
+          <span className="fam-name"><strong>{opened(rd) ? `Today's reading: ${rd.reading.title ?? rd.reading.lectionary?.title ?? rd.name}` : 'A reading is waiting. Check in to open it'}</strong><span className="tiny">{rd.name}, {whenOf(rd.startsAt)}</span></span>
           <Icon name="chev" size={18} />
         </button>
       )}

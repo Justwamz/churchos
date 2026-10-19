@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams, useSear
 import { Checkout } from './Checkout';
 import { HerePage, LivePage } from './Attend';
 import { EventPage, OrderPage, TicketPage } from './Tickets';
+import { StatementPage } from './Statement';
 import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 import { networkMismatch, phoneHint } from '@churchos/shared';
 
@@ -69,6 +70,8 @@ export function App() {
         <Route path="/tickets/:secret" element={<OrderPage />} />
         <Route path="/here/:token" element={<HerePage />} />
         <Route path="/live/:code" element={<LivePage />} />
+        <Route path="/statement" element={<StatementPage />} />
+        <Route path="/statement/:number" element={<StatementPage />} />
         <Route path="/:code" element={<GivePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

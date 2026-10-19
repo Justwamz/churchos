@@ -6,6 +6,7 @@ import { inStaffScope, staffWith } from '../scope';
 import { notify } from '../sms';
 import { sendEmail } from '../wallets';
 import { createReversalRequest } from './reversals';
+import { restoreUsed } from './event-credit';
 
 /** Refunds the church approves, and postponing an event (L192 to L195). */
 
@@ -38,7 +39,7 @@ export async function refundStateFor(ctx: Ctx, o: any, e: any): Promise<RefundSt
   if (o.status !== 'paid') return no(null);
   const t = (await ctx.db.query<any>(`SELECT count(*) FILTER (WHERE status='valid')::int AS valid, count(*) FILTER (WHERE status='used')::int AS used FROM tickets WHERE order_id=$1`, [o.id]))[0];
   if (t.used > 0) return no('Some of these tickets were already used, so the order cannot be cancelled here. Please contact the church.');
-  if (t.valid === 0) return no(request && ['approved', 'refunded'].includes(request.status) ? 'These tickets were refunded.' : 'These tickets are cancelled.');
+  if (t.valid === 0) return no(request && ['approved', 'refunded'].includes(request.status) ? 'These tickets were refunded.' : Number(o.credit_issued) > 0 ? 'These tickets were turned into credit.' : 'These tickets are cancelled.');
   if (e.status === 'cancelled') return no('This event was cancelled. The church will arrange your refund.');
   const startsMs = Date.parse(e.starts_at);
   if (e.status !== 'postponed' && Date.parse(e.ends_at ?? e.starts_at) < now) return no('This event has already happened.');
@@ -106,8 +107,9 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     const why = text(reason, 300, 'reason');
     if (state.freeCancel) {
       const gone = await cancelOrderTickets(o.id, actor.userId, 'Cancelled by the buyer');
+      const back = await restoreUsed(ctx, o.id); // an order paid with credit gives the credit back
       await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actor: actor.userId ?? undefined, actorType: actor.userId ? 'user' : 'system', action: 'ticket.buyer_cancel', entity: 'ticket_order', entityId: o.id, summary: `${actor.name} cancelled their ${gone.length} free ticket${gone.length === 1 ? '' : 's'} for "${e.title}" (order ${o.code})`, reason: why ?? undefined });
-      await tell(o, `Your tickets for ${e.title} were cancelled`, `Your ${gone.length} free ticket${gone.length === 1 ? ' was' : 's were'} cancelled and the seat${gone.length === 1 ? ' is' : 's are'} free for someone else.`);
+      await tell(o, `Your tickets for ${e.title} were cancelled`, `Your ${gone.length} ${back ? '' : 'free '}ticket${gone.length === 1 ? ' was' : 's were'} cancelled and the seat${gone.length === 1 ? ' is' : 's are'} free for someone else.${back ? ` Your ${kesText(back)} of event credit is back in your account.` : ''}`);
       return { status: 'cancelled', refund: false };
     }
     const id = ctx.newId('trf');
@@ -153,9 +155,10 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     const branchIds = (await branchesFor(ctx.db, req.session!.uid, 'events.manage')).filter((b) => b.orgId === o.org_id).map((b) => b.branchId);
     const rev = await createReversalRequest(ctx, { requestedBy: req.session!.uid, source: 'staff', paymentId: pay.id, reason: `Ticket refund, order ${o.code}, "${e.title}"${r.reason ? `: ${r.reason}` : ''}`, orgId: o.org_id, branchIds, force: true });
     await cancelOrderTickets(o.id, req.session!.uid, 'Refunded');
+    const credited = await restoreUsed(ctx, o.id); // credit the order used goes back; the card or phone part is refunded
     await ctx.db.query(`UPDATE ticket_refunds SET status='approved', decided_by=$2, decided_by_name=$3, decided_at=$4, decision_note=$5, reversal_id=$6 WHERE id=$1`, [r.id, req.session!.uid, req.session!.name, nowIso(), note, rev.id]);
     await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actor: req.session!.uid, action: church ? 'ticket.refund_by_church' : 'ticket.refund_approved', entity: 'ticket_order', entityId: o.id, summary: `${church ? 'Refunded' : 'Approved the refund of'} order ${o.code} (${kesText(Number(o.total))}) for "${e.title}"`, reason: note ?? undefined, meta: { refund: r.id, reversal: rev.id } });
-    await tell(o, `Your refund for ${e.title} was approved`, `The church approved your refund of order ${o.code} (${kesText(Number(o.total))}). The money goes back to the number or card you paid with, less any charge the payment provider keeps. We will tell you when it has been sent.${note ? ` Note from the church: ${note}` : ''}`);
+    await tell(o, `Your refund for ${e.title} was approved`, `The church approved your refund of order ${o.code} (${kesText(Number(o.total))}). The money goes back to the number or card you paid with, less any charge the payment provider keeps.${credited ? ` The ${kesText(credited)} you paid with event credit is back in your account.` : ''} We will tell you when it has been sent.${note ? ` Note from the church: ${note}` : ''}`);
   }
 
   async function refundView(r: any) {
@@ -200,6 +203,7 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     const { o } = await orderWithEvent(orderId);
     if (!o || o.event_id !== e.id) throw new HttpError(404, 'order not found', 'not_found');
     if (o.status !== 'paid' || Number(o.total) === 0) throw new HttpError(409, 'Only a paid order can be refunded', 'wrong_state');
+    if (Number(o.credit_issued) > 0) throw new HttpError(409, 'This order was turned into credit', 'already_credited');
     const open = (await ctx.db.query<any>(`SELECT * FROM ticket_refunds WHERE order_id=$1 AND status IN ('pending','approved','refunded')`, [o.id]))[0];
     if (open && open.status !== 'pending') throw new HttpError(409, 'This order was already refunded', 'already_refunded');
     const used = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM tickets WHERE order_id=$1 AND status='used'`, [o.id]))[0].n);
@@ -222,7 +226,14 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post('/events/:id/refund-all', auth, async (req) => {
     const e = await eventFor(req, (req.params as any).id);
     if (e.status !== 'cancelled') throw new HttpError(409, 'You can refund everyone at once only after cancelling the event', 'wrong_state');
-    const orders = await ctx.db.query<any>(`SELECT o.id FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 AND NOT EXISTS (SELECT 1 FROM ticket_refunds r WHERE r.order_id=o.id AND r.status IN ('approved','refunded'))`, [e.id]);
+    // Orders paid entirely with credit give the credit back; the rest are refunded.
+    for (const c of await ctx.db.query<any>(`SELECT o.* FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total = 0 AND o.credit_used > 0 AND EXISTS (SELECT 1 FROM tickets t WHERE t.order_id=o.id AND t.status='valid')`, [e.id])) {
+      await cancelOrderTickets(c.id, req.session!.uid, 'Event cancelled');
+      const back = await restoreUsed(ctx, c.id);
+      await ctx.ledger.audit({ orgId: c.org_id, branchId: c.branch_id, actor: req.session!.uid, action: 'credit.restored', entity: 'ticket_order', entityId: c.id, summary: `${kesText(back)} of event credit went back to the buyer of order ${c.code} because "${e.title}" was cancelled` });
+      await tell(c, `${e.title} was cancelled`, `Your ${kesText(back)} of event credit is back in your account.`);
+    }
+    const orders = await ctx.db.query<any>(`SELECT o.id FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 AND o.credit_issued = 0 AND NOT EXISTS (SELECT 1 FROM ticket_refunds r WHERE r.order_id=o.id AND r.status IN ('approved','refunded'))`, [e.id]);
     let done = 0;
     const failed: { orderId: string; message: string }[] = [];
     for (const o of orders) {
@@ -283,7 +294,7 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     let sms = 0, email = 0, app = 0;
     for (const o of orders) {
       const paid = Number(o.total) > 0;
-      const refundLine = paid ? (newStart ? ` If you cannot make the new date, you can ask for a refund until ${when(refundUntil!)} from your ticket page${o.buyer_user_id ? ' or the app' : ''}.` : ` If you cannot attend, you can ask for a refund from your ticket page${o.buyer_user_id ? ' or the app' : ''}.`) : '';
+      const refundLine = paid ? (newStart ? ` If you cannot make the new date, you can keep your money as event credit for another event, or ask for a refund until ${when(refundUntil!)} from your ticket page${o.buyer_user_id ? ' or the app' : ''}.` : ` If you cannot attend, you can keep your money as event credit for another event, or ask for a refund from your ticket page${o.buyer_user_id ? ' or the app' : ''}.`) : '';
       const body = newStart
         ? `"${e.title}" has moved to ${when(newStart)}${place}. Your tickets stay valid for the new date.${refundLine}${note ? ` ${note}` : ''}`
         : `"${e.title}" has been postponed. The new date will be announced. Your tickets stay valid.${refundLine}${note ? ` ${note}` : ''}`;

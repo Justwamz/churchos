@@ -20,9 +20,9 @@ export function providerRoutes(app: FastifyInstance, ctx: Ctx) {
     const sentSms = ctx.messaging.count('sms');
     const sentWa = ctx.messaging.count('whatsapp');
     return [
-      { channel: 'sms', name: 'Simulated SMS aggregator', status: 'connected', mode: 'development', credentials: { apiKey: 'sk_sim_••••••3f9a', senderPool: 'shared short code' }, sentSinceStart: sentSms },
+      { channel: 'sms', name: process.env.MESSAGING_MODE === 'live' ? 'Onfon Mobile' : 'Simulated SMS aggregator', status: 'connected', mode: process.env.MESSAGING_MODE === 'live' ? 'live' : 'development', credentials: { apiKey: 'sk_sim_••••••3f9a', senderPool: 'shared short code' }, sentSinceStart: sentSms },
       { channel: 'whatsapp', name: 'Simulated WhatsApp Business provider', status: 'connected', mode: 'development', credentials: { apiKey: 'wa_sim_••••••71c2', template: 'church_notice (approved)' }, sentSinceStart: sentWa },
-      { channel: 'email', name: 'Simulated email provider', status: 'connected', mode: 'development', credentials: { apiKey: 'em_sim_••••••90bd' }, sentSinceStart: ctx.email.sent.length },
+      { channel: 'email', name: process.env.EMAIL_MODE === 'live' ? 'Resend' : 'Simulated email provider', status: 'connected', mode: process.env.EMAIL_MODE === 'live' ? 'live' : 'development', credentials: { apiKey: 'em_sim_••••••90bd' }, sentSinceStart: ctx.email.sent.length },
     ];
   });
 

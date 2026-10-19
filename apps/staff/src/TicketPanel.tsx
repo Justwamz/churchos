@@ -3,7 +3,7 @@ import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, useAsync, use
 import { api, friendly, useSession } from './session';
 import { Load } from './bits';
 import { Modal } from './MemberForm';
-import { RefundRequests, RefundsToArrange } from './Refunds';
+import { CreditOrder, RefundRequests, RefundsToArrange } from './Refunds';
 import './tickets.css';
 
 const STATUS: Record<string, { text: string; tone: 'good' | 'bad' | 'info' }> = { valid: { text: 'Valid', tone: 'info' }, used: { text: 'Checked in', tone: 'good' }, cancelled: { text: 'Cancelled', tone: 'bad' } };
@@ -32,13 +32,24 @@ function CancelTicket({ t, onClose, onDone }: { t: any; onClose: () => void; onD
   );
 }
 
-function Attendees({ event, types, toast }: { event: any; types: any[]; toast: (m: string, tone?: 'good' | 'bad') => void }) {
+function Attendees({ event, types, toast, canCredit, onChanged }: { event: any; types: any[]; canCredit: boolean; onChanged: () => void; toast: (m: string, tone?: 'good' | 'bad') => void }) {
   const s = useSession();
   const [q, setQ] = useState('');
   const [dq, setDq] = useState('');
   const [status, setStatus] = useState('');
   const [type, setType] = useState('');
   const [cancelling, setCancelling] = useState<any>(null);
+  const [crediting, setCrediting] = useState<any>(null);
+  const [cnote, setCnote] = useState('');
+  const [cbusy, setCbusy] = useState(false);
+  const [cerr, setCerr] = useState('');
+  const moveToCredit = async () => {
+    setCbusy(true); setCerr('');
+    try {
+      const r: any = await api.post(`/events/${event.id}/orders/${crediting.orderId}/credit`, cnote.trim() ? { note: cnote.trim() } : {});
+      toast(`Turned into credit: ${kes(r?.amount ?? 0)}`); setCrediting(null); setCnote(''); list.reload(); onChanged();
+    } catch (e: any) { setCerr(friendly(e.message)); } finally { setCbusy(false); }
+  };
   useEffect(() => { const t = setTimeout(() => setDq(q.trim()), 300); return () => clearTimeout(t); }, [q]);
   const list = useAsync<any[]>(() => api.get(`/events/${event.id}/attendees` + s.qs({ branch: undefined, q: dq || undefined, status: status || undefined, type: type || undefined })), [event.id, dq, status, type]);
   const resend = async (t: any) => {
@@ -80,6 +91,7 @@ function Attendees({ event, types, toast }: { event: any; types: any[]; toast: (
                     <td>
                       <div className="row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
                         {t.status === 'valid' && <Button small kind="ghost" onClick={() => setCancelling(t)}>Cancel ticket</Button>}
+                        {canCredit && t.status === 'valid' && <Button small kind="ghost" onClick={() => { setCerr(''); setCnote(''); setCrediting(t); }}>Move to credit</Button>}
                         <Button small kind="ghost" onClick={() => resend(t)}>Send tickets again</Button>
                       </div>
                     </td>
@@ -90,6 +102,7 @@ function Attendees({ event, types, toast }: { event: any; types: any[]; toast: (
           </div>
         ))}
       </Load>
+      {crediting && <CreditOrder o={{ buyer: crediting.holder, code: crediting.orderCode }} note={cnote} setNote={setCnote} busy={cbusy} err={cerr} onClose={() => setCrediting(null)} onGo={moveToCredit} />}
       {cancelling && <CancelTicket t={cancelling} onClose={() => setCancelling(null)} onDone={(m) => { setCancelling(null); toast(m); list.reload(); }} />}
     </div>
   );
@@ -102,7 +115,11 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
   const copy = async (url: string) => {
     try { await navigator.clipboard.writeText(url); toast.show('Link copied'); } catch { toast.show('Could not copy. Select the link and copy it.', 'bad'); }
   };
+  const cr = useAsync<any>(() => api.get(`/events/${event.id}/credit` + s.qs({ branch: undefined })), [event.id]);
+  const [ver, setVer] = useState(0);
+  const reloadAll = () => { d.reload(); cr.reload(); setVer((n) => n + 1); };
   const t = d.data;
+  const ci = cr.data?.issued, cp = cr.data?.paidWithCredit;
   return (
     <Modal title={`Tickets and sales: ${event.title}`} onClose={onClose}>
       <div className="stack">
@@ -119,8 +136,13 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
               {t.status === 'scheduled' && t.postponed && (
                 <Note tone="warn"><b>Postponed{t.postponed.from ? `, moved from ${when(t.postponed.from)}` : ''}.</b>{t.postponed.note ? ` ${t.postponed.note}` : ''}{t.postponed.refundUntil ? ` Buyers can ask for a refund until ${when(t.postponed.refundUntil)}.` : ''}</Note>
               )}
-              {t.status !== 'cancelled' && <RefundRequests event={event} toast={toast.show} onChanged={d.reload} />}
-              {t.status === 'cancelled' && <RefundsToArrange event={event} refunds={t.refunds ?? []} toast={toast.show} onChanged={d.reload} />}
+              {t.status !== 'cancelled' && <RefundRequests event={event} toast={toast.show} onChanged={reloadAll} />}
+              {t.status === 'cancelled' && <RefundsToArrange event={event} refunds={t.refunds ?? []} toast={toast.show} onChanged={reloadAll} />}
+              {cr.data && (ci?.orders > 0 || cp?.orders > 0) && (
+                <div className="tk-req"><b>Event credit</b>
+                  <div className="tiny">{ci?.orders > 0 ? `${ci.orders} ${ci.orders === 1 ? 'order' : 'orders'} turned into credit (${kes(ci.amount)}), ${kes(ci.spent)} of it already spent. ` : ''}{cp?.orders > 0 ? `${cp.orders} ${cp.orders === 1 ? 'order was' : 'orders were'} paid with credit (${kes(cp.amount)}).` : ''}</div>
+                </div>
+              )}
               {t.ticketed && t.status !== 'cancelled' && <div className="tiny">{t.refundDaysBefore != null ? `Buyers can ask for a refund until ${t.refundDaysBefore} ${t.refundDaysBefore === 1 ? 'day' : 'days'} before.` : 'No refunds before the event.'}</div>}
               <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
                 {t.hasPoster && <div className="tk-thumb" style={{ backgroundImage: `url("${api.url(t.posterUrl)}")` }} role="img" aria-label="Poster" />}
@@ -151,7 +173,7 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
                   );
                 })}
               </div>
-              <Attendees event={event} types={t.types} toast={toast.show} />
+              <Attendees key={ver} event={event} types={t.types} toast={toast.show} canCredit={t.status === 'scheduled' || t.status === 'postponed'} onChanged={reloadAll} />
             </>
           )}
         </Load>

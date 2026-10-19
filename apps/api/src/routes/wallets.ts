@@ -3,7 +3,7 @@ import { maskEmail, maskPhone, toCents } from '@churchos/shared';
 import { branchesFor, normalizePhone } from '../auth';
 import { assertEmail, checkEmail } from '../email-rules';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
-import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
+import { checkoutLink, HttpError, isMock, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 import { activeBands, costOf, priceInfo, unitsUsed } from '../pricing';
 import { checkLowBalance, emailRequired, requireVerifiedEmail, sendEmail, CHANNELS, DEFAULT_THRESHOLD, ensureWallets, integrationSettings, PAYBILL_PREFIX, RATES, walletFor, walletView, type Channel, type WalletRow } from '../wallets';
 import { csv } from './helpers';
@@ -99,9 +99,10 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
       return { id, method: 'mpesa', status: 'initiated', message: `Check ${phone.replace(/^254/, '0')} and enter your PIN to complete the top-up.` };
     }
     // Card: the person pays on the payment provider's own page, so card details never reach ChurchOS.
-    const { providerTxId } = await ctx.provider.initiateCardCheckout({ amount, reference, phone: req.session!.phone });
+    const card = await ctx.provider.initiateCardCheckout({ amount, reference, phone: req.session!.phone });
+    const { providerTxId } = card;
     await ctx.db.query(`INSERT INTO wallet_topups (id, wallet_id, org_id, amount, method, provider_tx_id, created_by, created_at) VALUES ($1,$2,$3,$4,'card',$5,$6,$7)`, [id, w.id, w.org_id, amount, providerTxId, req.session!.uid, now]);
-    return { id, method: 'card', status: 'initiated', checkoutUrl: `${ctx.givingUrl}/checkout/${providerTxId}`, message: 'Complete the payment on the secure card page.' };
+    return { id, method: 'card', status: 'initiated', checkoutUrl: checkoutLink(ctx, card), message: 'Complete the payment on the secure card page.' };
   });
 
   app.get('/wallets/topups/:id', auth, async (req) => {
@@ -351,6 +352,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   // A real payment provider hosts this page. ChurchOS only gets a checkout id and, later, a signed notification.
 
   app.get('/public/checkout/:id', async (req) => {
+    if (!isMock(ctx.provider)) throw new HttpError(404, 'This payment link is not available', 'not_found'); // the live card page is hosted by the payment provider
     const info = ctx.provider.checkoutInfo((req.params as any).id);
     if (!info) throw new HttpError(404, 'This payment link has expired or was already used', 'not_found');
     // A gift shows the church being paid, a wallet top-up shows the messaging credit.
@@ -360,6 +362,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/public/checkout/:id/pay', async (req) => {
+    if (!isMock(ctx.provider)) throw new HttpError(404, 'This payment link is not available', 'not_found');
     const r = await ctx.provider.completeCardCheckout((req.params as any).id, (req.body ?? {}) as any);
     if (r.status === 'unknown') throw new HttpError(404, 'This payment link has expired or was already used', 'not_found');
     if (r.status === 'invalid') throw new HttpError(400, 'Check the card details and try again. For testing use 4242 4242 4242 4242.', 'bad_card');

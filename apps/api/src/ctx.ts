@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Clock, Db, Ledger } from '@churchos/ledger';
-import type { MockProvider } from '@churchos/payments';
+import { isMock, type MockProvider, type Provider } from '@churchos/payments';
 import type { MockEmailProvider, MockMessagingProvider } from '@churchos/messaging';
 import { branchesFor, verifyToken, type Permission, type Session } from './auth';
 import { setActor } from './audit';
@@ -9,7 +9,7 @@ import { setActor } from './audit';
 export interface Ctx {
   db: Db;
   ledger: Ledger;
-  provider: MockProvider;
+  provider: Provider;
   messaging: MockMessagingProvider;
   email: MockEmailProvider;
   /** Where the public giving and card checkout pages live, for links in responses. */
@@ -24,6 +24,19 @@ declare module 'fastify' {
     session?: Session;
   }
 }
+
+/** Where to send a payer for a card payment: the provider's hosted page when live, ChurchOS's own test page when simulated. */
+export function checkoutLink(ctx: Ctx, r: { providerTxId: string; checkoutUrl?: string }, suffix = ''): string {
+  return r.checkoutUrl ?? `${ctx.givingUrl}/checkout/${r.providerTxId}${suffix}`;
+}
+
+/** The simulator's development helpers. A live provider has none, so these routes answer 404 there. */
+export function mockOnly(ctx: Ctx): MockProvider {
+  if (!isMock(ctx.provider)) throw new HttpError(404, 'Only available with the simulated payment provider', 'not_found');
+  return ctx.provider;
+}
+
+export { isMock };
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public code?: string) {

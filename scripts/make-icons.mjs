@@ -1,12 +1,13 @@
 // Generates the PWA icons for the member app as PNG files, with no image library.
-// Usage: node scripts/make-icons.mjs
+// Usage: node scripts/make-icons.mjs [member|staff]  (staff gets a navy tile)
 import { deflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync } from 'node:fs';
 
-const OUT = new URL('../apps/member/public/icons/', import.meta.url);
+const APP = process.argv[2] === 'staff' ? 'staff' : 'member';
+const OUT = new URL(`../apps/${APP}/public/icons/`, import.meta.url);
 mkdirSync(OUT, { recursive: true });
 
-const TEAL = [14, 90, 82], CREAM = [248, 239, 220], GOLD = [185, 131, 42];
+const TEAL = APP === 'staff' ? [18, 52, 86] : [14, 90, 82], CREAM = [248, 239, 220], GOLD = [185, 131, 42];
 
 const crcTable = (() => {
   const t = new Uint32Array(256);

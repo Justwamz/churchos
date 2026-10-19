@@ -6,11 +6,12 @@ import { normalizePhone } from '../auth';
 import { assertEmail, checkEmail } from '../email-rules';
 import { diff, type FieldSpec } from '../audit';
 import { validateArtwork } from '../artwork';
-import { HttpError, requireSession, type Ctx } from '../ctx';
+import { checkoutLink, HttpError, requireSession, type Ctx } from '../ctx';
 import { inStaffScope, grantsFor } from '../scope';
 import { sendEmail } from '../wallets';
 import { csv, normalizeMethod } from './helpers';
 import { refundStateFor, runRefundJobs } from './ticket-refunds';
+import { creditStateFor, findCredits, restoreUsed, retakeUsed, spendIn } from './event-credit';
 
 const HOLD_MINUTES = 15;
 const MAX_PER_ORDER = 20;
@@ -113,7 +114,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
 
   interface Buyer { name: string; email: string | null; phone: string | null; userId: string | null; membershipId: string | null }
 
-  async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null }) {
+  async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null; credit?: { userId?: string | null; code?: unknown } }) {
     const e = o.event;
     if (e.status === 'cancelled') throw new HttpError(409, 'This event was cancelled', 'cancelled');
     if (e.status === 'postponed') throw new HttpError(409, 'This event has been postponed. Tickets go back on sale when the new date is announced.', 'postponed');
@@ -144,6 +145,11 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const mailbox = b.email ? assertEmail(b.email) : null;
     if (mailbox) b.email = mailbox.email;
     const free = subtotal === 0;
+    // Event credit (Slice 20): what the buyer has, or the code they typed, pays first. Only the rest goes to the phone or card.
+    const credits = o.credit && subtotal > 0 ? await findCredits(ctx, e.org_id, o.credit) : [];
+    const creditUse = Math.min(credits.reduce((s, c) => s + c.balance, 0), subtotal);
+    const payable = subtotal - creditUse;
+    const covered = payable === 0;
     if (free) {
       const held = Number((await ctx.db.query<any>(
         `SELECT COALESCE(SUM(l.qty),0)::int AS n FROM ticket_order_lines l JOIN ticket_orders o ON o.id=l.order_id WHERE o.event_id=$1 AND o.status IN ('paid','awaiting_payment') AND l.unit_price=0 AND ((o.buyer_user_id IS NOT NULL AND o.buyer_user_id=$2) OR (o.buyer_email_key IS NOT NULL AND o.buyer_email_key=$3))`,
@@ -158,19 +164,20 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     let fee: ReturnType<typeof computeFee> | null = null;
     const code = newCode();
     const branch = (await ctx.db.query<any>(`SELECT id, code, name FROM branches WHERE id=COALESCE($2, (SELECT id FROM branches WHERE org_id=$1 ORDER BY code LIMIT 1))`, [e.org_id, e.branch_id]))[0];
-    if (!free) {
+    if (!covered) {
       method = String(normalizeMethod(o.method));
       if (method === 'cash') throw new HttpError(400, 'Tickets are paid by M-Pesa, Airtel Money, T-Kash or card. There is no cash sale.', 'bad_method');
       if (!phone && method !== 'card') throw new HttpError(400, 'Enter the phone number to send the payment prompt to', 'bad_phone');
       const mismatch = phone ? networkMismatch(method, phone) : null;
       if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
       const org = (await ctx.db.query<any>(`SELECT fee_schedule FROM organisations WHERE id=$1`, [e.org_id]))[0];
-      fee = computeFee(org.fee_schedule, method as any, subtotal, 'member'); // the buyer pays the service fee on top (L172)
+      fee = computeFee(org.fee_schedule, method as any, payable, 'member'); // the buyer pays the service fee on top (L172)
       if (fee.amountPaid > 15_000_000) throw new HttpError(400, 'An order can be at most KES 150,000. Please buy in two orders.', 'too_large');
       const reference = buildReference(branch.code, `TKT-${code}`);
       if (method === 'card') {
-        providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId;
-        checkoutUrl = `${ctx.givingUrl}/checkout/${providerTxId}`;
+        const card = await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined });
+        providerTxId = card.providerTxId;
+        checkoutUrl = checkoutLink(ctx, card);
       } else providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method: method as any })).providerTxId;
     }
     const id = ctx.newId('tko');
@@ -184,19 +191,20 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
         if (l.c.row.quantity - s - h < l.qty) throw new HttpError(409, `"${l.c.row.name}" has just sold out`, 'sold_out');
       }
       await q.query(
-        `INSERT INTO ticket_orders (id, secret, code, org_id, branch_id, event_id, buyer_name, buyer_email, buyer_phone, buyer_user_id, buyer_membership_id, method, status, subtotal, service_fee, total, provider_tx_id, hold_until, advert_id, created_at, buyer_email_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
-        [id, secret, code, e.org_id, e.branch_id, e.id, b.name, b.email, phone, b.userId, b.membershipId, method, free ? 'paid' : 'awaiting_payment', subtotal, fee?.totalFee ?? 0, fee?.amountPaid ?? 0, providerTxId, free ? null : new Date(ctx.clock.now().getTime() + HOLD_MINUTES * 60_000).toISOString(), o.advertId ?? null, now, mailbox?.key ?? null],
+        `INSERT INTO ticket_orders (id, secret, code, org_id, branch_id, event_id, buyer_name, buyer_email, buyer_phone, buyer_user_id, buyer_membership_id, method, status, subtotal, service_fee, total, provider_tx_id, hold_until, advert_id, created_at, buyer_email_key, credit_used)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+        [id, secret, code, e.org_id, e.branch_id, e.id, b.name, b.email, phone, b.userId, b.membershipId, method, covered ? 'paid' : 'awaiting_payment', subtotal, fee?.totalFee ?? 0, fee?.amountPaid ?? 0, providerTxId, covered ? null : new Date(ctx.clock.now().getTime() + HOLD_MINUTES * 60_000).toISOString(), o.advertId ?? null, now, mailbox?.key ?? null, creditUse],
       );
       for (const l of lines) await q.query(`INSERT INTO ticket_order_lines (order_id, type_id, type_name, qty, unit_price) VALUES ($1,$2,$3,$4,$5)`, [id, l.c.row.id, l.c.row.name, l.qty, l.price]);
+      if (creditUse > 0) await spendIn(q, ctx, e.org_id, id, credits, creditUse, now);
       if (fee) {
         await q.query(`INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11)`,
-          [ctx.newId('int'), providerTxId, e.org_id, branch.id, `TKT-${code}`, phone ?? '', method, subtotal, fee.amountPaid, JSON.stringify(fee), now]);
+          [ctx.newId('int'), providerTxId, e.org_id, branch.id, `TKT-${code}`, phone ?? '', method, payable, fee.amountPaid, JSON.stringify(fee), now]);
       }
     });
-    await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: b.userId ?? undefined, actorType: b.userId ? 'user' : 'system', action: 'ticket.order', entity: 'ticket_order', entityId: id, summary: `${free ? 'Took' : 'Started an order for'} ${lines.map((l) => `${l.qty} x ${l.c.row.name}`).join(', ')} for "${e.title}"${free ? '' : `, ${kesText(subtotal)} plus a ${kesText(fee!.totalFee)} service fee`}`, meta: { order: code, subtotal, free, advert: o.advertId ?? null } });
-    if (free) await issueTickets(id);
-    return { id, secret, code, free, checkoutUrl, subtotal, serviceFee: fee?.totalFee ?? 0, total: fee?.amountPaid ?? 0, method };
+    await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: b.userId ?? undefined, actorType: b.userId ? 'user' : 'system', action: 'ticket.order', entity: 'ticket_order', entityId: id, summary: `${free ? 'Took' : 'Started an order for'} ${lines.map((l) => `${l.qty} x ${l.c.row.name}`).join(', ')} for "${e.title}"${free ? '' : `, ${kesText(subtotal)}${creditUse ? `, of which ${kesText(creditUse)} from event credit` : ''}${fee ? ` plus a ${kesText(fee.totalFee)} service fee` : ''}`}`, meta: { order: code, subtotal, free, creditUsed: creditUse, advert: o.advertId ?? null } });
+    if (covered) await issueTickets(id);
+    return { id, secret, code, free, covered, creditUsed: creditUse, checkoutUrl, subtotal, serviceFee: fee?.totalFee ?? 0, total: fee?.amountPaid ?? 0, method };
   }
 
   // ======================= public: event page, ordering, ticket page =======================
@@ -210,9 +218,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   /** What the buyer will pay, before they commit: the tickets, the service fee on top, and the total (L172). */
-  app.post('/public/tickets/quote', async (req) => {
-    const b = (req.body ?? {}) as any;
-    const e = await eventByCode(String(b.code ?? ''));
+  async function quoteFor(b: any, e: any, who: { userId?: string | null; code?: unknown }) {
     const types = await counts(e.id);
     let subtotal = 0;
     let count = 0;
@@ -223,18 +229,34 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
       subtotal += qty * Number(c.row.price);
       count += qty;
     }
-    if (subtotal === 0) return { count, subtotal: 0, serviceFee: 0, total: 0, free: true };
+    if (subtotal === 0) return { count, subtotal: 0, serviceFee: 0, total: 0, free: true, credit: 0, creditUsed: 0, covered: false };
+    const credits = await findCredits(ctx, e.org_id, who);
+    const credit = credits.reduce((s, c) => s + c.balance, 0);
+    const creditUsed = Math.min(credit, subtotal);
+    if (creditUsed === subtotal) return { count, subtotal, serviceFee: 0, total: 0, free: false, credit, creditUsed, covered: true };
     const org = (await ctx.db.query<any>(`SELECT fee_schedule FROM organisations WHERE id=$1`, [e.org_id]))[0];
     const method = b.method === 'card' || b.method === 'airtel' || b.method === 'tkash' ? b.method : 'mpesa';
-    const fee = computeFee(org.fee_schedule, method, subtotal, 'member');
-    return { count, subtotal, serviceFee: fee.totalFee, total: fee.amountPaid, free: false };
+    const fee = computeFee(org.fee_schedule, method, subtotal - creditUsed, 'member');
+    return { count, subtotal, serviceFee: fee.totalFee, total: fee.amountPaid, free: false, credit, creditUsed, covered: false };
+  }
+
+  app.post('/public/tickets/quote', async (req) => {
+    const b = (req.body ?? {}) as any;
+    const e = await eventByCode(String(b.code ?? ''));
+    return quoteFor(b, e, { code: b.creditCode });
+  });
+
+  app.post('/me/tickets/quote', auth, async (req) => {
+    const b = (req.body ?? {}) as any;
+    const e = await eventByCode(String(b.code ?? ''));
+    return quoteFor(b, e, { userId: b.useCredit === false ? null : req.session!.uid, code: b.creditCode });
   });
 
   app.post('/public/tickets/orders', async (req) => {
     const b = (req.body ?? {}) as any;
     const e = await eventByCode(String(b.code ?? ''));
     const name = text(b.name, 80, 'name', true)!;
-    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null });
+    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null, credit: b.creditCode ? { code: b.creditCode } : undefined });
     return orderResponse(r.id);
   });
 
@@ -245,7 +267,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const tickets = o.status === 'paid' ? await ticketsOf(id) : [];
     return {
       id: o.id, secret: o.secret, code: o.code, status: o.status, event: { title: o.title, code: o.event_code }, subtotal: Number(o.subtotal), serviceFee: Number(o.service_fee), total: Number(o.total), method: o.method,
-      refund: await refundStateFor(ctx, o, ev), eventStatus: ev.status,
+      refund: await refundStateFor(ctx, o, ev), credit: await creditStateFor(ctx, o, ev), creditUsed: Number(o.credit_used), creditIssued: Number(o.credit_issued), eventStatus: ev.status,
       holdUntil: o.hold_until, payUrl: o.status === 'awaiting_payment' && o.method === 'card' && o.provider_tx_id ? `${ctx.givingUrl}/checkout/${o.provider_tx_id}` : null,
       lines: lines.map((l) => ({ name: l.type_name, qty: l.qty, unitPrice: Number(l.unit_price) })),
       tickets: tickets.map((t) => ({ id: t.id, serial: t.serial, type: t.type_name, holder: t.holder_name, status: t.status, url: ticketUrl(t.token), token: t.token })),
@@ -263,7 +285,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const e = (await ctx.db.query<any>(`SELECT e.*, o.name AS church FROM events e JOIN organisations o ON o.id=e.org_id WHERE e.id=$1`, [t.event_id]))[0];
     const ord = (await ctx.db.query<any>(`SELECT * FROM ticket_orders WHERE id=$1`, [t.order_id]))[0];
     return {
-      order: { id: ord.id, code: ord.code, secret: ord.secret, refund: await refundStateFor(ctx, ord, e) },
+      order: { id: ord.id, code: ord.code, secret: ord.secret, refund: await refundStateFor(ctx, ord, e), credit: await creditStateFor(ctx, ord, e) },
       id: t.id, serial: t.serial, type: t.type_name, holder: t.holder_name, status: t.status, usedAt: t.checked_in_at, url: ticketUrl(t.token), token: t.token, qrSvg: qrSvg(ticketUrl(t.token)),
       event: { id: e.id, code: e.code, title: e.title, startsAt: e.starts_at, endsAt: e.ends_at, location: e.location, church: e.church, cancelled: e.status === 'cancelled', postponed: e.status === 'postponed', movedFrom: e.postponed_from && e.status === 'scheduled' ? e.postponed_from : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null },
     };
@@ -287,7 +309,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const user = (await ctx.db.query<any>(`SELECT email FROM users WHERE id=$1`, [uid]))[0];
     const open = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM ticket_orders WHERE buyer_user_id=$1 AND status='awaiting_payment' AND hold_until > $2`, [uid, nowIso()]))[0].n);
     if (open >= 3) throw new HttpError(429, 'You have 3 ticket orders waiting for payment. Pay for them or cancel them first.', 'too_many');
-    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name: m.full_name, email: user?.email ?? null, phone: b.phone ? String(b.phone) : req.session!.phone, userId: uid, membershipId: m.id }, advertId: b.advertId ? String(b.advertId) : null });
+    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name: m.full_name, email: user?.email ?? null, phone: b.phone ? String(b.phone) : req.session!.phone, userId: uid, membershipId: m.id }, advertId: b.advertId ? String(b.advertId) : null, credit: { userId: b.useCredit === false ? null : uid, code: b.creditCode } });
     return orderResponse(r.id);
   });
 
@@ -311,6 +333,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!o) throw new HttpError(404, 'order not found', 'not_found');
     if (o.status !== 'awaiting_payment') throw new HttpError(409, 'Only an order that is waiting for payment can be cancelled', 'wrong_state');
     await ctx.db.query(`UPDATE ticket_orders SET status='lapsed' WHERE id=$1`, [o.id]);
+    await restoreUsed(ctx, o.id);
     return { id: o.id, status: 'lapsed' };
   });
 
@@ -398,7 +421,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const fees = (await ctx.db.query<any>(`SELECT COALESCE(SUM(service_fee),0) AS fees, COALESCE(SUM(subtotal),0) AS money, count(*)::int AS orders FROM ticket_orders WHERE event_id=$1 AND status='paid'`, [e.id]))[0];
     // A cancelled event: the paid orders the church now has to refund by hand (money is never returned automatically).
     const refunds = e.status === 'cancelled'
-      ? (await ctx.db.query<any>(`SELECT o.id, o.code, o.buyer_name, o.method, o.total, o.created_at, (SELECT count(*) FROM tickets t WHERE t.order_id=o.id)::int AS n FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 AND NOT EXISTS (SELECT 1 FROM ticket_refunds r WHERE r.order_id=o.id AND r.status IN ('approved','refunded')) ORDER BY o.created_at`, [e.id]))
+      ? (await ctx.db.query<any>(`SELECT o.id, o.code, o.buyer_name, o.method, o.total, o.created_at, (SELECT count(*) FROM tickets t WHERE t.order_id=o.id)::int AS n FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid' AND o.total > 0 AND o.credit_issued = 0 AND NOT EXISTS (SELECT 1 FROM ticket_refunds r WHERE r.order_id=o.id AND r.status IN ('approved','refunded')) ORDER BY o.created_at`, [e.id]))
           .map((o) => ({ orderId: o.id, code: o.code, buyer: o.buyer_name, method: o.method, total: Number(o.total), tickets: o.n, at: o.created_at }))
       : [];
     return {
@@ -517,6 +540,11 @@ export async function ticketsPaid(ctx: Ctx, code: string, paymentId: string): Pr
       }
     }
   }
+  if (o.status === 'lapsed' && Number(o.credit_used) > 0 && !(await retakeUsed(ctx, o.id))) {
+    await ctx.db.query(`UPDATE ticket_orders SET payment_id=$2 WHERE id=$1`, [o.id, paymentId]);
+    await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actorType: 'psp', action: 'ticket.paid_late', entity: 'ticket_order', entityId: o.id, summary: `Payment arrived for the lapsed ticket order ${o.code} but the credit it used is gone. Arrange a refund.`, links: { paymentId } });
+    return;
+  }
   await ctx.db.query(`UPDATE ticket_orders SET status='paid', payment_id=$2, paid_at=$3, hold_until=NULL WHERE id=$1`, [o.id, paymentId, now]);
   await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actorType: 'psp', action: 'ticket.paid', entity: 'ticket_order', entityId: o.id, summary: `Payment received for ticket order ${o.code} for "${o.title}"`, links: { paymentId } });
   await issueTicketsFor(ctx, o.id);
@@ -575,6 +603,7 @@ export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminde
   const refunds = await runRefundJobs(ctx);
   const now = ctx.clock.now().toISOString();
   const lapsed = await ctx.db.query<any>(`UPDATE ticket_orders SET status='lapsed' WHERE status='awaiting_payment' AND hold_until <= $1 RETURNING id, org_id, branch_id, code`, [now]);
+  for (const o of lapsed) await restoreUsed(ctx, o.id);
   for (const o of lapsed) await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actorType: 'system', action: 'ticket.lapsed', entity: 'ticket_order', entityId: o.id, summary: `The ticket order ${o.code} was not paid in time. The tickets were released.` });
   const soon = await ctx.db.query<any>(`UPDATE events SET ticket_reminder_sent=true WHERE ticketed AND status='scheduled' AND NOT ticket_reminder_sent AND starts_at > $1 AND starts_at <= $2 RETURNING *`, [now, new Date(ctx.clock.now().getTime() + 24 * 3600_000).toISOString()]);
   let reminders = 0;
@@ -594,14 +623,14 @@ export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminde
 /** An event was cancelled: every buyer is told and the church is told how many paid orders need a refund (L176). */
 export async function notifyTicketBuyersOfCancel(ctx: Ctx, event: any, reason: string | null): Promise<{ orders: number; ticketsToRefund: number; ordersToRefund: number }> {
   const now = ctx.clock.now().toISOString();
-  await ctx.db.query(`UPDATE ticket_orders SET status='lapsed' WHERE event_id=$1 AND status='awaiting_payment'`, [event.id]);
+  for (const l of await ctx.db.query<any>(`UPDATE ticket_orders SET status='lapsed' WHERE event_id=$1 AND status='awaiting_payment' RETURNING id`, [event.id])) await restoreUsed(ctx, l.id);
   const orders = await ctx.db.query<any>(`SELECT o.*, (SELECT count(*) FROM tickets t WHERE t.order_id=o.id AND t.status <> 'cancelled')::int AS n FROM ticket_orders o WHERE o.event_id=$1 AND o.status='paid'`, [event.id]);
   let tickets = 0;
   let ordersToRefund = 0;
   for (const o of orders) {
     const paid = Number(o.total) > 0;
     if (paid) { ordersToRefund++; tickets += o.n; }
-    const body = `"${event.title}" was cancelled.${reason ? ` ${reason}` : ''}${paid ? ' The church will arrange your refund with you.' : ''}`;
+    const body = `"${event.title}" was cancelled.${reason ? ` ${reason}` : ''}${paid ? ' You can keep your money as event credit for another event from your ticket page, or the church will arrange your refund with you.' : ''}`;
     if (o.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','An event was cancelled',$4,$5)`, [ctx.newId('ntf'), o.org_id, o.buyer_user_id, body, now]);
     if (o.buyer_email) await sendEmail(ctx, o.org_id, o.buyer_email, `${event.title} was cancelled`, `Hello ${o.buyer_name},\n\n${body}\n`);
   }

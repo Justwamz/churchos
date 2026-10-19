@@ -59,14 +59,14 @@ export function parseGeo(v: unknown): Geo | null {
   return { lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5, acc: Math.round(acc) };
 }
 
-const metresBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+export const metresBetween = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const R = 6371000, rad = (x: number) => (x * Math.PI) / 180;
   const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
 /** A reading less exact than this is treated as no reading (L188). */
-const MAX_ACCURACY_M = 1000;
+export const MAX_ACCURACY_M = 1000;
 
 export interface LocCheck { status: 'ok' | 'away' | 'unknown' | 'unchecked'; source: 'teacher' | 'guardian' | null; distanceM: number | null; radiusM: number | null; branch: string; teacher: Geo | null; guardian: Geo | null }
 

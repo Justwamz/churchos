@@ -3,8 +3,8 @@ import { EventEmitter } from 'node:events';
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 import { Clock, createDb, Ledger, type Db } from '@churchos/ledger';
-import { MockProvider } from '@churchos/payments';
-import { MockEmailProvider, MockMessagingProvider } from '@churchos/messaging';
+import { createProviderFromEnv, friendlyPspMessage, isMock, PspError, type Provider } from '@churchos/payments';
+import { MockEmailProvider, MockMessagingProvider, createEmailFromEnv, createMessagingFromEnv, type Channel, type EmailProvider, type MessagingProvider, type OutboundEmail, type OutboundMessage } from '@churchos/messaging';
 import { HttpError, type Ctx } from './ctx';
 import { loadHelp } from './help';
 import { adminRoutes } from './routes/admin';
@@ -24,6 +24,10 @@ import { shopRoutes } from './routes/shop';
 import { ticketRoutes } from './routes/tickets';
 import { kidsRoutes } from './routes/kids';
 import { ticketRefundRoutes } from './routes/ticket-refunds';
+import { eventCreditRoutes } from './routes/event-credit';
+import { statementRoutes } from './routes/statements';
+import { lectionaryRoutes } from './routes/lectionary';
+import { staffTodayRoutes } from './routes/staff-today';
 import { givingPlanRoutes } from './routes/giving-plans';
 import { attendanceRoutes } from './routes/attendance';
 import { givingLedgerRoutes } from './routes/giving-ledger';
@@ -31,6 +35,7 @@ import { prayerRoutes } from './routes/prayer';
 import { suggestionRoutes } from './routes/suggestions';
 import { expenseRoutes } from './routes/expenses';
 import { coreRoutes, handleWebhook } from './routes/core';
+import { pspWebhookRoutes, withInitiationLog } from './routes/psp-webhooks';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
 import { publicRoutes } from './routes/public';
@@ -43,28 +48,57 @@ export interface BuildOptions {
   db?: Db;
   stkDelayMs?: number;
   logger?: boolean;
+  /** Inject a payment provider (tests build a live router over a fake fetch). Otherwise PSP_MODE decides: simulated unless PSP_MODE=live. */
+  provider?: Provider;
 }
+
+/**
+ * The real SMS and email providers when MESSAGING_MODE / EMAIL_MODE is live (Slice 23), the simulated ones otherwise. The rest of the API only
+ * knows the simulated shape, so a live provider is wrapped to keep a count of what was sent (without keeping any message text or number).
+ */
+class CountingSms extends MockMessagingProvider {
+  constructor(private real: MessagingProvider) { super(); }
+  async send(channel: Channel, batch: OutboundMessage[]) {
+    const res = await this.real.send(channel, batch);
+    res.forEach((r, i) => { if (r.status === 'sent') { this.sent.push({ channel, to: '', body: '', id: r.providerMessageId ?? 'LIVE', from: batch[i]?.from }); if (this.sent.length > 5000) this.sent.shift(); } });
+    return res;
+  }
+}
+class CountingEmail extends MockEmailProvider {
+  constructor(private real: EmailProvider) { super(); }
+  async send(mail: OutboundEmail) {
+    const r = await this.real.send(mail);
+    if (r.status === 'sent') { this.sent.push({ to: '', subject: '', body: '', id: r.providerMessageId ?? 'LIVE' }); if (this.sent.length > 5000) this.sent.shift(); }
+    return r;
+  }
+}
+const messagingFromEnv = (): MockMessagingProvider => { const p = createMessagingFromEnv(process.env); return p instanceof MockMessagingProvider ? p : new CountingSms(p); };
+const emailFromEnv = (): MockEmailProvider => { const p = createEmailFromEnv(process.env); return p instanceof MockEmailProvider ? p : new CountingEmail(p); };
 
 export async function buildApp(opts: BuildOptions = {}) {
   const db = opts.db ?? (await createDb());
   const clock = new Clock();
-  const provider = new MockProvider({ stkDelayMs: opts.stkDelayMs ?? 3000 });
+  const base = opts.provider ?? createProviderFromEnv(process.env);
+  if (isMock(base) && opts.stkDelayMs !== undefined) base.setStkDelay(opts.stkDelayMs);
+  const provider = withInitiationLog(base, db, () => clock.now().toISOString());
   const ledger = new Ledger(db, clock, provider);
   await ledger.migrate();
   await db.exec(APP_SCHEMA);
 
-  const ctx: Ctx = { db, ledger, provider, messaging: new MockMessagingProvider(), email: new MockEmailProvider(), givingUrl: process.env.GIVING_URL ?? 'http://localhost:3001', clock, events: new EventEmitter(), newId: (p) => `${p}_${randomUUID().slice(0, 12)}` };
+  const ctx: Ctx = { db, ledger, provider, messaging: messagingFromEnv(), email: emailFromEnv(), givingUrl: process.env.GIVING_URL ?? 'http://localhost:3001', clock, events: new EventEmitter(), newId: (p) => `${p}_${randomUUID().slice(0, 12)}` };
   ctx.events.setMaxListeners(0);
-  provider.setDeliver(async (raw, headers) => {
-    try {
-      await handleWebhook(ctx, raw, headers);
-    } catch (e) {
-      console.error('webhook failed', e);
-    }
-  });
+  if (isMock(provider)) {
+    provider.setDeliver(async (raw, headers) => {
+      try {
+        await handleWebhook(ctx, raw, headers);
+      } catch (e) {
+        console.error('webhook failed', e);
+      }
+    });
+  }
 
   ledger.auditContext = auditContext;
-  const app = Fastify({ logger: opts.logger ?? false, bodyLimit: 6 * 1024 * 1024, maxParamLength: 600 });
+  const app = Fastify({ trustProxy: process.env.TRUST_PROXY === '1', logger: opts.logger ?? false, bodyLimit: 6 * 1024 * 1024, maxParamLength: 600 });
   // Every event written while handling a request carries where it came from (L104).
   app.addHook('onRequest', (req, _reply, done) => {
     const app = req.headers['x-churchos-app'];
@@ -84,6 +118,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   });
 
   app.setErrorHandler((err: any, _req, reply) => {
+    if (err instanceof PspError) return reply.status(err.kind === 'rejected' || err.kind === 'unsupported' ? 400 : 503).send({ error: friendlyPspMessage(err), code: `psp_${err.kind}` });
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message, code: err.code });
     if (err?.statusCode && err.statusCode < 500) return reply.status(err.statusCode).send({ error: err.message, code: err.code ?? 'bad_request' });
     app.log.error(err);
@@ -93,6 +128,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   await loadHelp(db);
 
   coreRoutes(app, ctx);
+  pspWebhookRoutes(app, ctx);
   helpRoutes(app, ctx);
   kycRoutes(app, ctx);
   smsRoutes(app, ctx);
@@ -107,6 +143,10 @@ export async function buildApp(opts: BuildOptions = {}) {
   ticketRoutes(app, ctx);
   kidsRoutes(app, ctx);
   ticketRefundRoutes(app, ctx);
+  eventCreditRoutes(app, ctx);
+  statementRoutes(app, ctx);
+  lectionaryRoutes(app, ctx);
+  staffTodayRoutes(app, ctx);
   givingPlanRoutes(app, ctx);
   attendanceRoutes(app, ctx);
   givingLedgerRoutes(app, ctx);

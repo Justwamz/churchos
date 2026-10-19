@@ -51,7 +51,7 @@ apps/admin         ChurchOS platform admin console
 - **Real:** ledger, fee calculation, suspense, reversals, daily settlement, reconciliation, role scoping, maker-checker, tenant isolation (row-level security).
 - **Simulated:** the PSP (STK push, paybill notifications, payouts, refunds), the one-time-code SMS, and the payment-help "assistant", which is rule-based here.
 - **Slice 2:** church verification (KYC) with manual review, payout-account changes with a 72 hour cooling-off, the SMS wallet with receipts and pledge reminders, and searchable help in every app (articles are Markdown files in `docs/help/`).
-- **Not built yet:** bookings, groups and walls, announcements, certificates, attendance, recurring giving, expenses, Swahili, the staff mobile app, a real PSP adapter, and the RAG assistant (the help search API is built for it, see `GET /help/search?full=1`).
+- **Not built yet:** bookings, groups and walls, announcements, certificates, attendance, recurring giving, expenses, Swahili, the staff mobile app, the real PSP adapters are written but untested against live providers (see [docs/going-live-payments.md](docs/going-live-payments.md)), and the RAG assistant (the help search API is built for it, see `GET /help/search?full=1`).
 
 ## Operational note on the shared wallet
 
@@ -213,3 +213,33 @@ needs a float policy for this.
 - **Restricted funds:** spending cannot go past what a restricted project has raised unless the owner overrides with a reason.
 - **Reports:** by category, project, branch and month, receipt share, income against spending, CSV.
 - **Not built:** paying out through ChurchOS, payroll, and recurring expenses.
+
+## Event credit (Slice 20)
+
+- **Keep the money as credit instead of a refund.** A buyer who cannot come can turn their tickets into event credit, from the ticket page (guests) or My tickets (members). It stays with the church, never expires, and is spent on any ticketed event of the same church. The service fee is not included.
+- **Instant, no approval.** No money leaves the church, so credit needs no decision. The tickets are cancelled and the seats are free again.
+- **Members:** the credit is in their account and is used automatically at checkout (a switch lets them hold it back). **Guests:** a credit code (XXXX-XXXX-XXXX-XXXX) is shown once and emailed; they type it at checkout ("Have event credit?").
+- **Paying:** credit pays first; the phone or card pays only the rest, with the service fee on the rest. An order covered by credit needs no payment. A waiting order holds its credit, which goes back if it lapses or is cancelled.
+- **Cancelled or postponed events:** buyers see credit above the refund option. In the staff app (Events > Tickets and sales) the church can **Give everyone credit** after cancelling, give one order credit, or refund as before. Refunds of orders paid partly with credit return the phone/card part to the buyer's phone or card and the credit part to their credit.
+- **Try it:** buy 2 tickets for a KES 2,000 event as a guest, keep them as credit, then use the code on a cheaper event.
+
+## Annual giving statement, on demand (Slice 21)
+
+- **Only when asked.** Member app > Give > My giving record > Giving statements: pick a year, get a PDF. Nothing is sent or made automatically. Each request is a numbered statement, kept as issued.
+- **Treasurers** (Esther `0700000002`, owner Daniel) can make one for a member from Giving records > the member, with a reason that the member sees (Giving record > who looked) and an in-app message to the member.
+- **What it holds:** gifts the church can link to the member, reversals netted off, by purpose and project. Anonymous gifts are not on it, and it says so.
+- **Check a number:** the giving app page `/statement` shows the church, year, total and the member's initials only.
+- **Church details:** Giving records > "What appears on statements" (registration number, KRA PIN, signatory, footer). ChurchOS makes no claim about tax treatment.
+
+## Lectionary, readings after check-in and the boundary (Slice 22)
+
+- **The church enters its own lectionary.** Staff app > Lectionary (Pastor Mary `0700000009`, Daniel, a secretary): name of the day, season, year A/B/C, colour and scripture references. Paste a whole season at once (`date | name | A | references; separated; by semicolons`). ChurchOS carries no lectionary text; the demo has six sample Sundays.
+- **Opened by checking in.** In the member app a reading shows as "waiting" until the member checks in (at the church or online); then the lectionary day, the church's own text and notices open. Visitors open it by checking in at the door. "My readings" shows the weeks in a row.
+- **The boundary.** Staff app > Check-in boundary: set each branch's location and distance (use your current location), or give one service its own place. A phone outside it is stopped (and can choose online); staff see how many check-ins were verified and which were stopped, with distances. The demo branch has no location set, so check-in works anywhere until you set one.
+
+## Staff on a phone (Slice 24)
+
+- **Installable.** Open the staff app on a phone and use "Install" (or Add to Home Screen). It has its own navy icon, opens full screen, and shows a friendly page when there is no signal. Nothing from the API is stored on the phone.
+- **Today.** The first screen on a phone lists what is waiting for the person, only for rights they hold: expenses to approve, claims to pay, ticket refund requests, cash to sign off, booking requests, new suggestions, visitors to follow up, services happening today and open children's classes.
+
+Going live with real SMS (Onfon) and email (Resend): see [docs/going-live-messaging.md](docs/going-live-messaging.md). Settings are in `.env.example`.

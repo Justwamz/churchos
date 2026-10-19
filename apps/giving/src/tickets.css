@@ -59,3 +59,15 @@
 .tk .tk-sheet textarea { width: 100%; box-sizing: border-box; }
 @media (min-width: 700px) { .tk .tk-modal { align-items: center; } .tk .tk-sheet { border-radius: 20px; } }
 .tk-actions a.btn { min-height: 46px; font-size: 1rem; grid-column: 1 / -1; }
+
+.tk .tk-linkbtn { background: none; border: 0; padding: 6px 0; color: var(--brand); font-weight: 600; font-size: 1rem; cursor: pointer; text-align: left; text-decoration: underline; min-height: 44px; }
+.tk .tk-creditrow { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+.tk .tk-creditrow input { min-width: 0; text-transform: uppercase; }
+.tk .tk-creditrow .btn { width: auto; min-height: 46px; padding: 0 18px; }
+.tk .tk-credit-ok { color: var(--good); font-weight: 600; }
+.tk .tk-credit-bad { color: var(--bad, #b3261e); font-weight: 600; }
+.tk .tk-creditamt { font-size: 1.6rem; font-weight: 800; color: var(--brand); }
+.tk .tk-creditdone { background: var(--good-tint); color: var(--ink); border: 2px solid var(--good); border-radius: 16px; padding: 16px; display: grid; gap: 10px; text-align: center; }
+.tk .tk-creditdone b { font-size: 1.2rem; color: var(--good); }
+.tk .tk-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.5rem; font-weight: 800; letter-spacing: .04em; background: var(--surface); border-radius: 12px; padding: 12px 8px; user-select: all; word-break: break-all; }
+@media (max-width: 380px) { .tk .tk-code { font-size: 1.25rem; } }

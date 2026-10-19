@@ -3,6 +3,7 @@ import { Badge, Button, Empty, ErrorNote, Field, Note, useAsync, useToast } from
 import { api, friendly, useSession } from './session';
 import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
+import { PlaceFields, validPlace } from './Boundaries';
 import './tickets.css';
 import './services.css';
 
@@ -363,6 +364,7 @@ function ReadingModal({ svc, onClose, onDone }: { svc: any; onClose: () => void;
     <Modal title="Reading and notices" onClose={onClose}>
       <form className="stack sv-modal" onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <div className="muted">{svc.name} · {when(svc.startsAt)} · {svc.branch}</div>
+        {r?.lectionary && <div className="sv-sentence" role="note">Lectionary: {r.lectionary.title}{r.lectionary.readings?.length ? `: ${r.lectionary.readings.map((x: any) => x.ref).join('; ')}` : ''}</div>}
         <Field label="Title or theme"><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} placeholder="For example: The Good Shepherd" /></Field>
         <Field label="Bible reading"><input value={ref} onChange={(e) => setRef(e.target.value)} maxLength={80} placeholder="For example: John 10:1-18" /></Field>
         <Field label="Notices" hint={`${body.length} of 6000 characters`}><textarea rows={6} value={body} maxLength={6000} onChange={(e) => setBody(e.target.value)} placeholder="Announcements, what to bring, songs, anything members should know." /></Field>
@@ -384,6 +386,44 @@ function ReadingModal({ svc, onClose, onDone }: { svc: any; onClose: () => void;
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** One service with its own place (a crusade ground), instead of the branch location. */
+function PlaceForService({ svc, onDone }: { svc: any; onDone: (m: string) => void }) {
+  const cur = svc.place ?? svc.geo ?? null;
+  const [lat, setLat] = useState<string>(cur?.lat != null ? String(cur.lat) : '');
+  const [lng, setLng] = useState<string>(cur?.lng != null ? String(cur.lng) : '');
+  const [radius, setRadius] = useState<string>(String(cur?.radiusM ?? 300));
+  const [name, setName] = useState<string>(cur?.name ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    setError('');
+    const v = validPlace(lat, lng, radius, 30, 5000);
+    if (typeof v === 'string') return setError(v);
+    if (name.trim().length < 2) return setError('Give the place a name, for example the name of the ground.');
+    setBusy(true);
+    try { await api.put(`/attendance/services/${svc.id}/place`, { ...v, name: name.trim() }); onDone('Saved. This service now has its own place.'); }
+    catch (e: any) { setError(errMsg(e)); } finally { setBusy(false); }
+  };
+  const clear = async () => {
+    setBusy(true); setError('');
+    try { await api.put(`/attendance/services/${svc.id}/place`, { clear: true }); onDone('This service now uses the branch location.'); }
+    catch (e: any) { setError(errMsg(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="stack sv-modal" style={{ borderTop: '1px solid var(--line)', marginTop: 16, paddingTop: 12 }}>
+      <h4 style={{ margin: 0 }}>Place for this service</h4>
+      <p className="tiny" style={{ margin: 0 }}>Use this for a service held somewhere else, such as a crusade ground. It replaces the branch location for this service only.</p>
+      <Field label="Name of the place"><input aria-label="Name of the place" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder="For example: Uhuru Park" /></Field>
+      <PlaceFields lat={lat} lng={lng} radius={radius} setLat={setLat} setLng={setLng} setRadius={setRadius} min={30} max={5000} />
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+        <Button kind="ghost" disabled={busy} onClick={clear}>Use the branch location instead</Button>
+        <Button disabled={busy} onClick={save}>Save place</Button>
+      </div>
+    </div>
   );
 }
 
@@ -430,6 +470,7 @@ function ServiceForm({ mode, svc, branches, defaultBranch, onClose, onDone }: { 
           <Button type="submit" disabled={busy}>{busy ? 'Saving...' : mode === 'new' ? 'Add service' : mode === 'move' ? 'Move it' : 'Save'}</Button>
         </div>
       </form>
+      {mode === 'edit' && <PlaceForService svc={svc} onDone={onDone} />}
     </Modal>
   );
 }

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from './server';
+import type { MockProvider } from '@churchos/payments';
 import { seed } from './seed';
 import { nextOccurrence, runGivingJobs } from './routes/giving-plans';
 
@@ -149,7 +150,7 @@ describe('when the prompt is not completed (L199)', () => {
     const id = created.id;
     goTo(created.nextRunAt);
     const t0 = Date.parse(created.nextRunAt);
-    ctx.provider.failNextStk(4); // the prompts go out, but nobody enters a PIN
+    (ctx.provider as MockProvider).failNextStk(4); // the prompts go out, but nobody enters a PIN
     ctx.messaging.clear();
     expect(await runGivingJobs(ctx)).toMatchObject({ created: 1, prompted: 1 });
     const attempts = async () => (await ctx.db.query<any>(`SELECT attempt, status FROM giving_plan_runs WHERE plan_id=$1`, [id]))[0];

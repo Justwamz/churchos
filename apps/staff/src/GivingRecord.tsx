@@ -4,6 +4,7 @@ import { api, friendly, label, methodLabel } from './session';
 import { Modal, useDebounced } from './MemberForm';
 import { PageHead } from './bits';
 import { Card, Empty, Table } from '@churchos/ui';
+import { StatementCard, StatementSettings } from './Statements';
 import './giving-record.css';
 
 const REASONS: [string, string][] = [
@@ -110,6 +111,7 @@ export function GivingRecordModal({ member, onClose }: { member: { id: string; f
             <button type="button" className="tiny" style={{ background: 'none', border: 0, color: 'var(--brand, #1f6f5c)', textDecoration: 'underline', cursor: 'pointer' }} onClick={verify}>Check the whole ledger</button>
           </div>
           <div className="tiny">Downloading is recorded too.</div>
+          <StatementCard member={{ id: member.id, name: member.full_name }} years={Object.keys(data.totals.byYear ?? {}).sort().reverse()} reason={reason} note={note} reasonOk={!!reason && (reason !== 'other' || !!note.trim())} />
         </div>
       )}
       {toast.node}
@@ -148,6 +150,7 @@ export function GivingRecords() {
             </div>
           ))}
         </Card>
+        <StatementSettings />
       </div>
       {open && <GivingRecordModal member={open} onClose={() => setOpen(null)} />}
     </>

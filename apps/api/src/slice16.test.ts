@@ -152,7 +152,8 @@ describe('the reading and notices of the day (L211)', () => {
     expect((await call(JANE, 'GET', '/me/services')).json().services.find((s: any) => s.id === soon).reading.published).toBe(false);
     ctx.clock.advance(5 * HOUR - 19 * MIN);
     const seen = (await call(JANE, 'GET', '/me/services')).json().services.find((s: any) => s.id === soon).reading;
-    expect(seen).toMatchObject({ published: true, title: 'The Good Shepherd', ref: 'John 10:1-18' });
+    expect(seen).toMatchObject({ published: true, locked: true }); // the reading itself opens only after check-in (Slice 22)
+    expect(JSON.stringify(seen)).not.toContain('Good Shepherd');
     const now2 = await special('Reading now', 60 * 24 * 2);
     await put(now2, 'now');
     expect((await call(JANE, 'GET', '/me/services')).json().services.find((s: any) => s.id === now2).reading.published).toBe(true);

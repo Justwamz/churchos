@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { DEFAULT_FEE_SCHEDULE, toCents, type FeeSchedule } from '@churchos/shared';
-import { HttpError, requireAdmin, type Ctx } from '../ctx';
+import { HttpError, mockOnly, requireAdmin, type Ctx } from '../ctx';
 import { decideReversal, listReversalRequests } from './reversals';
 import { handleWebhook } from './core';
 import { maskPhoneSql } from './helpers';
@@ -163,7 +163,7 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = (req.body ?? {}) as any;
     let amount: number;
     try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter an amount', 'bad_amount'); }
-    const out = await ctx.provider.simulatePaybill({ phone: String(b.phone ?? '254700000000'), amount, reference: String(b.reference ?? ''), method: b.method ?? 'mpesa', duplicate: !!b.duplicate });
+    const out = await mockOnly(ctx).simulatePaybill({ phone: String(b.phone ?? '254700000000'), amount, reference: String(b.reference ?? ''), method: b.method ?? 'mpesa', duplicate: !!b.duplicate });
     return { ok: true, ...out };
   });
 
@@ -186,13 +186,13 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/admin/provider/fail-next-payout', devAdm, async () => {
-    ctx.provider.failNextPayout();
+    mockOnly(ctx).failNextPayout();
     return { ok: true };
   });
 
   app.post('/admin/webhook-replay', devAdm, async (req) => {
     const b = (req.body ?? {}) as any;
     const raw = JSON.stringify(b);
-    return handleWebhook(ctx, raw, { 'x-psp-signature': ctx.provider.sign(raw) });
+    return handleWebhook(ctx, raw, { 'x-psp-signature': mockOnly(ctx).sign(raw) });
   });
 }

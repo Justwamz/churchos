@@ -556,5 +556,70 @@ step('Reports add up spending', (await call('GET', '/expenses/summary', undefine
 const s19Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 19 activity', s19Rec.json.ok === true);
 
+// 27. Slice 20: event credit.
+const s20Event = async (title, priceKes) => {
+  const day = new Date(Date.now() + 30 * 86400_000).toISOString();
+  const e = await call('POST', '/events', { title, audience: { type: 'org' }, startsAt: day, endsAt: new Date(Date.parse(day) + 3600_000).toISOString(), location: 'Main hall' }, daniel);
+  await call('PUT', `/events/${e.json.id}/ticketing`, { ticketed: true, refundDaysBefore: 30, types: [{ name: 'Regular', price: priceKes, quantity: 50 }] }, daniel);
+  const t = (await call('GET', `/events/${e.json.id}/tickets`, undefined, daniel)).json;
+  return { id: e.json.id, code: t.code, type: t.types[0].id };
+};
+const s20Stamp = Date.now().toString(36);
+const s20A = await s20Event(`Smoke credit gala ${s20Stamp}`, 2000);
+const s20Buy = await call('POST', '/public/tickets/orders', { code: s20A.code, name: 'Smoke Guest', email: `smoke.guest.${s20Stamp}@acme.co.ke`, phone: '0711666321', method: 'mpesa', lines: [{ typeId: s20A.type, qty: 1 }] });
+for (let i = 0; i < 40; i++) { const o = (await call('GET', `/public/tickets/orders/${s20Buy.json.secret}`)).json; if (o.status === 'paid') break; await new Promise((r) => setTimeout(r, 250)); }
+const s20Credit = await call('POST', `/public/tickets/orders/${s20Buy.json.secret}/credit`, {});
+step('A guest keeps the ticket money as event credit with a code', s20Credit.status === 200 && s20Credit.json.amount === 200000 && /^[0-9A-F]{4}(-[0-9A-F]{4}){3}$/.test(s20Credit.json.code));
+const s20B = await s20Event(`Smoke credit night ${s20Stamp}`, 1000);
+const s20Q = await call('POST', '/public/tickets/quote', { code: s20B.code, method: 'mpesa', creditCode: s20Credit.json.code, lines: [{ typeId: s20B.type, qty: 1 }] });
+step('The quote shows the credit covering the order', s20Q.json.covered === true && s20Q.json.total === 0);
+const s20Use = await call('POST', '/public/tickets/orders', { code: s20B.code, name: 'Smoke Guest', email: `smoke.guest.${s20Stamp}@acme.co.ke`, phone: '0711666321', method: 'mpesa', creditCode: s20Credit.json.code, lines: [{ typeId: s20B.type, qty: 1 }] });
+step('An order covered by credit is paid at once with no payment', s20Use.json.status === 'paid' && s20Use.json.total === 0 && s20Use.json.tickets.length === 1);
+step('The code now holds the rest', (await call('GET', `/public/credit/${s20Credit.json.code}`)).json.balance === 100000);
+const s20Jane = await call('GET', '/me/credit', undefined, janeTok);
+step('A member can read their event credit balance', s20Jane.status === 200 && typeof s20Jane.json.total === 'number');
+step('Books still balance after slice 20 activity', (await call('GET', '/admin/reconcile', undefined, admin)).json.ok === true);
+
+// 28. Slice 21: annual giving statements, on demand.
+const s21List = await call('GET', '/me/statements', undefined, janeTok);
+step('A member sees the years with gifts and no statement made by itself', s21List.status === 200 && s21List.json.churches[0].years.length > 0);
+const s21Year = s21List.json.churches[0].years[0].year;
+const s21Make = await call('POST', '/me/statements', { orgId: s21List.json.churches[0].orgId, year: s21Year }, janeTok);
+step('A member asks for a statement and gets a numbered one', s21Make.status === 200 && /^GS-\d{4}-[0-9A-F]{6}$/.test(s21Make.json.number));
+const s21Pdf = await fetch(`${API}/me/statements/${s21Make.json.id}/pdf`, { headers: { authorization: `Bearer ${janeTok}` } });
+const s21Bytes = Buffer.from(await s21Pdf.arrayBuffer());
+step('The statement is a real PDF', s21Pdf.status === 200 && s21Bytes.subarray(0, 5).toString() === '%PDF-');
+step('Anyone can check the number, and sees no name', (await call('GET', `/public/statement/${s21Make.json.number}`)).json.valid === true);
+const s21Treas = await login('0700000002');
+const s21Jane = (await call('GET', '/members/lookup?q=Jane', undefined, s21Treas)).json.members[0];
+const s21Staff = await call('POST', `/members/${s21Jane.id}/statements`, { year: s21Year }, s21Treas);
+step('A treasurer must give a reason to make one', s21Staff.json.code === 'reason_required');
+const s21Staff2 = await call('POST', `/members/${s21Jane.id}/statements`, { year: s21Year, reason: 'statement_request', note: 'Asked at the office' }, s21Treas);
+step('A treasurer makes one on request, and the member can see who did', s21Staff2.status === 200 && (await call('GET', '/me/giving/access-log', undefined, janeTok)).json.log.some((l) => /Statement GS-/.test(l.note ?? '')));
+step('A branch admin cannot make one', [403, 404].includes((await call('POST', `/members/${s21Jane.id}/statements`, { year: s21Year, reason: 'statement_request' }, await login('0700000003'))).status));
+
+// 29. Slice 22: lectionary, reading after check-in, boundary.
+const s22Pastor = await login('0700000009');
+const s22Now = new Date((await call('GET', '/health')).json.time).getTime(); // the server clock may have been moved on by earlier steps
+const s22Svc = await call('POST', '/attendance/services', { branchId: 'br_grc001', name: `Smoke reading ${s20Stamp}`, startsAt: new Date(s22Now + 10 * 60_000).toISOString(), durationMin: 90 }, daniel);
+const s22Date = new Date(s22Now + 10 * 60_000 + 3 * 3600_000).toISOString().slice(0, 10);
+await call('PUT', `/lectionary/${s22Date}`, { title: 'Smoke Sunday', readings: ['Isaiah 6:1-8', 'Psalm 138', 'John 3:1-17'] }, s22Pastor);
+await call('PUT', `/attendance/services/${s22Svc.json.id}/reading`, { title: 'Smoke reading', release: 'now' }, daniel);
+const s22Before = (await call('GET', '/me/services', undefined, janeTok)).json.services.find((x) => x.id === s22Svc.json.id);
+step('The reading is locked before check-in', s22Before?.reading?.locked === true && !JSON.stringify(s22Before.reading).includes('Isaiah'));
+step('The reading will not open without checking in', (await call('GET', `/me/services/${s22Svc.json.id}/reading`, undefined, janeTok)).json.code === 'check_in_first');
+const s22In = await call('POST', `/me/services/${s22Svc.json.id}/check-in`, {}, janeTok);
+step('Checking in opens the reading and the lectionary day', s22In.status === 200 && s22In.json.reading?.lectionary?.readings?.length === 3);
+step('A member sees weeks in a row', (await call('GET', '/me/readings', undefined, janeTok)).json.streak >= 1);
+const s22Loc = await call('PUT', '/attendance/branches/br_grc001/location', { lat: -1.2864, lng: 36.8172, radiusM: 200 }, daniel);
+const s22Svc2 = await call('POST', '/attendance/services', { branchId: 'br_grc001', name: `Smoke boundary ${s20Stamp}`, startsAt: new Date(s22Now + 5 * 60_000).toISOString(), durationMin: 90 }, daniel);
+const s22Far = await call('POST', `/me/services/${s22Svc2.json.id}/check-in`, { geo: { lat: -1.2, lng: 36.9, acc: 20 } }, await login('0711000003'));
+step('A phone far from the church is stopped', s22Far.json.code === 'away_from_branch');
+const s22Near = await call('POST', `/me/services/${s22Svc2.json.id}/check-in`, { geo: { lat: -1.2865, lng: 36.8173, acc: 20 } }, await login('0711000003'));
+step('A phone at the church is let in', s22Near.status === 200);
+step('Staff see what the boundary did', (await call('GET', '/attendance/boundaries', undefined, daniel)).json.branches.find((b) => b.id === 'br_grc001').stats.blocked >= 1);
+await call('PUT', '/attendance/branches/br_grc001/location', { clear: true }, daniel);
+step('Books still balance after slices 21 and 22', s22Loc.status === 200 && (await call('GET', '/admin/reconcile', undefined, admin)).json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

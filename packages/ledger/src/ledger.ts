@@ -476,34 +476,55 @@ export class Ledger {
       ? await this.provider.payout({ payoutId, destination: b.payout_destination, amount: payoutAmt })
       : { status: 'confirmed' as const };
 
+    // The PSP accepted the request and will report later (M-Pesa B2C, bank transfer). The funds stay reserved in transit and the payout stays
+    // 'created' until settlePayout is called from the PSP's result callback. Nothing is released or paid again in between.
+    if (res.status === 'pending') return { ...base, status: 'submitted', payoutId, amount: payoutAmt };
+
+    await this.finishPayout({ id: payoutId, branch_id: b.id, amount: payoutAmt, netted, gross: avail }, res.status === 'confirmed');
+    return res.status === 'confirmed'
+      ? { ...base, status: 'paid', payoutId, amount: payoutAmt, netted }
+      : { ...base, status: 'failed', payoutId, amount: payoutAmt, reason: 'PSP declined, funds kept' };
+  }
+
+  private async finishPayout(po: { id: string; branch_id: string; amount: number; netted: number; gross: number }, ok: boolean) {
+    const payoutId = po.id, avail = Number(po.gross), payoutAmt = Number(po.amount), netted = Number(po.netted);
     await this.db.tx(async (q) => {
-      if (res.status === 'confirmed') {
+      if (ok) {
         await this.postEntry(q, {
           idemKey: `payout:confirm:${payoutId}`,
           kind: 'payout_confirm',
           postings: [
             { accountId: this.accountId('in_transit'), amount: avail },
             { accountId: this.accountId('wallet'), amount: -payoutAmt },
-            { accountId: this.accountId('receivable', b.id), amount: -netted },
+            { accountId: this.accountId('receivable', po.branch_id), amount: -netted },
           ],
         });
         await q.query(`UPDATE payouts SET status='confirmed' WHERE id=$1`, [payoutId]);
-        await q.query(`UPDATE payments SET stage='paid_out', payout_id=$2 WHERE branch_id=$1 AND stage='available'`, [b.id, payoutId]);
+        await q.query(`UPDATE payments SET stage='paid_out', payout_id=$2 WHERE branch_id=$1 AND stage='available'`, [po.branch_id, payoutId]);
       } else {
         await this.postEntry(q, {
           idemKey: `payout:fail:${payoutId}`,
           kind: 'payout_failed',
           postings: [
             { accountId: this.accountId('in_transit'), amount: avail },
-            { accountId: this.accountId('available', b.id), amount: -avail },
+            { accountId: this.accountId('available', po.branch_id), amount: -avail },
           ],
         });
         await q.query(`UPDATE payouts SET status='failed', failure='psp declined' WHERE id=$1`, [payoutId]);
       }
     });
-    return res.status === 'confirmed'
-      ? { ...base, status: 'paid', payoutId, amount: payoutAmt, netted }
-      : { ...base, status: 'failed', payoutId, amount: payoutAmt, reason: 'PSP declined, funds kept' };
+  }
+
+  /**
+   * Final outcome of a payout the PSP had accepted (status 'created'). A payout that is already confirmed or failed is left alone, so a
+   * repeated callback does nothing. Returns false when the payout is unknown or already settled.
+   */
+  async settlePayout(payoutId: string, ok: boolean): Promise<boolean> {
+    const po = (await this.db.query<any>(`SELECT * FROM payouts WHERE id=$1`, [payoutId]))[0];
+    if (!po || po.status !== 'created') return false;
+    await this.finishPayout(po, ok);
+    await this.audit({ orgId: po.org_id, branchId: po.branch_id, actorType: 'psp', action: ok ? 'payout.confirmed' : 'payout.failed', entity: 'payout', entityId: payoutId, summary: ok ? 'Payout confirmed by the payment provider' : 'Payout failed at the payment provider, funds returned to available', meta: { amount: Number(po.amount) } });
+    return true;
   }
 
   // ---------- reversals (L11 to L14, L17, L19) ----------
@@ -521,7 +542,7 @@ export class Ledger {
       throw new LedgerError('window_expired', `reversal window of ${this.opts.reversalWindowHours}h has passed`);
     }
     const refundAmount = p.amount_paid - p.psp_cost;
-    const refunded = await this.provider.refund({ providerTxId: p.provider_tx_id, amount: refundAmount });
+    const refunded = await this.provider.refund({ providerTxId: p.provider_tx_id, amount: refundAmount, method: p.method, phone: p.payer_phone ?? undefined });
     if (refunded.status !== 'confirmed') throw new LedgerError('refund_failed', 'PSP did not confirm the refund, nothing was changed');
 
     await this.db.tx(async (q) => {
@@ -595,6 +616,7 @@ export class Ledger {
 export type SettlementResult =
   | { branchId: string; status: 'paid'; payoutId: string; amount: Cents; netted: Cents }
   | { branchId: string; status: 'failed'; payoutId: string; amount: Cents; reason: string }
+  | { branchId: string; status: 'submitted'; payoutId: string; amount: Cents }
   | { branchId: string; status: 'carried'; amount: Cents }
   | { branchId: string; status: 'paused' | 'skipped'; reason: string }
   | { branchId: string; status: 'nothing' };

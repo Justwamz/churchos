@@ -990,6 +990,35 @@ CREATE TABLE IF NOT EXISTS ticket_refunds (
   created_at text NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ticket_refunds_order_idx ON ticket_refunds(order_id);
+-- Event credit (Slice 20): ticket money moved to credit, spent on any ticketed event of the same church, never expires.
+CREATE TABLE IF NOT EXISTS event_credits (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  user_id text,
+  email text,
+  secret text NOT NULL UNIQUE,
+  amount bigint NOT NULL,
+  balance bigint NOT NULL CHECK (balance >= 0),
+  source_order_id text,
+  source_event_id text,
+  reason text,
+  issued_by text,
+  issued_by_name text,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS event_credits_user_idx ON event_credits(org_id, user_id);
+CREATE TABLE IF NOT EXISTS event_credit_moves (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  credit_id text NOT NULL,
+  order_id text NOT NULL,
+  amount bigint NOT NULL,
+  undone boolean NOT NULL DEFAULT false,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS event_credit_moves_order_idx ON event_credit_moves(order_id);
+ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS credit_used bigint NOT NULL DEFAULT 0;
+ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS credit_issued bigint NOT NULL DEFAULT 0;
 -- Regular giving (L197 to L203): a plan, and one run for each due date.
 CREATE TABLE IF NOT EXISTS giving_plans (
   id text PRIMARY KEY,
@@ -1042,6 +1071,16 @@ ALTER TABLE give_intents ADD COLUMN IF NOT EXISTS plan_run_id text;
 -- Anonymous giving and the member giving ledger (L217 to L224).
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS anonymous boolean NOT NULL DEFAULT false;
 ALTER TABLE give_intents ADD COLUMN IF NOT EXISTS anonymous boolean NOT NULL DEFAULT false;
+
+-- What was asked of a live payment provider, saved when the prompt or checkout starts. Callbacks from M-Pesa STK and Airtel carry no church
+-- reference (and Airtel no amount), so they are matched back to this row by the provider's transaction id.
+CREATE TABLE IF NOT EXISTS psp_refs (
+  provider_tx_id text PRIMARY KEY,
+  reference text NOT NULL,
+  amount bigint NOT NULL,
+  method text NOT NULL,
+  created_at timestamptz NOT NULL
+);
 ALTER TABLE giving_plans ADD COLUMN IF NOT EXISTS anonymous boolean NOT NULL DEFAULT false;
 -- Who gave an anonymous gift. Only the giver and ChurchOS can ever read this; no church query touches it.
 CREATE TABLE IF NOT EXISTS anonymous_gifts (
@@ -1099,6 +1138,35 @@ CREATE TABLE IF NOT EXISTS giving_ledger_access (
 CREATE INDEX IF NOT EXISTS giving_ledger_access_member_idx ON giving_ledger_access(membership_id, at);
 DROP TRIGGER IF EXISTS giving_ledger_access_no_change ON giving_ledger_access;
 CREATE TRIGGER giving_ledger_access_no_change BEFORE UPDATE OR DELETE ON giving_ledger_access FOR EACH ROW EXECUTE FUNCTION append_only_guard();
+-- Annual giving statements (Slice 21): made on request only, kept exactly as issued so the same PDF can be fetched again and checked.
+CREATE TABLE IF NOT EXISTS giving_statements (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  membership_id text NOT NULL,
+  user_id text,
+  year int NOT NULL,
+  number text NOT NULL UNIQUE,
+  total bigint NOT NULL,
+  gifts int NOT NULL,
+  snapshot text NOT NULL,
+  requested_by text,
+  requested_by_name text NOT NULL,
+  requested_by_role text NOT NULL CHECK (requested_by_role IN ('member','staff')),
+  reason text,
+  note text,
+  generated_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS giving_statements_member_idx ON giving_statements(membership_id, generated_at);
+CREATE TABLE IF NOT EXISTS statement_settings (
+  org_id text PRIMARY KEY,
+  registration_no text,
+  kra_pin text,
+  signatory_name text,
+  signatory_title text,
+  footer text,
+  updated_at text,
+  updated_by text
+);
 CREATE TABLE IF NOT EXISTS cash_entry_gifts (
   cash_entry_id text NOT NULL,
   org_id text NOT NULL,
@@ -1325,6 +1393,41 @@ CREATE TABLE IF NOT EXISTS attendance (
 CREATE UNIQUE INDEX IF NOT EXISTS attendance_member_once ON attendance(service_id, membership_id, mode) WHERE membership_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS attendance_visitor_once ON attendance(service_id, visitor_id, mode) WHERE visitor_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS attendance_service_idx ON attendance(service_id);
+-- Slice 22: the lectionary (references entered by staff, never copied text), a place for one service, and a record of check-ins stopped by the boundary.
+CREATE TABLE IF NOT EXISTS lectionary_days (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  date text NOT NULL,
+  title text NOT NULL,
+  season text,
+  cycle text CHECK (cycle IN ('A','B','C')),
+  colour text,
+  readings text NOT NULL DEFAULT '[]',
+  note text,
+  active boolean NOT NULL DEFAULT true,
+  updated_by text,
+  updated_at text NOT NULL,
+  UNIQUE (org_id, date)
+);
+ALTER TABLE services ADD COLUMN IF NOT EXISTS geo_lat double precision;
+ALTER TABLE services ADD COLUMN IF NOT EXISTS geo_lng double precision;
+ALTER TABLE services ADD COLUMN IF NOT EXISTS geo_radius_m int;
+ALTER TABLE services ADD COLUMN IF NOT EXISTS place_name text;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS distance_m int;
+ALTER TABLE attendance ADD COLUMN IF NOT EXISTS accuracy_m int;
+CREATE TABLE IF NOT EXISTS attendance_blocked (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  service_id text NOT NULL,
+  membership_id text,
+  name text NOT NULL,
+  status text NOT NULL CHECK (status IN ('away','unknown')),
+  distance_m int,
+  accuracy_m int,
+  at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attendance_blocked_service_idx ON attendance_blocked(service_id);
 CREATE TABLE IF NOT EXISTS attendance_settings (
   org_id text PRIMARY KEY,
   welcome_enabled boolean NOT NULL DEFAULT true,
@@ -1348,7 +1451,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','event_credits','event_credit_moves','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','giving_statements','statement_settings','lectionary_days','attendance_blocked','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

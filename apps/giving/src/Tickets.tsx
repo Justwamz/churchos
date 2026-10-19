@@ -10,9 +10,10 @@ interface TType { id: string; name: string; description?: string | null; price: 
 interface EventInfo { code: string; title: string; description?: string | null; location?: string | null; startsAt: string; endsAt?: string | null; church: string; status: string; refundDaysBefore?: number | null; postponed?: Postponed | null; cancelReason?: string | null; over: boolean; posterUrl?: string | null; types: TType[] }
 interface Postponed { note?: string | null; from?: string | null; startsAt?: string | null; refundUntil?: string | null }
 interface Refund { allowed: boolean; freeCancel: boolean; until?: string | null; why?: string | null; request: null | { id: string; status: 'pending' | 'approved' | 'refunded' | 'declined' | 'failed'; note?: string | null; at?: string } }
-interface Quote { count: number; subtotal: number; serviceFee: number; total: number; free: boolean }
+interface Quote { count: number; subtotal: number; serviceFee: number; total: number; free: boolean; credit?: number; creditUsed?: number; covered?: boolean }
+interface CreditInfo { allowed: boolean; amount: number; why?: string | null }
 interface OrderTicket { id: string; serial: string; type: string; holder: string; status: string; url: string; token: string }
-interface Order { id: string; secret: string; code: string; status: string; subtotal: number; serviceFee: number; total: number; method?: string; payUrl?: string | null; message?: string; event?: { title: string; code: string }; eventStatus?: string; refund?: Refund; tickets: OrderTicket[] }
+interface Order { id: string; secret: string; code: string; status: string; subtotal: number; serviceFee: number; total: number; method?: string; payUrl?: string | null; message?: string; event?: { title: string; code: string }; eventStatus?: string; refund?: Refund; credit?: CreditInfo; creditUsed?: number; creditIssued?: number; covered?: boolean; tickets: OrderTicket[] }
 interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; postponed?: boolean; movedFrom?: string | null; posterUrl?: string | null }; order?: { id: string; code: string; secret: string; refund?: Refund } }
 
 const METHODS: [string, string][] = [['mpesa', 'M-Pesa'], ['airtel', 'Airtel Money'], ['tkash', 'T-Kash'], ['card', 'Card']];
@@ -42,7 +43,7 @@ function PostponedBanner({ p, title }: { p?: Postponed | null; title?: string })
 const EXPLAIN = 'The church will look at your request and tell you by email. Your tickets still work until then. Money goes back to the number or card you paid with, less any charge the payment provider keeps.';
 
 /** Refund state and the cancel / ask-for-refund button. Works with the order secret only. */
-function RefundBox({ refund, secret, onDone }: { refund?: Refund; secret: string; onDone: () => void }) {
+function RefundBox({ refund, secret, onDone, creditUsed = 0, covered = false }: { refund?: Refund; secret: string; onDone: () => void; creditUsed?: number; covered?: boolean }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -66,8 +67,10 @@ function RefundBox({ refund, secret, onDone }: { refund?: Refund; secret: string
       {refund.allowed && (!r || r.status === 'declined') && (
         <Card>
           <div className="stack">
+            <h2 style={{ margin: 0 }}>{covered ? 'Changed your mind?' : 'Or ask for your money back'}</h2>
+            {creditUsed > 0 && <div className="tiny">{covered ? `You paid with ${kes(creditUsed)} of event credit. Cancelling puts it back on your credit code.` : `${kes(creditUsed)} of this order was paid with event credit. It goes back on your credit code. Only what you paid by phone or card is refunded.`}</div>}
             {refund.until && !refund.freeCancel && <div className="tiny">You can ask until {dayTime(refund.until)}.</div>}
-            <Button kind="ghost" onClick={() => setOpen(true)}>{refund.freeCancel ? 'Cancel my tickets' : 'Cancel and ask for a refund'}</Button>
+            <Button kind="ghost" onClick={() => setOpen(true)}>{refund.freeCancel ? (covered ? 'Cancel and get my credit back' : 'Cancel my tickets') : 'Cancel and ask for a refund'}</Button>
           </div>
         </Card>
       )}
@@ -76,7 +79,7 @@ function RefundBox({ refund, secret, onDone }: { refund?: Refund; secret: string
         <div className="tk-modal" role="dialog" aria-modal="true" aria-label={refund.freeCancel ? 'Cancel my tickets' : 'Ask for a refund'} onClick={(e) => { if (e.target === e.currentTarget && !busy) setOpen(false); }}>
           <div className="tk-sheet stack">
             <h2 style={{ margin: 0 }}>{refund.freeCancel ? 'Cancel my tickets?' : 'Cancel and ask for a refund'}</h2>
-            {refund.freeCancel ? <p className="muted" style={{ margin: 0 }}>These tickets are free, so they are cancelled right away.</p> : (
+            {refund.freeCancel ? <p className="muted" style={{ margin: 0 }}>{covered ? 'The tickets are cancelled right away and your event credit goes back on your credit code.' : 'These tickets are free, so they are cancelled right away.'}</p> : (
               <>
                 <p className="muted" style={{ margin: 0 }}>{EXPLAIN}</p>
                 <Field label="Reason (optional)"><textarea rows={3} value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} /></Field>
@@ -89,6 +92,55 @@ function RefundBox({ refund, secret, onDone }: { refund?: Refund; secret: string
         </div>
       )}
     </div>
+  );
+}
+
+/** Keep the money of a paid order as event credit (shown above the refund option). */
+function CreditBox({ credit, issued, secret, onDone }: { credit?: CreditInfo; issued: number; secret: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | undefined>();
+  const [result, setResult] = useState<{ amount: number; code: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  if (result) {
+    const copy = async () => { try { await navigator.clipboard.writeText(result.code); setCopied(true); } catch { setCopied(false); } };
+    return (
+      <div className="tk-creditdone" role="status">
+        <b>{kes(result.amount)} is now event credit.</b>
+        <div>Your credit code:</div>
+        <div className="tk-code" data-testid="credit-code">{result.code}</div>
+        <div>Keep it safe: anyone with this code can use it. We have also emailed it to you.</div>
+        <Button kind="ghost" onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
+      </div>
+    );
+  }
+  if (issued > 0) return <Note tone="info">This order was turned into credit.</Note>;
+  if (!credit) return null;
+  if (!credit.allowed) return credit.why ? <div className="tiny tk-muted">{credit.why}</div> : null;
+  const send = async () => {
+    setBusy(true); setError(undefined);
+    try {
+      const r = await api.post<{ amount: number; code: string }>(`/public/tickets/orders/${encodeURIComponent(secret)}/credit`, {});
+      setResult({ amount: r.amount, code: r.code }); setOpen(false); onDone();
+    } catch (e) { setError(errMsg(e)); }
+    setBusy(false);
+  };
+  return (
+    <Card>
+      <div className="stack">
+        <h2 style={{ margin: 0 }}>Not able to come? Keep your money as event credit</h2>
+        <div className="tk-creditamt">{kes(credit.amount)}</div>
+        <p className="muted" style={{ margin: 0 }}>Use it on any event at this church, any time. It never expires. The service fee is not included.</p>
+        {!open ? <Button onClick={() => setOpen(true)}>Keep as event credit</Button> : (
+          <div className="stack">
+            <Note tone="warn">This cancels all the tickets on this order and cannot be undone. You will get a credit code.</Note>
+            {error && <ErrorNote>{error}</ErrorNote>}
+            <Button onClick={send} disabled={busy}>{busy ? 'One moment...' : `Yes, turn it into ${kes(credit.amount)} credit`}</Button>
+            <Button kind="ghost" onClick={() => setOpen(false)} disabled={busy}>No, keep my tickets</Button>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -120,6 +172,12 @@ export function EventPage({ code }: { code: string }) {
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [creditOpen, setCreditOpen] = useState(false);
+  const [creditText, setCreditText] = useState('');
+  const [creditCode, setCreditCode] = useState('');
+  const [creditNote, setCreditNote] = useState<{ ok: boolean; text: string } | undefined>();
+  const [creditBusy, setCreditBusy] = useState(false);
+  const [quoteErr, setQuoteErr] = useState<string | undefined>();
 
   useEffect(() => {
     let alive = true;
@@ -135,19 +193,34 @@ export function EventPage({ code }: { code: string }) {
   useEffect(() => {
     if (!count) { setQuote(undefined); return; }
     let alive = true;
-    api.post<Quote>('/public/tickets/quote', { code, method, lines })
-      .then((q) => alive && setQuote(q))
-      .catch(() => alive && setQuote(undefined));
+    api.post<Quote>('/public/tickets/quote', { code, method, lines, creditCode: creditCode || undefined })
+      .then((q) => { if (alive) { setQuote(q); setQuoteErr(undefined); } })
+      .catch((e) => { if (alive) { setQuote(undefined); setQuoteErr(creditCode ? errMsg(e) : undefined); } });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, method, linesKey]);
+  }, [code, method, linesKey, creditCode]);
+
+  const applyCredit = async () => {
+    const t = creditText.trim();
+    if (!t || creditBusy) return;
+    setCreditBusy(true); setCreditNote(undefined);
+    try {
+      const r = await api.get<{ balance: number; church: string }>(`/public/credit/${encodeURIComponent(t)}`);
+      if (r.balance <= 0) { setCreditCode(''); setCreditNote({ ok: false, text: 'That credit has been used up.' }); setCreditBusy(false); return; }
+      setCreditCode(t);
+      setCreditNote({ ok: true, text: `Credit ${kes(r.balance)} at ${r.church}` });
+    } catch (e) { setCreditCode(''); setCreditNote({ ok: false, text: errMsg(e) }); }
+    setCreditBusy(false);
+  };
+  const removeCredit = () => { setCreditCode(''); setCreditText(''); setCreditNote(undefined); setQuoteErr(undefined); setCreditOpen(false); };
 
   if (ev === undefined) return <TkShell><Spinner /></TkShell>;
   if (!ev) return <TkShell><Card><Note tone="warn">We could not find that event. Please check the link you were given.</Note></Card></TkShell>;
 
   const postponed = ev.status === 'postponed';
   const closed = (ev.over && !postponed) || ev.status === 'cancelled';
-  const free = quote?.free ?? false;
+  const covered = !!quote?.covered && !!creditCode;
+  const free = (quote?.free ?? false) || covered;
   const mobile = method !== 'card';
   const hint = phoneHint(method);
   const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
@@ -162,7 +235,7 @@ export function EventPage({ code }: { code: string }) {
     if (busy || !count || !nameOk || !emailOk || !phoneOk || mismatch) return;
     setBusy(true); setError(undefined);
     try {
-      const o = await api.post<Order>('/public/tickets/orders', { code, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, method: free ? 'mpesa' : method, lines });
+      const o = await api.post<Order>('/public/tickets/orders', { code, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, method: free ? 'mpesa' : method, lines, creditCode: creditCode || undefined });
       nav(`/tickets/${encodeURIComponent(o.secret)}`);
     } catch (err) {
       setError(errMsg(err));
@@ -239,27 +312,57 @@ export function EventPage({ code }: { code: string }) {
                     )}
                   </>
                 )}
+                <div className="tk-creditbox">
+                  {!creditOpen && !creditCode
+                    ? <button type="button" className="tk-linkbtn" onClick={() => setCreditOpen(true)}>Have event credit? Enter your code</button>
+                    : (
+                      <div className="stack">
+                        <Field label="Event credit code" hint="Four groups of four letters and numbers">
+                          <div className="tk-creditrow">
+                            <input value={creditText} onChange={(e) => setCreditText(e.target.value)} placeholder="3F9A-02BC-77D1-A4E0" autoCapitalize="characters" autoComplete="off" spellCheck={false} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyCredit(); } }} />
+                            <Button type="button" kind="ghost" onClick={applyCredit} disabled={creditBusy || !creditText.trim()}>{creditBusy ? '...' : 'Apply'}</Button>
+                          </div>
+                        </Field>
+                        {creditNote && <div className={creditNote.ok ? 'tk-credit-ok' : 'tk-credit-bad'} role="status">{creditNote.text}</div>}
+                        <button type="button" className="tk-linkbtn" onClick={removeCredit}>Remove code</button>
+                      </div>
+                    )}
+                </div>
               </div>
             </Card>
 
             <div aria-live="polite">
               {count > 0 && quote && (
                 <div className="tk-sum">
-                  {quote.free ? <div className="tk-total">Free</div> : (
+                  {covered ? (
+                    <>
+                      <div className="tk-row"><span>{quote.count} {quote.count === 1 ? 'ticket' : 'tickets'}</span><span>{kes(quote.subtotal)}</span></div>
+                      <div className="tk-row tk-credit-ok"><span>Credit used</span><span>-{kes(quote.creditUsed ?? quote.subtotal)}</span></div>
+                      <div className="tk-row tk-total"><span>To pay now</span><span>{kes(0)}</span></div>
+                    </>
+                  ) : quote.free ? <div className="tk-total">Free</div> : (
                     <>
                       <div className="tk-row"><span>{quote.count} {quote.count === 1 ? 'ticket' : 'tickets'}</span><span>{kes(quote.subtotal)}</span></div>
                       <div className="tk-row"><span>Service fee</span><span>{kes(quote.serviceFee)}</span></div>
-                      <div className="tk-row tk-total"><span>Total</span><span>{kes(quote.total)}</span></div>
+                      {creditCode && (quote.creditUsed ?? 0) > 0
+                        ? (
+                          <>
+                            <div className="tk-row tk-credit-ok"><span>Credit used</span><span>-{kes(quote.creditUsed ?? 0)}</span></div>
+                            <div className="tk-row tk-total"><span>To pay now</span><span>{kes(quote.total)}</span></div>
+                          </>
+                        )
+                        : <div className="tk-row tk-total"><span>Total</span><span>{kes(quote.total)}</span></div>}
                     </>
                   )}
                 </div>
               )}
               {count === 0 && touched && <Note tone="warn">Choose at least one ticket</Note>}
+              {quoteErr && <ErrorNote>{quoteErr}</ErrorNote>}
               {error && <ErrorNote>{error}</ErrorNote>}
             </div>
 
-            <Button type="submit" disabled={busy || count === 0 || postponed}>
-              {busy ? 'One moment...' : !quote ? 'Choose your tickets' : quote.free ? 'Get free tickets' : `Pay ${kes(quote.total)}`}
+            <Button type="submit" disabled={busy || count === 0 || postponed || (!!creditCode && !!quoteErr)}>
+              {busy ? 'One moment...' : !quote ? 'Choose your tickets' : covered ? 'Get tickets with my credit' : quote.free ? 'Get free tickets' : `Pay ${kes(quote.total)}`}
             </Button>
           </form>
         )}
@@ -313,6 +416,7 @@ export function OrderPage() {
 
   const title = o.event?.title ?? 'the event';
   const gone = o.tickets.length > 0 && o.tickets.every((t) => t.status === 'cancelled');
+  const eventCancelled = o.eventStatus === 'cancelled' && !gone;
   const back = `/?event=${encodeURIComponent(o.event?.code ?? o.code ?? '')}`;
   const cardUrl = o.payUrl ? `${o.payUrl}${o.payUrl.includes('?') ? '&' : '?'}return=${encodeURIComponent(`${location.origin}/tickets/${secret}`)}` : null;
 
@@ -327,7 +431,15 @@ export function OrderPage() {
             </div>
           </Card>
         )}
-        {o.status === 'paid' && !gone && (
+        {o.status === 'paid' && eventCancelled && (
+          <Card>
+            <div className="center stack">
+              <h1>This event was cancelled</h1>
+              <p className="muted" style={{ margin: 0 }}>{title} will not take place, so your tickets no longer work. You can keep your money as event credit or get a refund.</p>
+            </div>
+          </Card>
+        )}
+        {o.status === 'paid' && !gone && !eventCancelled && (
           <Card>
             <div className="center stack">
               <div className="tk-tick">✓</div>
@@ -337,8 +449,9 @@ export function OrderPage() {
           </Card>
         )}
         {o.status === 'paid' && (o.eventStatus === 'postponed' || pp) && <PostponedBanner p={pp} title={title} />}
-        {o.status === 'paid' && <RefundBox refund={gone && !o.refund?.request ? undefined : o.refund} secret={secret} onDone={() => setTick((n) => n + 1)} />}
-        {o.status === 'paid' && !gone && (
+        {o.status === 'paid' && <CreditBox credit={o.credit} issued={o.creditIssued ?? 0} secret={secret} onDone={() => setTick((n) => n + 1)} />}
+        {o.status === 'paid' && !((o.creditIssued ?? 0) > 0) && <RefundBox refund={gone && !o.refund?.request ? undefined : o.refund} secret={secret} creditUsed={o.creditUsed ?? 0} covered={o.total === 0 && (o.creditUsed ?? 0) > 0} onDone={() => setTick((n) => n + 1)} />}
+        {o.status === 'paid' && !gone && !eventCancelled && (
           <Card title="Your tickets">
             {o.tickets.map((t) => (
               <div key={t.id} className="tk-ticketrow">
