@@ -406,7 +406,8 @@ export async function projectList(ctx: Ctx, orgId: string, branchIds: string[]) 
     db.query<any>(
       `SELECT p.id, p.code, p.name, p.description, p.target, p.deadline, p.restricted, p.status, p.branch_id, b.name AS branch_name,
               COALESCE((SELECT SUM(net) FROM payments WHERE project_id=p.id AND stage IN ${DONE}),0) AS raised,
-              COALESCE((SELECT SUM(amount) FROM pledges WHERE project_id=p.id),0) AS pledged
+              COALESCE((SELECT SUM(amount) FROM pledges WHERE project_id=p.id),0) AS pledged,
+              p.budget, COALESCE((SELECT SUM(amount) FROM expenses WHERE project_id=p.id AND status='approved'),0) AS spent
          FROM projects p JOIN branches b ON b.id=p.branch_id WHERE p.branch_id IN (${inList(1, branchIds.length)}) ORDER BY p.created_at DESC`,
       branchIds,
     ),

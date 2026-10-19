@@ -29,6 +29,7 @@ import { attendanceRoutes } from './routes/attendance';
 import { givingLedgerRoutes } from './routes/giving-ledger';
 import { prayerRoutes } from './routes/prayer';
 import { suggestionRoutes } from './routes/suggestions';
+import { expenseRoutes } from './routes/expenses';
 import { coreRoutes, handleWebhook } from './routes/core';
 import { memberRoutes } from './routes/member';
 import { memberRoutes2 } from './routes/members';
@@ -111,6 +112,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   givingLedgerRoutes(app, ctx);
   prayerRoutes(app, ctx);
   suggestionRoutes(app, ctx);
+  expenseRoutes(app, ctx);
   messageRoutes(app, ctx);
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);

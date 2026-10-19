@@ -1,0 +1,42 @@
+.ex-tabs { margin-bottom: 14px; }
+.ex-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.ex-tile { text-align: left; border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius, 12px); padding: 12px 14px; font: inherit; color: var(--ink); cursor: pointer; display: grid; gap: 2px; min-width: 0; }
+.ex-tile:hover { border-color: var(--brand); }
+.ex-tile.on { outline: 2px solid var(--brand); }
+.ex-tile.warn { background: #fff6e0; border-color: #e5b84a; }
+.ex-tile .l { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); font-weight: 600; }
+.ex-tile .v { font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
+.ex-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.ex-filters > * { flex: 1 1 150px; min-width: 0; }
+.ex-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ex-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); padding: 8px 10px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.ex-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ex-table tbody tr { cursor: pointer; }
+.ex-table tbody tr:hover { background: rgba(0,0,0,.025); }
+.ex-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.ex-wrap { overflow-wrap: anywhere; min-width: 0; }
+.ex-clip { white-space: nowrap; }
+.ex-noreceipt { cursor: help; }
+.ex-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.ex-grid > div { min-width: 0; overflow-wrap: anywhere; }
+.ex-grid .k { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); font-weight: 600; }
+.ex-trail { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ex-amber { background: #fff6e0; border: 1px solid #e5b84a; border-radius: 10px; padding: 10px 12px; overflow-wrap: anywhere; }
+.ex-thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
+.ex-thumb { position: relative; width: 96px; height: 96px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); display: grid; place-items: center; font-size: 12px; padding: 0; cursor: pointer; color: var(--ink); }
+.ex-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ex-thumb .x { position: absolute; top: 2px; right: 2px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.ex-pdf { font-weight: 700; text-align: center; }
+.ex-preview { width: 100%; max-height: 70vh; object-fit: contain; display: block; }
+.ex-preview-frame { width: 100%; height: 70vh; border: 0; }
+.ex-cards { display: none; }
+.ex-card { border: 1px solid var(--line); border-radius: var(--radius, 12px); padding: 12px; margin-bottom: 10px; display: grid; gap: 6px; background: var(--surface); cursor: pointer; min-width: 0; }
+@media (max-width: 800px) {
+  .ex-table-wrap { display: none; }
+  .ex-cards { display: block; }
+  .ex-tiles { gap: 8px; }
+  .ex-tile { padding: 10px; }
+  .ex-tile .v { font-size: 17px; }
+  .ex-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -34,6 +34,7 @@ import { Team } from './Team';
 import { Shop } from './Shop';
 import { Checkin } from './Checkin';
 import { Services } from './Services';
+import { Expenses } from './Expenses';
 import { Usher } from './Usher';
 import { Attendance } from './Attendance';
 import { Children } from './Children';
@@ -50,6 +51,7 @@ const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }
   { id: 'dashboard', label: 'Dashboard', any: ['collections.view'], el: Dashboard },
   { id: 'collections', label: 'Collections', any: ['collections.view'], el: Collections },
   { id: 'giving-records', label: 'Giving records', any: ['giving.ledger'], el: GivingRecords },
+  { id: 'expenses', label: 'Expenses', any: ['expenses.view', 'expenses.record', 'expenses.approve'], el: Expenses },
   { id: 'regular-giving', label: 'Regular giving', any: ['collections.view'], el: RegularGiving },
   { id: 'settlements', label: 'Settlements', any: ['settlements.view'], el: Settlements },
   { id: 'cash', label: 'Cash', any: ['cash.count', 'cash.approve'], el: Cash },

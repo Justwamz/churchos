@@ -385,6 +385,19 @@ Status: **Draft for review.** Decision IDs (L1 to L79, D1 to D6) are stable refe
 - **L230. Children.** Children have no accounts. A parent books for themselves, and a pastor speaks with a child in person with the parent present. Counselling a child on its own is not part of this slice.
 - **L231. Suggestion box.** A member sends a suggestion to their church, named or anonymous, with a category. The church sees an anonymous one with no link to the person. People with the right "Read and answer suggestions" can mark it under review, done or not possible, with a reply. The member sees the status and reply of their own suggestions, anonymous or not. The church can publish a suggestion and its answer to its branch as "You said, we did".
 
+### 4.38 Expenses (decided in discussion; completes L42 and L46)
+
+- **L235. What an expense is.** A record of money the church spent elsewhere: date, amount, category, optionally a project, who was paid, how (cash, M-Pesa, bank, cheque or other) with a reference, a note, and up to three receipt or invoice photos or PDFs. ChurchOS records it and does not send money out (L46).
+- **L236. Categories.** The church keeps its own list, starting from standard ones (salaries and allowances, utilities, repairs and maintenance, supplies, transport, events and outreach, welfare, equipment, printing and communication, other).
+- **L237. Approval is the owner's setting.** One person records an expense and a different person approves it. The owner chooses whether every expense needs approval, or only those above a limit; smaller ones are then approved on the spot, and still recorded and audited. The owner can also set an amount above which two different people must approve. Claims (L240) always need an approver.
+- **L238. Approved means fixed.** An approved expense cannot be edited or deleted. A mistake is corrected by voiding it with a reason, which keeps the original and removes it from the totals. Every step is in the audit log.
+- **L239. Receipts.** A receipt is required above a limit the owner sets (default KES 1,000). Below that, or when there is none, the person records the reason there is no receipt.
+- **L240. Claims from the app.** A volunteer or staff member with the right to claim can submit an expense claim from the member app with a photo of the receipt. It is approved like any expense by someone else, and then marked paid with the payment reference. Marking it paid only records that the church reimbursed it elsewhere.
+- **L241. Budgets and alerts.** A budget can be set on each project and, for each branch and year, on each category. When approved spending passes 80% and 100% of a budget, the people who manage expenses are told once.
+- **L242. Restricted funds.** An expense cannot take a restricted project below what it has raised and not yet spent. The owner can override that, with a written reason that is recorded.
+- **L243. Reports.** Expenses by category, project, branch and month with CSV, income against expenses, the project report (target, raised, budget, spent, available), and the share of spending that has a receipt.
+- **L244. Rights.** Seeing expenses, recording them, approving them, managing categories and budgets, setting the approval rules, and claiming are separate rights. The owner holds the rules. The treasurer records and manages. The branch admin approves. The auditor sees.
+
 
 ### 4.26 Pastoral care: prayer, talking to a pastor and counselling (P1 to P8 were proposals; see 4.37 for what was decided)
 Planned in docs/superpowers/plans/2026-10-20-churchos-pastoral-care-plan.md. These are proposals for review, built after bookings (L49 to L51).

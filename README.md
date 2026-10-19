@@ -201,3 +201,15 @@ needs a float policy for this.
 - **Suggestion box (member app, staff app > Suggestions):** send a named or anonymous suggestion; staff reply with a status, and can share an answer as "You said, we did". Anonymous means untraceable, yet the sender still sees the reply under My suggestions.
 - **Helplines and the privacy notice:** shown when booking a pastor and on the prayer screen. Edit the numbers under the booking settings (Daniel). The standard ones must be confirmed before launch.
 - **Not built, by decision:** a care inbox, chat, video, safeguarding flags and a "pastor on duty". Counselling for a child on its own is not part of this slice.
+
+## Expenses, claims and budgets (Slice 19)
+
+- **Record-only:** ChurchOS records what the church spent elsewhere; it sends no money. Staff app > Expenses.
+- **Who does what:** Esther `0700000002` (treasurer) records and manages budgets and categories but cannot approve; Samuel `0700000003` (branch admin) records and approves (never his own); Daniel `0700000001` (owner) sets the rules and may override a restricted fund with a reason; Aisha `0700000007` (auditor) can only look.
+- **Owner's rules (Expenses > Rules):** every expense needs approval, or only those above a limit (smaller ones are approved automatically but still recorded); an optional amount above which two different people approve; a receipt limit. Standard rules show an amber "check these" note.
+- **Receipts:** up to 3 photos or PDFs, shrunk on the device; required above the limit unless a reason is given. Approved expenses cannot be edited: void with a reason.
+- **Claims (member app > Claim expenses):** Vera `0700000010` (Volunteer) claims with a receipt photo; someone else approves, then it is marked paid with the payment reference (an SMS and in-app message follow). Jane `0711000001` has no such right and sees nothing.
+- **Budgets and alerts:** a yearly budget per category per branch and a budget per project (also on the Projects page); the people who manage expenses are told once at 80% and 100%.
+- **Restricted funds:** spending cannot go past what a restricted project has raised unless the owner overrides with a reason.
+- **Reports:** by category, project, branch and month, receipt share, income against spending, CSV.
+- **Not built:** paying out through ChurchOS, payroll, and recurring expenses.

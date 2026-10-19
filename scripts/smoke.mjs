@@ -529,5 +529,32 @@ await call('POST', `/me/bookings/${s18Book.json.id}/cancel`, undefined, janeTok)
 const s18Rec = await call('GET', '/admin/reconcile', undefined, admin);
 step('Books still balance after slice 18 activity', s18Rec.json.ok === true);
 
+// 26. Slice 19: expenses, claims, budgets.
+const s19Esther = await login('0700000002');
+const s19Samuel = await login('0700000003');
+const s19Vera = await login('0700000010');
+const s19Setup = (await call('GET', '/expenses/setup', undefined, s19Esther)).json;
+const s19Cat = (n) => s19Setup.categories.find((c) => c.name === n).id;
+const s19Today = new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10);
+const s19Small = await call('POST', '/expenses', { branchId: 'br_grc001', date: s19Today, amount: 450, categoryId: s19Cat('Supplies'), payee: 'Smoke Stores', method: 'cash' }, s19Esther);
+step('A small expense is approved straight away and recorded', s19Small.status === 200 && s19Small.json.status === 'approved');
+const s19NoRec = await call('POST', '/expenses', { branchId: 'br_grc001', date: s19Today, amount: 8000, categoryId: s19Cat('Repairs and maintenance'), payee: 'Smoke Builders', method: 'cash' }, s19Esther);
+step('A large expense without a receipt is refused', s19NoRec.json.code === 'receipt_required');
+const s19Big = await call('POST', '/expenses', { branchId: 'br_grc001', date: s19Today, amount: 8000, categoryId: s19Cat('Repairs and maintenance'), payee: 'Smoke Builders', method: 'cash', noReceiptReason: 'Paid in cash, none given' }, s19Esther);
+step('A large one waits for someone else to approve', s19Big.json.status === 'submitted');
+step('The recorder cannot approve their own', [403, 404].includes((await call('POST', `/expenses/${s19Big.json.id}/decide`, { approve: true }, s19Esther)).status));
+step('Another person approves it', (await call('POST', `/expenses/${s19Big.json.id}/decide`, { approve: true }, s19Samuel)).json.status === 'approved');
+const s19Claim = await call('POST', '/me/claims', { branchId: 'br_grc001', date: s19Today, amount: 300, categoryId: s19Cat('Transport'), payee: 'Smoke bus fare', method: 'other' }, s19Vera);
+step('A volunteer claims from the app and it always needs approval', s19Claim.json.status === 'submitted');
+step('A member without the right cannot claim', (await call('GET', '/me/claims/setup', undefined, janeTok)).json.allowed === false);
+await call('POST', `/expenses/${s19Claim.json.id}/decide`, { approve: true }, s19Samuel);
+const s19Paid = await call('POST', `/expenses/${s19Claim.json.id}/paid`, { reference: 'SMOKE123' }, s19Esther);
+step('An approved claim is marked paid with a reference', s19Paid.json.paid === true);
+step('The claimant sees it paid', (await call('GET', '/me/claims', undefined, s19Vera)).json.claims.find((c) => c.id === s19Claim.json.id)?.paidReference === 'SMOKE123');
+step('Approved expenses are voided with a reason', (await call('POST', `/expenses/${s19Big.json.id}/void`, { reason: 'Smoke test cleanup' }, s19Samuel)).json.status === 'voided');
+step('Reports add up spending', (await call('GET', '/expenses/summary', undefined, s19Esther)).json.totals.count > 0);
+const s19Rec = await call('GET', '/admin/reconcile', undefined, admin);
+step('Books still balance after slice 19 activity', s19Rec.json.ok === true);
+
 console.log(failed === 0 ? '\nAll checks passed.' : `\n${failed} check(s) failed.`);
 process.exit(failed === 0 ? 0 : 1);

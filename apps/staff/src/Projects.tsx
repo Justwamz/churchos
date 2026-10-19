@@ -86,6 +86,18 @@ export function Projects() {
                     {p.description && <p className="muted" style={{ marginTop: 0 }}>{p.description}</p>}
                     <div className="row between" style={{ marginBottom: 6 }}><b className="mono">{kes(p.raised)}</b><span className="tiny">of {kes(p.target)} ({pct}%)</span></div>
                     <div className="progress"><i style={{ width: `${pct}%` }} /></div>
+                    <div style={{ marginTop: 10 }}>
+                      {p.budget != null ? (() => {
+                        const bp = Math.round((Number(p.spent ?? 0) / Math.max(1, Number(p.budget))) * 100);
+                        const col = bp >= 100 ? 'var(--bad)' : bp >= 80 ? 'var(--gold)' : 'var(--good)';
+                        return (
+                          <>
+                            <div className="row between tiny"><span>Budget {kes(p.budget)}</span><span>Spent {kes(p.spent ?? 0)} (<b style={{ color: bp >= 100 ? 'var(--bad)' : undefined }}>{bp}%</b>)</span></div>
+                            <div style={{ height: 5, background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 999, overflow: 'hidden', marginTop: 4 }}><i style={{ display: 'block', height: '100%', width: `${Math.min(100, bp)}%`, background: col }} /></div>
+                          </>
+                        );
+                      })() : <div className="row between tiny"><span>No budget</span><span>Spent {kes(p.spent ?? 0)}</span></div>}
+                    </div>
                     <div className="row between tiny" style={{ marginTop: 8 }}>
                       <span>Pledged {kes(p.pledged)}</span>
                       <span>{p.branch_name}{p.deadline ? ` · by ${dateOnly(p.deadline)}` : ''}</span>

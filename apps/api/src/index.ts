@@ -12,6 +12,7 @@ import { runPrayerJobs } from './routes/prayer';
 import { seedKidsDemo } from './seed-kids';
 import { seedAttendanceDemo } from './seed-attendance';
 import { seedPastoralDemo } from './seed-pastoral';
+import { seedExpensesDemo } from './seed-expenses';
 import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 
 const port = Number(process.env.PORT ?? 4000);
@@ -20,6 +21,7 @@ await seed(ctx);
 await seedKidsDemo(ctx);
 await seedAttendanceDemo(app, ctx);
 await seedPastoralDemo(ctx);
+await seedExpensesDemo(app, ctx);
 await runMemberHousekeeping(ctx);
 // Graduation and birthday wishes run hourly. The platform clock can be advanced in development, so this uses it too.
 setInterval(() => void runMemberHousekeeping(ctx).catch((e) => console.error('housekeeping failed', e)), 3600_000).unref();

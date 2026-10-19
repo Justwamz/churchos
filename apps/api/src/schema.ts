@@ -1152,6 +1152,93 @@ CREATE TABLE IF NOT EXISTS suggestions (
 );
 -- Who sent each suggestion. Read only for the sender's own list; no church query touches it, so anonymous means anonymous.
 CREATE TABLE IF NOT EXISTS suggestion_owners (suggestion_id text PRIMARY KEY, user_id text NOT NULL);
+
+-- Expenses (L235 to L244): record-only. Approved ones are never edited; a mistake is voided with a reason.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS budget bigint;
+CREATE TABLE IF NOT EXISTS expense_settings (
+  org_id text PRIMARY KEY,
+  approval_mode text NOT NULL DEFAULT 'above_limit' CHECK (approval_mode IN ('all','above_limit')),
+  approval_limit bigint NOT NULL DEFAULT 500000,
+  two_approver_limit bigint,
+  receipt_required_above bigint NOT NULL DEFAULT 100000,
+  updated_by text,
+  updated_at text
+);
+CREATE TABLE IF NOT EXISTS expense_categories (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  name text NOT NULL,
+  active boolean NOT NULL DEFAULT true,
+  sort int NOT NULL DEFAULT 0,
+  UNIQUE (org_id, name)
+);
+CREATE TABLE IF NOT EXISTS expense_budgets (
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  year int NOT NULL,
+  category_id text NOT NULL,
+  amount bigint NOT NULL,
+  PRIMARY KEY (branch_id, year, category_id)
+);
+CREATE TABLE IF NOT EXISTS expense_budget_alerts (
+  scope text NOT NULL,
+  level int NOT NULL,
+  at text NOT NULL,
+  PRIMARY KEY (scope, level)
+);
+CREATE TABLE IF NOT EXISTS expenses (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  branch_id text NOT NULL,
+  code text NOT NULL UNIQUE,
+  kind text NOT NULL DEFAULT 'expense' CHECK (kind IN ('expense','claim')),
+  date text NOT NULL,
+  amount bigint NOT NULL,
+  category_id text NOT NULL,
+  category_name text NOT NULL,
+  project_id text,
+  payee text NOT NULL,
+  method text NOT NULL CHECK (method IN ('cash','mpesa','bank','cheque','other')),
+  reference text,
+  note text,
+  no_receipt_reason text,
+  status text NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','awaiting_second','approved','rejected','voided')),
+  auto_approved boolean NOT NULL DEFAULT false,
+  recorded_by text NOT NULL,
+  recorded_by_name text NOT NULL,
+  first_approver text,
+  first_approver_name text,
+  first_approved_at text,
+  approver text,
+  approver_name text,
+  approved_at text,
+  decision_note text,
+  override_by text,
+  override_reason text,
+  voided_by text,
+  voided_by_name text,
+  voided_at text,
+  void_reason text,
+  paid_at text,
+  paid_by text,
+  paid_by_name text,
+  paid_reference text,
+  created_at text NOT NULL,
+  updated_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS expenses_org_idx ON expenses(org_id, branch_id, date);
+CREATE TABLE IF NOT EXISTS expense_files (
+  id text PRIMARY KEY,
+  expense_id text NOT NULL,
+  org_id text NOT NULL,
+  name text NOT NULL,
+  mime text NOT NULL,
+  size int NOT NULL,
+  data text NOT NULL,
+  uploaded_by text NOT NULL,
+  uploaded_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS expense_files_idx ON expense_files(expense_id);
 -- Attendance (L204 to L216): the schedule, each service, who came, visitors, and the church's settings.
 CREATE TABLE IF NOT EXISTS service_schedules (
   id text PRIMARY KEY,
@@ -1261,7 +1348,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','cash_entry_gifts','prayer_requests','suggestions','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

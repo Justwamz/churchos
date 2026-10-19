@@ -55,6 +55,12 @@ export const PERMISSIONS = [
   'giving.ledger',
   'prayer.respond',
   'suggestions.view',
+  'expenses.view',
+  'expenses.record',
+  'expenses.approve',
+  'expenses.manage',
+  'expenses.settings',
+  'expenses.claim',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -92,6 +98,12 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'events.checkin': { group: 'Community', label: 'Check people in at the door', hint: 'Scan tickets. Does not show anything else.' },
   'kids.checkin': { group: 'Community', label: 'Check children in and out', hint: 'Sunday school teachers. Scan guardians and hand children over.' },
   'prayer.respond': { group: 'Community', label: 'Look after prayer requests', hint: 'Read the requests sent to the prayer team only, mark prayers answered, and hide a request that should not be shown.' },
+  'expenses.view': { group: 'Money', label: 'See expenses', hint: 'The expense list, receipts and reports.' },
+  'expenses.record': { group: 'Money', label: 'Record expenses', hint: 'Record what the church spent, attach receipts, and mark claims as paid.' },
+  'expenses.approve': { group: 'Money', label: 'Approve expenses', hint: 'Approve or reject expenses and claims recorded by someone else, and void a mistake.' },
+  'expenses.manage': { group: 'Money', label: 'Manage expense categories and budgets', hint: 'Add categories and set project and yearly budgets.' },
+  'expenses.settings': { group: 'Money', label: 'Set the expense rules', hint: 'Choose when approval is needed, the receipt limit, and override a restricted fund. Usually the owner.' },
+  'expenses.claim': { group: 'Money', label: 'Submit expense claims', hint: 'Volunteers and staff claim back what they spent, from the member app.' },
   'suggestions.view': { group: 'Community', label: 'Read and answer suggestions', hint: 'See the suggestion box, reply, and publish answers to the church.' },
   'giving.ledger': { group: 'Money', label: "See members' giving records", hint: 'Open the giving record of a named member. Every look is recorded, and the member can see who looked.' },
   'attendance.view': { group: 'Community', label: 'See attendance and visitors', hint: 'Who came, first-time visitors, regular members who stopped coming, and the Monday report.' },
@@ -119,14 +131,15 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'prayer.respond' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
-  Treasurer: ['giving.ledger', 'collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'expenses.settings' && p !== 'prayer.respond' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
+  Treasurer: ['giving.ledger', 'expenses.view', 'expenses.record', 'expenses.manage', 'collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
   Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'prayer.respond', 'suggestions.view', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).
   "Children's Teacher": ['kids.checkin'],
   Usher: ['attendance.checkin'],
   'Prayer Team': ['prayer.respond'],
-  Auditor: ['audit.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
+  Volunteer: ['expenses.claim'],
+  Auditor: ['audit.view', 'expenses.view', 'audit.export', 'collections.view', 'settlements.view', 'reports.view', 'members.view', 'records.view'],
   Secretary: ['members.view', 'members.edit', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.edit', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.manage', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'bookings.view', 'bookings.manage', 'resources.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'suggestions.view'],
 };
 
