@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { API_URL, Badge, Button, Card, Empty, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
+import type { ReactNode } from 'react';
+import { API_URL, Button, Empty, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly } from './session';
-import { Load } from './bits';
+import { Card, Section, Stat, StatTiles, StatusChip } from './ui';
+import { Loaded } from './money-bits';
+
+function Block({ title, children }: { title: string; children: ReactNode }) { return <Section title={title}><Card>{children}</Card></Section>; }
 import './expense-tabs.css';
 
 async function patch(path: string, body: unknown) {
@@ -92,10 +96,10 @@ export function ExpenseBudgets() {
     setBusy('');
   };
 
-  if (setup.error && !setup.data) return <Load loading={false} error={setup.error} hasData={false}>{null}</Load>;
+  if (setup.error && !setup.data) return <Loaded loading={false} error={setup.error} hasData={false}>{null}</Loaded>;
   return (
     <div className="stack">
-      <Card title="Yearly budgets">
+      <Block title="Yearly budgets">
         <div className="stack">
           <div className="xt-filters">
             {branches.length > 1 && (
@@ -105,7 +109,7 @@ export function ExpenseBudgets() {
           </div>
           <Note>When spending reaches 80% and 100% of a budget, the people who manage expenses are told once.</Note>
           {d.data && !canManage && <Note>You can look at the budgets but not change them.</Note>}
-          <Load loading={d.loading || setup.loading} error={d.error} hasData={!!d.data}>
+          <Loaded loading={d.loading || setup.loading} error={d.error} hasData={!!d.data}>
             {cats.length === 0 ? <Empty>No categories yet. Add some under Rules.</Empty> : (
               <table className="xt-table">
                 <thead><tr><th>Category</th><th className="num">Budget (KES)</th><th className="num">Spent</th><th>Used</th></tr></thead>
@@ -132,10 +136,10 @@ export function ExpenseBudgets() {
                 {dirty && <span className="tiny">You have changes that are not saved.</span>}
               </div>
             )}
-          </Load>
+          </Loaded>
         </div>
-      </Card>
-      <Card title="Projects">
+      </Block>
+      <Block title="Projects">
         {!d.data ? null : projects.length === 0 ? <Empty>No projects in this branch.</Empty> : (
           <table className="xt-table">
             <thead><tr><th>Project</th><th className="num">Budget (KES)</th><th className="num">Spent</th><th>Used</th>{canManage && <th />}</tr></thead>
@@ -145,7 +149,7 @@ export function ExpenseBudgets() {
                 const changed = (parseKes(pvals[p.id] ?? '') ?? null) !== cur;
                 return (
                   <tr key={p.id}>
-                    <td className="xt-first">{p.name} <span className="tiny">{p.code}</span> {p.restricted && <Badge tone="warn">Restricted</Badge>}</td>
+                    <td className="xt-first">{p.name} <span className="tiny">{p.code}</span> {p.restricted && <StatusChip tone="wait">Restricted</StatusChip>}</td>
                     <td className="num" data-l="Budget (KES)">
                       {canManage
                         ? <input inputMode="decimal" aria-label={`Budget for ${p.name}`} placeholder="No budget" value={pvals[p.id] ?? ''} onChange={(e) => setPvals({ ...pvals, [p.id]: e.target.value })} />
@@ -165,7 +169,7 @@ export function ExpenseBudgets() {
             </tbody>
           </table>
         )}
-      </Card>
+      </Block>
       {toast.node}
     </div>
   );
@@ -244,7 +248,7 @@ export function ExpenseReports() {
 
   return (
     <div className="stack">
-      <Card title="Spending report">
+      <Block title="Spending report">
         <div className="xt-filters">
           <Field label="From"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
@@ -257,21 +261,21 @@ export function ExpenseReports() {
             <Button small kind="ghost" onClick={() => preset('year')}>This year</Button>
           </div>
         </div>
-      </Card>
-      <Load loading={d.loading} error={d.error} hasData={!!x}>
+      </Block>
+      <Loaded loading={d.loading} error={d.error} hasData={!!x}>
         {x && (
           <div className="stack">
-            <div className="xt-tiles">
-              <div className="xt-tile"><div className="l">Total spent</div><div className="v">{kes(x.totals.amount)}</div></div>
-              <div className="xt-tile"><div className="l">Expenses</div><div className="v">{x.totals.count}</div></div>
-              <div className="xt-tile"><div className="l">Have a receipt</div><div className="v">{x.totals.receiptShare == null ? '-' : `${x.totals.receiptShare}%`}</div><div className="n">{x.totals.withReceipt} of {x.totals.count}</div></div>
-              <div className="xt-tile"><div className="l">Income</div><div className="v">{kes(x.income?.total)}</div><div className="n">Giving {kes(x.income?.giving)} · Cash {kes(x.income?.cash)}</div></div>
-              <div className={'xt-tile' + (neg ? ' neg' : '')}><div className="l">Balance</div><div className="v">{kes(x.balance)}</div><div className="n">Income minus spending</div></div>
-            </div>
+            <StatTiles>
+              <Stat label="Total spent" value={kes(x.totals.amount)} />
+              <Stat label="Expenses" value={x.totals.count} />
+              <Stat label="Have a receipt" value={x.totals.receiptShare == null ? '-' : `${x.totals.receiptShare}%`} hint={`${x.totals.withReceipt} of ${x.totals.count}`} />
+              <Stat label="Income" value={kes(x.income?.total)} hint={`Giving ${kes(x.income?.giving)} · Cash ${kes(x.income?.cash)}`} />
+              <Stat label="Balance" value={kes(x.balance)} hint="Income minus spending" tone={neg ? 'bad' : undefined} />
+            </StatTiles>
             <p className="tiny" style={{ margin: 0 }}>Income is what members gave and the church counted, after fees.</p>
             {empty ? <Card><Empty>No approved expenses in these dates.</Empty></Card> : (
               <>
-                <Card title="Spending by month">
+                <Block title="Spending by month">
                   <div className="xt-month">
                     <div className="xt-cols" role="img" aria-label="Spending by month">
                       {months.map((m) => (
@@ -281,20 +285,20 @@ export function ExpenseReports() {
                     <div className="xt-names">{months.map((m) => <div key={m.name}>{monthName(m.name)}</div>)}</div>
                   </div>
                   <p className="tiny" style={{ marginBottom: 0 }}>Amounts are in thousands (K) of shillings.</p>
-                </Card>
+                </Block>
                 <div className="xt-two">
-                  <Card title="By category"><HBars rows={x.byCategory ?? []} total={total} /></Card>
-                  <Card title="By project"><HBars rows={x.byProject ?? []} total={total} /></Card>
+                  <Block title="By category"><HBars rows={x.byCategory ?? []} total={total} /></Block>
+                  <Block title="By project"><HBars rows={x.byProject ?? []} total={total} /></Block>
                 </div>
                 {(x.byBranch?.length ?? 0) > 1 && (
-                  <Card title="By branch">
+                  <Block title="By branch">
                     <table className="xt-table">
                       <thead><tr><th>Branch</th><th className="num">Expenses</th><th className="num">Spent</th><th className="num">Share</th></tr></thead>
                       <tbody>{x.byBranch.map((b: any) => (
                         <tr key={b.name}><td className="xt-first">{b.name}</td><td className="num" data-l="Expenses">{b.count}</td><td className="num" data-l="Spent">{kes(b.amount)}</td><td className="num" data-l="Share">{total > 0 ? Math.round((Number(b.amount) / total) * 100) : 0}%</td></tr>
                       ))}</tbody>
                     </table>
-                  </Card>
+                  </Block>
                 )}
               </>
             )}
@@ -302,7 +306,7 @@ export function ExpenseReports() {
             <div><Button kind="ghost" disabled={busy} onClick={csv}>{busy ? 'Preparing...' : 'Download expenses (CSV)'}</Button></div>
           </div>
         )}
-      </Load>
+      </Loaded>
     </div>
   );
 }
@@ -379,8 +383,8 @@ export function ExpenseRules() {
 
   return (
     <div className="stack">
-      <Card title="Approval rules">
-        <Load loading={d.loading} error={d.error} hasData={!!s}>
+      <Block title="Approval rules">
+        <Loaded loading={d.loading} error={d.error} hasData={!!s}>
           <div className="stack">
             {off && <Note>Only the owner can change these rules.</Note>}
             {s?.standard && <Note tone="warn">These are the standard rules. Check them for your church.</Note>}
@@ -407,9 +411,9 @@ export function ExpenseRules() {
             {err && <ErrorNote>{err}</ErrorNote>}
             {!off && <div><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save rules'}</Button></div>}
           </div>
-        </Load>
-      </Card>
-      <Card title="Categories">
+        </Loaded>
+      </Block>
+      <Block title="Categories">
         {!d.data ? null : (
           <div>
             {!can.manage && <Note>Only the treasurer and the owner can change categories.</Note>}
@@ -423,7 +427,7 @@ export function ExpenseRules() {
             <p className="tiny">Switching a category off hides it for new expenses. Old expenses keep it.</p>
           </div>
         )}
-      </Card>
+      </Block>
       {toast.node}
     </div>
   );

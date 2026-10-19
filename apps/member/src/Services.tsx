@@ -3,6 +3,7 @@ import { Button, Card, Empty, ErrorNote, Note, useAsync, useToast } from '@churc
 import { api, errText } from './api';
 import { useGeo } from './Family';
 import { Icon, Sheet, Skeleton } from './ui';
+import { useWords } from './Words';
 
 // ---------------- helpers ----------------
 
@@ -44,6 +45,7 @@ function LockIcon() {
 
 /** The reading of a service the member has checked in to. References only; the church's own words follow. */
 export function ReadingView({ r }: { r: any }) {
+  const wd = useWords();
   const l = r?.lectionary;
   const colour = l?.colour ? String(l.colour).toLowerCase() : '';
   return (
@@ -68,7 +70,7 @@ export function ReadingView({ r }: { r: any }) {
           {r.body && <div className="svc-body">{r.body}</div>}
         </div>
       )}
-      {!l && !r?.title && !r?.ref && !r?.body && <p className="muted" style={{ margin: 0 }}>The church has not added readings for this service yet.</p>}
+      {!l && !r?.title && !r?.ref && !r?.body && <p className="muted" style={{ margin: 0 }}>{`The church has not added readings for this ${wd.oneLower} yet.`}</p>}
     </div>
   );
 }
@@ -76,6 +78,7 @@ export function ReadingView({ r }: { r: any }) {
 // ---------------- my readings ----------------
 
 function MyReadings() {
+  const wd = useWords();
   const q = useAsync<any>(() => api.get('/me/readings'));
   const [open, setOpen] = useState<number | null>(null);
   if (q.loading && !q.data) return <Skeleton lines={4} />;
@@ -87,7 +90,7 @@ function MyReadings() {
   return (
     <div className="stack rdg-mine">
       <div className="rdg-streak">
-        <strong>{streak > 0 ? `You have come ${streak} ${streak === 1 ? 'week' : 'weeks'} in a row` : 'Check in at your next service to start'}</strong>
+        <strong>{streak > 0 ? `You have come ${streak} ${streak === 1 ? 'week' : 'weeks'} in a row` : `Check in at your next ${wd.oneLower} to start`}</strong>
         <span className="tiny">{n} {n === 1 ? 'reading' : 'readings'} opened</span>
       </div>
       {!recent.length ? <Empty>The readings you open when you check in will be kept here.</Empty> : (
@@ -177,6 +180,7 @@ function UsherCode() {
 type Problem = { code?: string; message: string };
 
 export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
+  const wd = useWords();
   const svc = useServices();
   const att = useAsync<any>(() => api.get('/me/attendance'));
   const geo = useGeo();
@@ -215,7 +219,7 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
       svc.reload(); att.reload();
     } catch (e: any) {
       if (w) w.close();
-      setProblem(s.id, { code: e?.code, message: e?.code === 'no_stream' ? 'This service has no live video right now.' : errText(e) });
+      setProblem(s.id, { code: e?.code, message: e?.code === 'no_stream' ? `This ${wd.oneLower} has no live video right now.` : errText(e) });
     }
     setBusy(null);
   };
@@ -233,7 +237,7 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
         {hasMembership ? <UsherCode /> : <Card title="My usher code"><Empty>You are not linked to a church yet, so there is no code to show.</Empty></Card>}
         <div className="stack fam-side">
           {svc.error && <><ErrorNote>{svc.error}</ErrorNote><Button kind="ghost" onClick={svc.reload}>Try again</Button></>}
-          {!svc.error && !svc.services.length && <Card title="Services"><Empty>No services are scheduled yet.</Empty></Card>}
+          {!svc.error && !svc.services.length && <Card title={wd.many}><Empty>{`No ${wd.manyLower} are scheduled yet.`}</Empty></Card>}
           {svc.services.map((s) => {
             const st = stateOf(s);
             const mine = s.mine ?? {};
@@ -283,7 +287,7 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
                   {s.streamUrl && <Button kind="ghost" small disabled={!!busy} onClick={() => watch(s)}><Icon name="link" size={18} />{busy === s.id + 'watch' ? 'Opening…' : 'Watch live'}</Button>}
                   <Button kind="ghost" small onClick={() => setInviting(s)}><Icon name="send" size={18} />Bring a friend</Button>
                 </div>
-                {s.streamUrl && st !== 'closed' && <p className="tiny muted svc-wait">The live video starts when the service begins. Watching online is counted for you.</p>}
+                {s.streamUrl && st !== 'closed' && <p className="tiny muted svc-wait">{`The live video starts when the ${wd.oneLower} begins. Watching online is counted for you.`}</p>}
               </section>
             );
           })}
@@ -366,6 +370,7 @@ function Invite({ s, onToast, onSent }: { s: any; onToast: (m: string) => void; 
 // ---------------- Home cards ----------------
 
 export function HomeServices({ onOpen }: { onOpen: () => void }) {
+  const wd = useWords();
   const { services } = useServices();
   const now = Date.now();
   const open = services.find((s) => stateOf(s, now) === 'open' && !s.mine?.inPerson && !s.mine?.online);
@@ -376,7 +381,7 @@ export function HomeServices({ onOpen }: { onOpen: () => void }) {
       {open && (
         <button type="button" className="fam-home" onClick={onOpen}>
           <span className="msg-ico"><Icon name="calendar" size={18} /></span>
-          <span className="fam-name"><strong>Service now: {open.name}. Check in</strong><span className="tiny">{open.branch} · {timeOf(open.startsAt)}</span></span>
+          <span className="fam-name"><strong>{wd.one} now: {open.name}. Check in</strong><span className="tiny">{open.branch} · {timeOf(open.startsAt)}</span></span>
           <Icon name="chev" size={18} />
         </button>
       )}

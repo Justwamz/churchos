@@ -46,3 +46,20 @@
 .sv-welcome { max-width: 680px; }
 .sv-welcome textarea { min-height: 120px; }
 .sv-count.over { color: var(--warn); font-weight: 700; }
+/* worship pass */
+.sv { display: block; }
+.sv-list { display: grid; }
+.sv-list .sv-row { border: 0; border-radius: 0; border-bottom: 1px solid var(--line-soft); background: transparent; padding: 16px 20px; }
+.sv-list .sv-row:last-child { border-bottom: 0; }
+.sv-list .sv-row.cancelled { background: var(--off-tint); }
+.sv-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.sv-sec { display: grid; gap: 10px; padding: 18px 0; border-top: 1px solid var(--line-soft); }
+.sv-sec h3 { font-size: 15px; margin: 0; }
+.sv-danger h3 { color: var(--bad); }
+.sv-adv { margin: 8px 0; }
+.sv-sentence { background: var(--accent-tint); }
+.sv-radio.on { border-color: var(--accent); background: var(--accent-tint); }
+.sv-switch input:checked + .sv-track { background: var(--accent); }
+.sv-card { padding: 20px; }
+@media (max-width: 900px) { .sv-list .sv-row { padding: 14px 16px; } .sv-btns .btn { flex: 1 1 auto; } .sv-cards { grid-template-columns: 1fr; } }
+.sv-btns { flex-wrap: wrap; }

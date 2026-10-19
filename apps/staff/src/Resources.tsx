@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './worship-bits';
+import { Card, EmptyState, PageHeader, Section, StatusChip } from './ui';
 import { Helplines } from './Helplines';
 import { Modal } from './MemberForm';
 import { toIso } from './communityBits';
 import './bookings.css';
+import './worship.css';
 
 export const eat = (iso: string, o: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', hour12: false, ...o });
 
@@ -106,16 +108,16 @@ function ResourceForm({ res, onClose, onSaved }: { res?: any; onClose: () => voi
   };
 
   return (
-    <div className="stack">
-      <div className="row between"><h2 style={{ margin: 0 }}>{res ? 'Edit' : 'Add something to book'}</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
-      <Card title="1. About it">
+    <div className="wo-form">
+      <PageHeader title={res ? 'Edit' : 'Add something to book'} subtitle="Three short steps, then save." actions={<Button kind="ghost" onClick={onClose}>Cancel</Button>} />
+      <Section title="1. About it"><Card>
         <div className="stack">
           <Field label="What is it?">
             <select value={kind} onChange={(e) => setKind(e.target.value)}>{Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           </Field>
           <Field label="Name" hint="For example Main hall, Pastor's diary, Projector"><input maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></Field>
           <Field label="Details" hint="Optional"><textarea rows={3} maxLength={500} value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
-          <div className="grid cols-2">
+          <div className="wo-grid">
             <Field label="Where does it belong?" hint="Whole church is only for people who manage every branch.">
               <select value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!!res}>
                 <option value="">Whole church</option>
@@ -133,12 +135,12 @@ function ResourceForm({ res, onClose, onSaved }: { res?: any; onClose: () => voi
             </Field>
           )}
         </div>
-      </Card>
-      <Card title="2. When can it be booked?">
+      </Card></Section>
+      <Section title="2. When can it be booked?"><Card>
         <div className="stack">
           <div className="tiny">All times are East Africa Time, 24 hour clock.</div>
           <HoursEditor value={hours} onChange={setHours} />
-          <div className="grid cols-2">
+          <div className="wo-grid">
             <Field label="Booking length" hint="People book in blocks of this size.">
               <select value={slot} onChange={(e) => { setSlot(Number(e.target.value)); setMax(''); }}>{[15, 30, 45, 60, 90, 120].map((m) => <option key={m} value={m}>{m} minutes</option>)}</select>
             </Field>
@@ -149,20 +151,20 @@ function ResourceForm({ res, onClose, onSaved }: { res?: any; onClose: () => voi
             <Field label="How far ahead" hint="Days into the future people can book."><input inputMode="numeric" value={ahead} onChange={(e) => setAhead(e.target.value.replace(/\D/g, ''))} /></Field>
           </div>
         </div>
-      </Card>
-      <Card title="3. Approval and price">
+      </Card></Section>
+      <Section title="3. Approval and price"><Card>
         <div className="stack">
           <Field label="Approval" hint="Someone must say yes, or it is approved automatically.">
             <select value={approval} onChange={(e) => setApproval(e.target.value)}><option value="manual">Someone must say yes</option><option value="auto">Approved automatically</option></select>
           </Field>
-          <div className="grid cols-2">
+          <div className="wo-grid">
             <Field label="Price (KES)" hint="Leave empty for free. A priced booking waits for payment after approval and holds the time for 24 hours."><input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ''))} /></Field>
             <Field label="Charged"><select value={per} onChange={(e) => setPer(e.target.value)}><option value="booking">Once per booking</option><option value="hour">Per hour</option></select></Field>
           </div>
         </div>
-      </Card>
+      </Card></Section>
       {err && <ErrorNote>{err}</ErrorNote>}
-      <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : res ? 'Save changes' : 'Add'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
+      <div className="wo-actions"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : res ? 'Save changes' : 'Add'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
     </div>
   );
 }
@@ -195,7 +197,7 @@ function Blocks({ res, canManage, onClose }: { res: any; canManage: boolean; onC
       <div className="stack">
         <div className="tiny">Block a time when this cannot be booked, for example a holiday or repairs. East Africa Time.</div>
         <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-          {list.data && (list.data.length === 0 ? <Empty>Nothing is blocked.</Empty> : (
+          {list.data && (list.data.length === 0 ? <EmptyState icon="clock" title="Nothing is blocked" /> : (
             <div className="bk-blocks">
               {list.data.map((b) => (
                 <div className="bk-item" key={b.id}>
@@ -209,7 +211,7 @@ function Blocks({ res, canManage, onClose }: { res: any; canManage: boolean; onC
         {canManage && (
           <div className="stack">
             <b>Block a new time</b>
-            <div className="grid cols-2">
+            <div className="wo-grid">
               <Field label="From"><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
               <Field label="To"><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
             </div>
@@ -257,7 +259,6 @@ export function Resources() {
   if (mode === 'form') {
     return (
       <div>
-        <PageHead title="Resources" />
         <ResourceForm res={editing} onClose={() => setMode('list')} onSaved={(m) => { setMode('list'); toast.show(m); list.reload(); }} />
         {toast.node}
       </div>
@@ -266,14 +267,8 @@ export function Resources() {
   const groups: [string, string][] = [['person', 'People'], ['place', 'Places'], ['thing', 'Things']];
   return (
     <div>
-      <PageHead title="Resources" sub="The people, places and things members can ask to book." action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>Add something</Button> : undefined} />
-      <div style={{ marginBottom: 16 }}><Helplines /></div>
-      {!!list.data?.length && (
-        <div className="chips" role="group" aria-label="How to show the list" style={{ marginBottom: 12 }}>
-          <button type="button" className={`chip ${view === 'cards' ? 'on' : ''}`} aria-pressed={view === 'cards'} onClick={() => pick('cards')}>Cards</button>
-          <button type="button" className={`chip ${view === 'list' ? 'on' : ''}`} aria-pressed={view === 'list'} onClick={() => pick('list')}>List</button>
-        </div>
-      )}
+      <PageHeader title="Resources" subtitle="The people, places and things members can ask to book." actions={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>Add something</Button> : undefined}
+        tabs={list.data?.length ? [{ id: 'cards', label: 'Cards' }, { id: 'list', label: 'List' }] : undefined} tab={view} onTab={(t) => pick(t as 'cards' | 'list')} />
       <Load loading={list.loading} error={list.error} hasData={!!list.data}>
         {list.data && view === 'list' && list.data.length > 0 && (
           <Table head={['Name', 'Kind', 'Belongs to', 'Hours', 'Booking length', 'Price', 'Approval', 'Holds', 'Status', '']}>
@@ -287,7 +282,7 @@ export function Resources() {
                 <td>{priceText(r)}</td>
                 <td>{r.approval === 'auto' ? 'Automatic' : 'Needs approval'}</td>
                 <td>{r.capacity ?? '-'}</td>
-                <td>{r.active ? <Badge tone="good">Available</Badge> : <Badge tone="muted">Switched off</Badge>}</td>
+                <td>{r.active ? <StatusChip tone="done">Available</StatusChip> : <StatusChip tone="off">Switched off</StatusChip>}</td>
                 <td><div className="row">
                   {canManage && <Button small kind="ghost" onClick={() => { setEditing(r); setMode('form'); }}>Edit</Button>}
                   {canManage && <Button small kind="ghost" onClick={() => toggle(r)}>{r.active ? 'Switch off' : 'Switch on'}</Button>}
@@ -297,7 +292,7 @@ export function Resources() {
             ))}
           </Table>
         )}
-        {list.data && view === 'cards' && (list.data.length === 0 ? <Empty>Nothing can be booked yet.{canManage ? ' Add your first one.' : ''}</Empty> : (
+        {list.data && view === 'cards' && (list.data.length === 0 ? <Card><EmptyState icon="building" title="Nothing can be booked yet" text={canManage ? 'Add a hall, a room, a diary or something members can borrow.' : undefined} action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>Add something</Button> : undefined} /></Card> : (
           <div className="stack" style={{ gap: 24 }}>
             {groups.map(([k, title]) => {
               const rows = list.data!.filter((r) => r.kind === k);
@@ -307,20 +302,20 @@ export function Resources() {
                   <h2 style={{ margin: 0 }}>{title}</h2>
                   <div className="bk-grid">
                     {rows.map((r) => (
-                      <section className={`card bk-res ${r.active ? '' : 'bk-off'}`} key={r.id}>
+                      <section className={`u-card bk-res ${r.active ? '' : 'bk-off'}`} key={r.id}>
                         <div className="row between" style={{ alignItems: 'flex-start' }}>
                           <div style={{ minWidth: 0 }}><b>{r.name}</b>{r.description && <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{r.description}</div>}</div>
-                          {!r.active && <Badge tone="muted">Switched off</Badge>}
+                          {!r.active && <StatusChip tone="off">Switched off</StatusChip>}
                         </div>
                         <div className="bk-chips">
-                          <Badge tone="info">{r.branchName ?? 'Whole church'}</Badge>
-                          <Badge tone={r.price == null ? 'muted' : 'warn'}>{priceText(r)}</Badge>
-                          <Badge tone={r.approval === 'auto' ? 'good' : 'muted'}>{r.approval === 'auto' ? 'Approved automatically' : 'Needs approval'}</Badge>
-                          {r.capacity ? <Badge tone="muted">Holds {r.capacity}</Badge> : null}
+                          <StatusChip tone="info">{r.branchName ?? 'Whole church'}</StatusChip>
+                          <StatusChip tone={r.price == null ? 'off' : 'wait'}>{priceText(r)}</StatusChip>
+                          <StatusChip tone={r.approval === 'auto' ? 'done' : 'off'}>{r.approval === 'auto' ? 'Approved automatically' : 'Needs approval'}</StatusChip>
+                          {r.capacity ? <StatusChip tone="off">Holds {r.capacity}</StatusChip> : null}
                         </div>
                         {r.kind === 'person' && r.ownerName && <div className="tiny">Diary of {r.ownerName}</div>}
                         <div className="tiny">Booked in blocks of {r.slotMinutes} minutes.</div>
-                        <div className="row">
+                        <div className="wo-actions">
                           {canManage && <Button small kind="ghost" onClick={() => { setEditing(r); setMode('form'); }}>Edit</Button>}
                           {canManage && <Button small kind="ghost" onClick={() => toggle(r)}>{r.active ? 'Switch off' : 'Switch on'}</Button>}
                           <Button small kind="ghost" onClick={() => setBlocks(r)}>Blocked times</Button>
@@ -334,6 +329,10 @@ export function Resources() {
           </div>
         ))}
       </Load>
+      <details className="wo-more" style={{ marginTop: 28 }}>
+        <summary>Helplines shown to members</summary>
+        <div><Helplines /></div>
+      </details>
       {!canManage && <Note>You can look at what is set up. Ask someone who sets up resources to change it.</Note>}
       {blocks && <Blocks res={blocks} canManage={canManage} onClose={() => setBlocks(null)} />}
       {toast.node}

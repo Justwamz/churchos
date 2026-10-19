@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, ErrorNote, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly } from './session';
 import './pastoral.css';
+import './people.css';
 
 type HL = { name: string; phone: string; note: string };
 
@@ -33,26 +34,26 @@ export function Helplines() {
   };
   const off = blocked || d.data?.canEdit === false;
   return (
-    <Card title="Helplines shown to members">
-      <div className="stack">
-        <div className="tiny">Members see these numbers in the app when they need urgent help.</div>
+    <div>
+      <div className="pp-stack">
+        <p className="pp-note">Members see these numbers in the app when they need urgent help.</p>
         {d.data?.standard && <Note tone="warn">These are the standard numbers. Please check each one is right for your area before members rely on them.</Note>}
         {off && <Note>Only people who manage every branch can change the helplines.</Note>}
         {rows.map((r, i) => (
-          <div className="pa-hl" key={i}>
-            <label className="field" style={{ margin: 0 }}><span className="field-label">Name</span><input value={r.name} maxLength={60} disabled={off} onChange={(e) => set(i, 'name', e.target.value)} /></label>
-            <label className="field" style={{ margin: 0 }}><span className="field-label">Number</span><input inputMode="tel" value={r.phone} maxLength={20} disabled={off} onChange={(e) => set(i, 'phone', e.target.value)} /></label>
-            <label className="field" style={{ margin: 0 }}><span className="field-label">Note (optional)</span><input value={r.note} maxLength={120} disabled={off} onChange={(e) => set(i, 'note', e.target.value)} /></label>
-            <Button small kind="ghost" disabled={off || rows.length <= 1} onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>Remove</Button>
+          <div className="pp-hl" key={i}>
+            <label className="field"><span className="field-label">Name</span><input value={r.name} maxLength={60} disabled={off} onChange={(e) => set(i, 'name', e.target.value)} /></label>
+            <label className="field"><span className="field-label">Number</span><input inputMode="tel" value={r.phone} maxLength={20} disabled={off} onChange={(e) => set(i, 'phone', e.target.value)} /></label>
+            <label className="field"><span className="field-label">Note (optional)</span><input value={r.note} maxLength={120} disabled={off} onChange={(e) => set(i, 'note', e.target.value)} /></label>
+            <Button kind="ghost" disabled={off || rows.length <= 1} onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>Remove</Button>
           </div>
         ))}
         {err && <ErrorNote>{err}</ErrorNote>}
-        <div className="row">
+        <div className="pp-row-flex">
           <Button kind="ghost" disabled={off || rows.length >= 8} onClick={() => setRows((x) => [...x, { name: '', phone: '', note: '' }])}>Add a helpline</Button>
           <Button disabled={busy || off || !rows.length} onClick={save}>{busy ? 'Saving...' : 'Save helplines'}</Button>
         </div>
       </div>
       {toast.node}
-    </Card>
+    </div>
   );
 }

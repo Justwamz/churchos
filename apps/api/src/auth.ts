@@ -60,6 +60,7 @@ export const PERMISSIONS = [
   'expenses.approve',
   'expenses.manage',
   'expenses.settings',
+  'church.settings',
   'expenses.claim',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -102,6 +103,7 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
   'expenses.record': { group: 'Money', label: 'Record expenses', hint: 'Record what the church spent, attach receipts, and mark claims as paid.' },
   'expenses.approve': { group: 'Money', label: 'Approve expenses', hint: 'Approve or reject expenses and claims recorded by someone else, and void a mistake.' },
   'expenses.manage': { group: 'Money', label: 'Manage expense categories and budgets', hint: 'Add categories and set project and yearly budgets.' },
+  'church.settings': { group: 'Security and team', label: 'Change the church settings and wording', hint: 'What you call your gatherings (Service, Mass, Gathering). Usually the owner.' },
   'expenses.settings': { group: 'Money', label: 'Set the expense rules', hint: 'Choose when approval is needed, the receipt limit, and override a restricted fund. Usually the owner.' },
   'expenses.claim': { group: 'Money', label: 'Submit expense claims', hint: 'Volunteers and staff claim back what they spent, from the member app.' },
   'suggestions.view': { group: 'Community', label: 'Read and answer suggestions', hint: 'See the suggestion box, reply, and publish answers to the church.' },
@@ -131,7 +133,7 @@ export const PERMISSION_INFO: Record<Permission, { label: string; group: string;
 export const ROLE_TEMPLATES: Record<string, Permission[]> = {
   'Organisation Owner': [...PERMISSIONS],
   // Only the organisation owner sees or changes payout destinations (L35).
-  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'expenses.settings' && p !== 'prayer.respond' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
+  'Branch Admin': PERMISSIONS.filter((p) => p !== 'giving.ledger' && p !== 'expenses.settings' && p !== 'church.settings' && p !== 'prayer.respond' && p !== 'payouts.view' && p !== 'payouts.manage' && p !== 'members.settings' && p !== 'audit.export' && p !== 'integrations.manage'),
   Treasurer: ['giving.ledger', 'expenses.view', 'expenses.record', 'expenses.manage', 'collections.view', 'settlements.view', 'reports.view', 'cash.count', 'cash.approve', 'projects.manage', 'reversals.request', 'wallets.view', 'wallets.topup', 'shop.view', 'shop.sell'],
   Pastor: ['collections.view', 'reports.view', 'members.view', 'members.sensitive', 'members.reveal', 'transfers.approve', 'records.view', 'records.approve', 'messages.send', 'messages.view', 'groups.manage', 'adverts.view', 'adverts.approve', 'notices.view', 'notices.manage', 'events.view', 'events.manage', 'events.checkin', 'kids.checkin', 'kids.manage', 'attendance.view', 'attendance.manage', 'attendance.checkin', 'prayer.respond', 'suggestions.view', 'bookings.view'],
   // A read-only role an owner can give to an external or internal auditor (L108).

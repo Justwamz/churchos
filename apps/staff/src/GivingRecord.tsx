@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { API_URL, Badge, Button, ErrorNote, Note, kes, shortDate, useToast } from '@churchos/ui';
+import { API_URL, Button, ErrorNote, Note, kes, shortDate, useToast } from '@churchos/ui';
 import { api, friendly, label, methodLabel } from './session';
-import { Modal, useDebounced } from './MemberForm';
-import { PageHead } from './bits';
-import { Card, Empty, Table } from '@churchos/ui';
+import { useDebounced } from './MemberForm';
+import { Card, EmptyState, PageHeader, Section, SidePanel, StatusChip, Toolbar } from './ui';
+import './money.css';
 import { StatementCard, StatementSettings } from './Statements';
 import './giving-record.css';
 
@@ -57,8 +57,15 @@ export function GivingRecordModal({ member, onClose }: { member: { id: string; f
     } catch (e: any) { toast.show(friendly(e.message), 'bad'); }
   };
 
+  const panelFooter = !data ? (
+    <>
+      <Button kind="ghost" onClick={onClose}>Cancel</Button>
+      <Button disabled={busy} onClick={open}>{busy ? 'Opening…' : 'Open the record'}</Button>
+    </>
+  ) : undefined;
+
   return (
-    <Modal title={data ? `Giving record: ${data.member.name}` : 'Giving record'} onClose={onClose}>
+    <SidePanel title={data ? `Giving record: ${data.member.name}` : 'Giving record'} subtitle={data ? `${data.member.memberNumber} · ${data.member.branch}` : member.full_name} onClose={onClose} footer={panelFooter} width={620}>
       {!data ? (
         <div className="stack">
           <Note tone="info">{`Opening someone’s giving record is recorded. ${member.full_name} can see who looked and why.`}</Note>
@@ -71,23 +78,18 @@ export function GivingRecordModal({ member, onClose }: { member: { id: string; f
           </div>
           {reason === 'other' && <input aria-label="Short note" maxLength={120} placeholder="Short note (required, up to 120 characters)" value={note} onChange={(e) => setNote(e.target.value)} />}
           {err && <ErrorNote>{err}</ErrorNote>}
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <Button kind="ghost" onClick={onClose}>Cancel</Button>
-            <Button disabled={busy} onClick={open}>{busy ? 'Opening…' : 'Open the record'}</Button>
-          </div>
         </div>
       ) : (
         <div className="stack">
           <div className="gr-head">
-            <div><b>{data.member.name}</b> <span className="tiny">{data.member.memberNumber} · {data.member.branch}</span></div>
-            {data.integrity?.ok ? <Badge tone="good">Record intact</Badge> : <Badge tone="bad">{`Warning: record does not match at line ${data.integrity?.brokenAt}`}</Badge>}
+            {data.integrity?.ok ? <StatusChip tone="done">Record intact</StatusChip> : <StatusChip tone="bad">{`Warning: record does not match at line ${data.integrity?.brokenAt}`}</StatusChip>}
           </div>
           <div className="gr-totals">
             <div className="gr-total"><span className="tiny">Given in total</span><b>{kes(data.totals.given)}</b></div>
             {Object.entries(data.totals.byYear ?? {}).sort().reverse().map(([y, c]) => <div className="gr-total" key={y}><span className="tiny">{y}</span><b>{kes(c as number)}</b></div>)}
           </div>
-          <div className="chips">{Object.entries(data.totals.byPurpose ?? {}).map(([p, c]) => <Badge key={p} tone="info">{`${label(p)}: ${kes(c as number)}`}</Badge>)}</div>
-          {data.lines.length === 0 ? <div className="muted">No gifts on this record yet.</div> : (
+          <div className="chips">{Object.entries(data.totals.byPurpose ?? {}).map(([p, c]) => <StatusChip key={p} tone="info">{`${label(p)}: ${kes(c as number)}`}</StatusChip>)}</div>
+          {data.lines.length === 0 ? <p className="mn-flat-note">No gifts on this record yet.</p> : (
             <div className="gr-scroll">
               <table className="gr-table">
                 <thead><tr><th>Date</th><th>What</th><th>How</th><th>Reference</th><th className="num">Amount</th></tr></thead>
@@ -105,22 +107,22 @@ export function GivingRecordModal({ member, onClose }: { member: { id: string; f
               </table>
             </div>
           )}
-          <div className="tiny">This record cannot be changed or deleted. Corrections are added as new lines.</div>
-          <div className="row between">
+          <div className="mn-btns" style={{ justifyContent: 'space-between' }}>
             <Button small kind="ghost" disabled={busy} onClick={csv}>Download CSV</Button>
-            <button type="button" className="tiny" style={{ background: 'none', border: 0, color: 'var(--brand, #1f6f5c)', textDecoration: 'underline', cursor: 'pointer' }} onClick={verify}>Check the whole ledger</button>
+            <button type="button" className="tiny" style={{ background: 'none', border: 0, color: 'var(--accent)', textDecoration: 'underline', cursor: 'pointer', minHeight: 36 }} onClick={verify}>Check the whole ledger</button>
           </div>
-          <div className="tiny">Downloading is recorded too.</div>
+          <p className="mn-flat-note">This record cannot be changed or deleted. Corrections are added as new lines. Downloading is recorded too.</p>
           <StatementCard member={{ id: member.id, name: member.full_name }} years={Object.keys(data.totals.byYear ?? {}).sort().reverse()} reason={reason} note={note} reasonOk={!!reason && (reason !== 'other' || !!note.trim())} />
         </div>
       )}
       {toast.node}
-    </Modal>
+    </SidePanel>
   );
 }
 
 export function GivingRecords() {
   const [q, setQ] = useState('');
+  const [tab, setTab] = useState('find');
   const dq = useDebounced(q.trim());
   const [res, setRes] = useState<any[] | null>(null);
   const [err, setErr] = useState('');
@@ -133,25 +135,38 @@ export function GivingRecords() {
   }, [dq]);
   return (
     <>
-      <PageHead title="Giving records" sub="Find a member to open their giving record." />
-      <div className="stack">
-        <Note tone="info">Opening a giving record is recorded. The member can see who looked and why.</Note>
-        <Card>
-          <input style={{ width: '100%' }} aria-label="Search members" placeholder="Search by name or member number (at least 2 letters)" value={q} onChange={(e) => setQ(e.target.value)} />
-          {err && <div style={{ marginTop: 8 }}><ErrorNote>{err}</ErrorNote></div>}
-          {res && !err && (res.length === 0 ? <div style={{ marginTop: 12 }}><Empty>No members found.</Empty></div> : (
-            <div style={{ marginTop: 12 }}>
-              <Table head={['Name', 'Member no.', 'Branch', '']}>
-                {res.map((m) => (
-                  <tr key={m.id}><td><b>{m.name}</b></td><td className="mono">{m.memberNumber}</td><td>{m.branch}</td>
-                    <td><Button small onClick={() => setOpen({ id: m.id, full_name: m.name })}>Open giving record</Button></td></tr>
-                ))}
-              </Table>
-            </div>
+      <PageHeader
+        title="Giving records"
+        subtitle="Find a member to open their giving record. Every look is recorded, and the member can see who looked and why."
+        tabs={[{ id: 'find', label: 'Find a member' }, { id: 'statements', label: 'Statement details' }]}
+        tab={tab}
+        onTab={setTab}
+      />
+      {tab === 'find' && (
+        <Section>
+          <Toolbar>
+            <input aria-label="Search members" placeholder="Search by name or member number (at least 2 letters)" value={q} onChange={(e) => setQ(e.target.value)} />
+          </Toolbar>
+          {err && <ErrorNote>{err}</ErrorNote>}
+          {!res && !err && <Card><EmptyState icon="book" title="Start typing a name" text="Results appear here. You will be asked for a reason before a record opens." /></Card>}
+          {res && !err && (res.length === 0 ? <Card><EmptyState icon="people" title="No members found" text="Check the spelling or try the member number." /></Card> : (
+            <Card pad={false} className="mn-wrap">
+              <div className="mn-scroll">
+                <table className="mn-table">
+                  <thead><tr><th>Name</th><th>Member no.</th><th>Branch</th><th /></tr></thead>
+                  <tbody>
+                    {res.map((m) => (
+                      <tr key={m.id}><td className="mn-first" data-l="Name"><b>{m.name}</b></td><td className="mono" data-l="Member no.">{m.memberNumber}</td><td data-l="Branch">{m.branch}</td>
+                        <td className="mn-act"><Button small onClick={() => setOpen({ id: m.id, full_name: m.name })}>Open giving record</Button></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           ))}
-        </Card>
-        <StatementSettings />
-      </div>
+        </Section>
+      )}
+      {tab === 'statements' && <Section><StatementSettings /></Section>}
       {open && <GivingRecordModal member={open} onClose={() => setOpen(null)} />}
     </>
   );

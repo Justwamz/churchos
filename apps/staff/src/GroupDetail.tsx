@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Spinner, Table, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load } from './bits';
-import { Modal, useDebounced } from './MemberForm';
+import { Gate, Modal, initials, useDebounced } from './MemberForm';
+import { Card, EmptyState, Section, Skeleton, StatusChip } from './ui';
 import { GroupFormModal } from './Groups';
 import { composePreset } from './ComposeMessage';
 
 function Reach({ r }: { r: { inApp: boolean; sms: boolean; whatsapp: boolean } }) {
-  const chip = (on: boolean, t: string) => <Badge tone={on ? 'good' : 'muted'}><span style={{ opacity: on ? 1 : 0.45 }}>{t}</span></Badge>;
+  const chip = (on: boolean, t: string) => <StatusChip tone={on ? 'done' : 'off'}>{t}</StatusChip>;
   return <div className="chips" style={{ gap: 4 }}>{chip(r.inApp, 'In-app')}{chip(r.sms, 'SMS')}{chip(r.whatsapp, 'WhatsApp')}</div>;
 }
 
@@ -41,8 +41,8 @@ function AddPeople({ groupId, existing, onClose, onDone }: { groupId: string; ex
       <div className="stack">
         <input style={{ width: '100%' }} aria-label="Search people" placeholder="Search by name" value={q} onChange={(e) => setQ(e.target.value)} />
         {err && <ErrorNote>{err}</ErrorNote>}
-        {dq && !res && !err && <Spinner />}
-        {res && list.length === 0 && <Empty>No one found.</Empty>}
+        {dq && !res && !err && <Skeleton lines={2} />}
+        {res && list.length === 0 && <p className="pp-note">No one found.</p>}
         <div className="stack" style={{ gap: 4, maxHeight: 260, overflowY: 'auto' }}>
           {list.map((m) => (
             <label key={m.id} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
@@ -58,7 +58,7 @@ function AddPeople({ groupId, existing, onClose, onDone }: { groupId: string; ex
         </div>
         {role === 'leader' && <div className="tiny">A leader must be an adult.</div>}
         {role === 'leader' && hasChild && <ErrorNote>A leader must be an adult. Untick the children or choose Member.</ErrorNote>}
-        <div className="row"><Button disabled={busy || ids.length === 0 || (role === 'leader' && hasChild)} onClick={save}>{busy ? 'Adding...' : `Add ${ids.length || ''} ${ids.length === 1 ? 'person' : 'people'}`}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
+        <div className="pp-form-foot"><Button disabled={busy || ids.length === 0 || (role === 'leader' && hasChild)} onClick={save}>{busy ? 'Adding...' : `Add ${ids.length || ''} ${ids.length === 1 ? 'person' : 'people'}`}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
     </Modal>
   );
@@ -86,42 +86,44 @@ export function GroupDetail({ id, onBack }: { id: string; onBack: () => void }) 
   const message = () => { composePreset.groupId = id; s.go('messages'); };
 
   return (
-    <div className="stack">
-      <div><Button kind="ghost" small onClick={onBack}>Back to groups</Button></div>
-      <Load loading={d.loading} error={d.error} hasData={!!g}>
+    <div>
+      <div style={{ marginBottom: 16 }}><Button kind="ghost" small onClick={onBack}>Back to groups</Button></div>
+      <Gate loading={d.loading} error={d.error} hasData={!!g}>
         {g && (
           <>
-            <Card title={g.name} action={<div className="row">{canManage && <Button small kind="ghost" onClick={() => setEditing(true)}>Edit</Button>}{s.can('messages.send') && <Button small onClick={message}>Message this group</Button>}</div>}>
-              <div className="tiny">{g.description || 'No description.'}</div>
-              <div className="tiny" style={{ marginTop: 6 }}>Group leaders can message their group from the member app.</div>
-              <div className="chips" style={{ gap: 4, marginTop: 8 }}><Badge tone="muted">{g.joinPolicy === 'request' ? 'Members can ask to join' : 'By invitation only'}</Badge><Badge tone="muted">{g.posting === 'leaders' ? 'Only leaders post' : 'Everyone can post'}</Badge></div>
-              <div className="tiny" style={{ marginTop: 6 }}>The wall is private to the group. Church staff see the group and its size, not the posts, unless they are in the group.</div>
-            </Card>
-            <Card title={`People (${g.members.length})`} action={canManage && <Button small onClick={() => setAdding(true)}>Add people</Button>}>
-              {g.members.length === 0 ? <Empty>No one is in this group yet.</Empty> : (
-                <Table head={['Name', 'Member no.', 'Type', 'Role', 'How we can reach them', '']}>
+            <Section title={g.name} hint={g.description || 'No description.'}
+              action={<div className="pp-row-flex">{canManage && <Button small kind="ghost" onClick={() => setEditing(true)}>Edit</Button>}{s.can('messages.send') && <Button small onClick={message}>Message this group</Button>}</div>}>
+              <Card>
+                <div className="pp-row-flex"><StatusChip tone="off">{g.joinPolicy === 'request' ? 'Members can ask to join' : 'By invitation only'}</StatusChip><StatusChip tone="off">{g.posting === 'leaders' ? 'Only leaders post' : 'Everyone can post'}</StatusChip></div>
+                <p className="pp-note" style={{ marginTop: 10 }}>Group leaders can message their group from the member app. The wall is private to the group: church staff see the group and its size, not the posts, unless they are in the group.</p>
+              </Card>
+            </Section>
+            <Section title={`People (${g.members.length})`} action={canManage && <Button small onClick={() => setAdding(true)}>Add people</Button>}>
+              {g.members.length === 0 ? <EmptyState icon="people" title="No one is in this group yet" text="Add people to get started." /> : (
+                <div className="pp-list">
                   {g.members.map((m: any) => (
-                    <tr key={m.membershipId}>
-                      <td><b>{m.name}</b><div className="tiny">{m.branch}</div></td>
-                      <td className="mono">{m.memberNumber}</td>
-                      <td><Badge tone={m.category === 'child' ? 'warn' : 'muted'}>{m.category === 'child' ? 'Child' : 'Adult'}</Badge></td>
-                      <td><Badge tone={m.role === 'leader' ? 'info' : 'muted'}>{m.role === 'leader' ? 'Leader' : 'Member'}</Badge></td>
-                      <td><Reach r={m.reach} />{m.category === 'child' && <div className="tiny">Reached through guardians</div>}</td>
-                      <td>{canManage && (removing === m.membershipId
-                        ? <div className="stack" style={{ gap: 4 }}><span className="tiny">Remove {m.name} from this group?</span><div className="row"><Button small kind="danger" disabled={busy} onClick={() => remove(m)}>Yes, remove</Button><Button small kind="ghost" onClick={() => setRemoving(null)}>Keep</Button></div></div>
-                        : <div className="row" style={{ gap: 6 }}>
-                            {m.role === 'leader' ? <Button small kind="ghost" disabled={busy} onClick={() => setRole(m, 'member')}>Make member</Button>
-                              : m.category === 'adult' && <Button small kind="ghost" disabled={busy} onClick={() => setRole(m, 'leader')}>Make leader</Button>}
-                            <Button small kind="ghost" disabled={busy} onClick={() => setRemoving(m.membershipId)}>Remove</Button>
-                          </div>)}</td>
-                    </tr>
+                    <div key={m.membershipId} className="pp-item static" style={{ gridTemplateColumns: '44px minmax(0,1fr)', alignItems: 'start' }}>
+                      <span className={`pp-avatar ${m.category === 'child' ? 'child' : ''}`} aria-hidden="true">{initials(m.name)}</span>
+                      <div className="pp-stack tight">
+                        <div><div className="pp-name">{m.name} <StatusChip tone={m.role === 'leader' ? 'info' : 'off'}>{m.role === 'leader' ? 'Leader' : 'Member'}</StatusChip>{m.category === 'child' && <StatusChip tone="wait">Child</StatusChip>}</div>
+                          <div className="pp-sub">{m.memberNumber} · {m.branch}</div></div>
+                        <div><Reach r={m.reach} />{m.category === 'child' && <div className="pp-sub">Reached through guardians</div>}</div>
+                        {canManage && (removing === m.membershipId
+                          ? <div className="pp-stack tight"><span className="pp-tiny">Remove {m.name} from this group?</span><div className="pp-row-flex"><Button small kind="danger" disabled={busy} onClick={() => remove(m)}>Yes, remove</Button><Button small kind="ghost" onClick={() => setRemoving(null)}>Keep</Button></div></div>
+                          : <div className="pp-row-flex">
+                              {m.role === 'leader' ? <Button small kind="ghost" disabled={busy} onClick={() => setRole(m, 'member')}>Make member</Button>
+                                : m.category === 'adult' && <Button small kind="ghost" disabled={busy} onClick={() => setRole(m, 'leader')}>Make leader</Button>}
+                              <Button small kind="ghost" disabled={busy} onClick={() => setRemoving(m.membershipId)}>Remove</Button>
+                            </div>)}
+                      </div>
+                    </div>
                   ))}
-                </Table>
+                </div>
               )}
-            </Card>
+            </Section>
           </>
         )}
-      </Load>
+      </Gate>
       {adding && g && <AddPeople groupId={id} existing={new Set(g.members.map((m: any) => m.membershipId))} onClose={() => setAdding(false)} onDone={(n) => { setAdding(false); toast.show(`Added ${n} ${n === 1 ? 'person' : 'people'}.`); d.reload(); }} />}
       {editing && g && <GroupFormModal group={g} onClose={() => setEditing(false)} onDone={() => { setEditing(false); toast.show('Group updated.'); d.reload(); }} />}
       {toast.node}

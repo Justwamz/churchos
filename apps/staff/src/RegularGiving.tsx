@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { API_URL, Badge, Button, Card, Empty, Field, Note, Stat, kes, useAsync } from '@churchos/ui';
+import { API_URL, Button, Note, kes, useAsync } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Card, EmptyState, PageHeader, Section, Stat, StatTiles, StatusChip, Toolbar } from './ui';
+import { Loaded } from './money-bits';
 import './regular-giving.css';
 
 const when = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '-';
-const STATUS: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' | 'muted' }> = {
-  active: { text: 'Active', tone: 'good' }, paused: { text: 'Paused', tone: 'warn' }, cancelled: { text: 'Cancelled', tone: 'muted' }, ended: { text: 'Ended', tone: 'muted' },
+const STATUS: Record<string, { text: string; tone: 'done' | 'wait' | 'bad' | 'off' }> = {
+  active: { text: 'Active', tone: 'done' }, paused: { text: 'Paused', tone: 'wait' }, cancelled: { text: 'Cancelled', tone: 'off' }, ended: { text: 'Ended', tone: 'off' },
 };
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
@@ -49,66 +50,65 @@ export function RegularGiving() {
 
   return (
     <>
-      <PageHead title="Regular giving" sub="Gifts members have set up to repeat." action={<Button kind="ghost" onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>} />
-      <Note>Members choose these in the app. A prompt goes to their phone on the day and they enter their PIN, so a gift only happens when they complete it. Missed prompts are retried three times over two days.</Note>
-      <div style={{ height: 16 }} />
+      <PageHeader
+        title="Regular giving"
+        subtitle="Gifts members have set up to repeat."
+        actions={<Button kind="ghost" onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>}
+        tabs={[{ id: 'active', label: 'Active' }, { id: 'paused', label: 'Paused' }, { id: 'cancelled', label: 'Cancelled' }, { id: 'ended', label: 'Ended' }, { id: 'all', label: 'All' }]}
+        tab={status || 'all'}
+        onTab={(t) => setStatus(t === 'all' ? '' : t)}
+      />
       {err && <Note tone="bad">{err}</Note>}
-      <Card>
-        <div className="rg-filters">
-          <Field label="Status">
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="active">Active</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option><option value="ended">Ended</option><option value="">All</option>
-            </select>
-          </Field>
-          {s.branches.length > 1 && (
-            <Field label="Branch">
-              <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-                <option value="">{s.scope === 'all' ? 'All branches' : 'Selected branch'}</option>
-                {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </Field>
-          )}
-          <Field label="Search"><input type="search" placeholder="Name or member number" value={q} onChange={(e) => setQ(e.target.value)} /></Field>
-        </div>
-      </Card>
-      <div style={{ height: 16 }} />
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
+      <Loaded loading={d.loading} error={d.error} hasData={!!d.data} rows={4} height={92}>
         {x && (
-          <div className="stack">
-            <div className="grid cols-4">
+          <>
+            <StatTiles>
               <Stat label="Active plans" value={x.active} hint={x.paused ? `${x.paused} paused` : undefined} />
               <Stat label="Expected per month" value={kes(x.expectedPerMonth)} />
               <Stat label="Collected this month" value={kes(x.collectedThisMonth)} hint={`${x.completedThisMonth} gift${x.completedThisMonth === 1 ? '' : 's'}`} tone="good" />
               <Stat label="Missed this month" value={x.missedThisMonth} tone={x.missedThisMonth > 0 ? 'bad' : undefined} />
-            </div>
-            <Card title="Plans" action={<span className="tiny">{plans.length} shown</span>}>
-              {plans.length === 0 ? <Empty>No regular gifts yet. Members set them up in the app under Give &gt; Give regularly.</Empty> : (
-                <table className="rg-table">
-                  <thead><tr><th>Member</th><th>Branch</th><th>Gift</th><th className="num">Amount</th><th>How often</th><th>Next prompt</th><th className="num">Given</th><th className="num">Missed</th><th>Status</th></tr></thead>
-                  <tbody>
-                    {plans.map((p) => {
-                      const st = STATUS[p.status] ?? { text: p.status, tone: 'muted' as const };
-                      return (
-                        <tr key={p.id}>
-                          <td data-l="Member"><span><b>{p.member}</b><span className="tiny rg-num"> {p.memberNumber}</span></span></td>
-                          <td data-l="Branch">{p.branch}</td>
-                          <td data-l="Gift">{cap(p.purposeLabel)}</td>
-                          <td data-l="Amount" className="num">{kes(p.amount)}</td>
-                          <td data-l="How often">{cap(p.frequency)}</td>
-                          <td data-l="Next prompt">{p.status === 'active' ? when(p.nextRunAt) : '-'}</td>
-                          <td data-l="Given" className="num">{p.completed}</td>
-                          <td data-l="Missed" className={'num' + (p.missed > 0 ? ' rg-miss' : '')}>{p.missed}</td>
-                          <td data-l="Status"><Badge tone={st.tone}>{st.text}</Badge></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            </StatTiles>
+            <Section title="Plans" hint="Members choose these in the app. A prompt goes to their phone on the day and they enter their PIN. Missed prompts are retried three times over two days.">
+              <Toolbar>
+                <input type="search" aria-label="Search" placeholder="Search by name or member number" value={q} onChange={(e) => setQ(e.target.value)} />
+                {s.branches.length > 1 && (
+                  <select aria-label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)}>
+                    <option value="">{s.scope === 'all' ? 'All branches' : 'Selected branch'}</option>
+                    {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                )}
+              </Toolbar>
+              {plans.length === 0 ? <Card><EmptyState icon="heart" title="No regular gifts here" text="Members set them up in the app under Give, then Give regularly." /></Card> : (
+                <Card pad={false} className="mn-wrap">
+                  <div className="mn-scroll">
+                    <table className="mn-table">
+                      <thead><tr><th>Member</th><th>Branch</th><th>Gift</th><th className="num">Amount</th><th>How often</th><th>Next prompt</th><th className="num">Given</th><th className="num">Missed</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {plans.map((p) => {
+                          const st = STATUS[p.status] ?? { text: p.status, tone: 'off' as const };
+                          return (
+                            <tr key={p.id}>
+                              <td className="mn-first" data-l="Member"><span><b>{p.member}</b><span className="mn-sub">{p.memberNumber}</span></span></td>
+                              <td data-l="Branch">{p.branch}</td>
+                              <td data-l="Gift">{cap(p.purposeLabel)}</td>
+                              <td className="num" data-l="Amount">{kes(p.amount)}</td>
+                              <td data-l="How often">{cap(p.frequency)}</td>
+                              <td data-l="Next prompt">{p.status === 'active' ? when(p.nextRunAt) : '-'}</td>
+                              <td className="num" data-l="Given">{p.completed}</td>
+                              <td className={'num' + (p.missed > 0 ? ' mn-bad' : '')} data-l="Missed">{p.missed}</td>
+                              <td data-l="Status"><StatusChip tone={st.tone}>{st.text}</StatusChip></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
               )}
-            </Card>
-          </div>
+            </Section>
+          </>
         )}
-      </Load>
+      </Loaded>
     </>
   );
 }

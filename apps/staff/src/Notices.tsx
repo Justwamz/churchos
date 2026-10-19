@@ -1,14 +1,18 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, ErrorNote, Field, Note, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './bits';
+import { Card as UCard, EmptyState, PageHeader, Skeleton, StatusChip } from './ui';
 import { Modal } from './MemberForm';
 import { AudiencePicker, audienceValue, explainCommunity as explain, initialAudience, toIso, toLocal, type AudState } from './communityBits';
+import { useAction } from './prefill';
 import './community.css';
+import './comm.css';
 
-const STATE: Record<string, { text: string; tone: 'good' | 'info' | 'muted' }> = {
-  live: { text: 'Live', tone: 'good' }, scheduled: { text: 'Scheduled', tone: 'info' }, expired: { text: 'Ended', tone: 'muted' }, archived: { text: 'Archived', tone: 'muted' },
+const STATE: Record<string, { text: string; tone: 'done' | 'info' | 'off' }> = {
+  live: { text: 'Live', tone: 'done' }, scheduled: { text: 'Scheduled', tone: 'info' }, expired: { text: 'Ended', tone: 'off' }, archived: { text: 'Archived', tone: 'off' },
 };
+const TABS = [{ id: 'all', label: 'All' }, { id: 'live', label: 'Live' }, { id: 'scheduled', label: 'Scheduled' }, { id: 'ended', label: 'Ended' }];
 
 function PhonePreview({ title, body, pinned }: { title: string; body: string; pinned: boolean }) {
   return (
@@ -61,8 +65,8 @@ function NoticeForm({ notice, onClose, onSaved }: { notice?: any; onClose: () =>
 
   return (
     <div className="stack">
-      <div className="row between"><h2 style={{ margin: 0 }}>{notice ? 'Edit notice' : 'New notice'}</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
-      <div className="cm-split">
+      <PageHeader title={notice ? 'Edit notice' : 'New notice'} subtitle="Members read it on the notice board in the member app." actions={<Button kind="ghost" onClick={onClose}>Cancel</Button>} />
+      <div className="comm-split">
         <div className="stack">
           <Card title="1. Words">
             <div className="stack">
@@ -104,11 +108,13 @@ export function Notices() {
   const toast = useToast();
   const list = useAsync<any[]>(() => api.get('/notices' + s.qs({ branch: undefined })), [s.grant.org.id]);
   const [mode, setMode] = useState<'list' | 'form'>('list');
+  const [tab, setTab] = useState('all');
   const [editing, setEditing] = useState<any>(null);
   const [archiving, setArchiving] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const canManage = s.can('notices.manage');
+  useAction('notices', (a) => { if (a === 'new' && canManage) { setEditing(null); setMode('form'); } });
 
   const archive = async () => {
     setBusy(true); setErr('');
@@ -120,33 +126,34 @@ export function Notices() {
   if (mode === 'form') {
     return (
       <div>
-        <PageHead title="Notices" />
         <NoticeForm notice={editing} onClose={() => setMode('list')} onSaved={(m) => { setMode('list'); toast.show(m); list.reload(); }} />
         {toast.node}
       </div>
     );
   }
+  const rows = (list.data ?? []).filter((n) => tab === 'all' || (tab === 'ended' ? n.state === 'expired' || n.state === 'archived' : n.state === tab));
   return (
     <div>
-      <PageHead title="Notices" sub="Messages that members read on the notice board in the member app." action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New notice</Button> : undefined} />
-      <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-        {list.data && (list.data.length === 0
-          ? <Empty>No notices yet.{canManage ? ' Publish your first one.' : ''}</Empty>
-          : <div>{list.data.map((n) => {
-            const st = STATE[n.state] ?? { text: n.state, tone: 'muted' as const };
+      <PageHeader title="Notices" subtitle="Messages that members read on the notice board in the member app." actions={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New notice</Button> : undefined}
+        tabs={TABS} tab={tab} onTab={setTab} />
+      <Load loading={false} error={list.error} hasData={!!list.data}>
+        {!list.data && !list.error && <Skeleton rows={3} height={110} />}
+        {list.data && (rows.length === 0
+          ? <UCard><EmptyState icon="communicate" title={tab === 'all' ? 'No notices yet' : 'Nothing here'} text={tab === 'all' ? (canManage ? 'Publish your first notice for the member app.' : 'Notices for your church will show here.') : 'Try another tab.'}
+              action={tab === 'all' && canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New notice</Button> : undefined} /></UCard>
+          : <div className="comm-list">{rows.map((n) => {
+            const st = STATE[n.state] ?? { text: n.state, tone: 'off' as const };
             return (
-              <section key={n.id} className="card" style={{ marginBottom: 16 }}>
-                <div className="stack" style={{ gap: 8 }}>
-                  <div className="row between" style={{ alignItems: 'flex-start' }}>
-                    <b style={{ overflowWrap: 'anywhere' }}>{n.title}</b>
-                    <div className="row" style={{ gap: 6 }}>{n.pinned && <Badge tone="warn">Pinned</Badge>}<Badge tone={st.tone}>{st.text}</Badge></div>
-                  </div>
-                  <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{n.body.length > 240 ? `${n.body.slice(0, 240)}...` : n.body}</div>
-                  <div className="tiny">Shown to: {n.audienceLabel}. {when(n)}{n.createdBy ? ` By ${n.createdBy}.` : ''}</div>
-                  {canManage && n.state !== 'archived' && (
-                    <div className="row"><Button small kind="ghost" onClick={() => { setEditing(n); setMode('form'); }}>Edit</Button><Button small kind="ghost" onClick={() => { setErr(''); setArchiving(n); }}>Archive</Button></div>
-                  )}
+              <section key={n.id} className="comm-item" style={{ cursor: 'default' }}>
+                <div className="comm-item-top">
+                  <b>{n.title}</b>
+                  <div className="comm-chips">{n.pinned && <StatusChip tone="wait">Pinned</StatusChip>}<StatusChip tone={st.tone}>{st.text}</StatusChip></div>
                 </div>
+                <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{n.body.length > 240 ? `${n.body.slice(0, 240)}...` : n.body}</div>
+                <div className="tiny">Shown to: {n.audienceLabel}. {when(n)}{n.createdBy ? ` By ${n.createdBy}.` : ''}</div>
+                {canManage && n.state !== 'archived' && (
+                  <div className="row"><Button small kind="ghost" onClick={() => { setEditing(n); setMode('form'); }}>Edit</Button><Button small kind="ghost" onClick={() => { setErr(''); setArchiving(n); }}>Archive</Button></div>
+                )}
               </section>
             );
           })}</div>)}

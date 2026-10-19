@@ -1,9 +1,12 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Table, useAsync, useToast } from '@churchos/ui';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Button, Card as OCard, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './bits';
 import { Modal } from './MemberForm';
+import { Card, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip, Toolbar } from './ui';
+import { useAction } from './prefill';
 import './team.css';
+import './setup.css';
 
 type Assignment = { id: string; roleId: string; role: string; builtIn: boolean; scopeType: string; scopeId: string | null; scope: string; permissionCount: number; canRemove: boolean };
 type Person = { userId: string; name: string; phone: string; email?: string | null; you: boolean; assignments: Assignment[] };
@@ -77,7 +80,7 @@ function AddDialog({ data, catalog, person, onClose, onDone }: { data: TeamData;
     } catch (e: any) { setErr(friendly(e?.message)); setBusy(false); }
   };
   return (
-    <Modal title={person ? `Add access for ${person.name || 'this person'}` : 'Add team member'} onClose={onClose}>
+    <SidePanel title={person ? `Add access for ${person.name || 'this person'}` : 'Add team member'} subtitle="They sign in with their phone number." onClose={onClose}>
       <div className="stack">
         {!person && (
           <>
@@ -99,14 +102,16 @@ function AddDialog({ data, catalog, person, onClose, onDone }: { data: TeamData;
         {err && <ErrorNote>{err}</ErrorNote>}
         <div className="row"><Button disabled={busy || !canSave} onClick={save}>{busy ? 'Saving...' : person ? 'Give access' : 'Add team member'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
 
-function People({ data, catalog, reload, toast }: { data: TeamData; catalog: Perm[]; reload: () => void; toast: (m: string) => void }) {
+function People({ data, catalog, reload, toast, addSignal }: { data: TeamData; catalog: Perm[]; reload: () => void; toast: (m: string) => void; addSignal: number }) {
   const s = useSession();
   const [adding, setAdding] = useState<Person | 'new' | null>(null);
   const [removing, setRemoving] = useState<{ p: Person; a: Assignment } | null>(null);
+  const [q, setQ] = useState('');
+  useEffect(() => { if (addSignal > 0 && data.canManage) setAdding('new'); }, [addSignal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const remove = async () => {
@@ -118,18 +123,26 @@ function People({ data, catalog, reload, toast }: { data: TeamData; catalog: Per
     } catch (e: any) { setErr(friendly(e?.message)); }
     setBusy(false);
   };
+  const needle = q.trim().toLowerCase();
+  const shown = data.people.filter((p) => !needle || [p.name, p.phone, p.email ?? '', ...p.assignments.map((a) => `${a.role} ${a.scope}`)].join(' ').toLowerCase().includes(needle));
   const lastOwner = (a: Assignment) => a.role === OWNER && a.scopeType === 'org' && !a.canRemove;
   return (
     <div className="stack">
-      <div className="row between">
-        {!data.wholeChurch ? <div className="tiny">You can see and change the people who work in your branches.</div> : <span />}
-        {data.canManage && <Button onClick={() => setAdding('new')}>Add team member</Button>}
-      </div>
-      {data.people.length === 0 ? <Empty>No team members to show yet.</Empty> : (
-        <Table head={['Name', 'Phone', 'Access', '']}>
-          {data.people.map((p) => (
+      <StatTiles>
+        <Stat label="People with access" value={data.people.length} />
+        <Stat label="Roles" value={data.roles.length} hint={`${data.roles.filter((r) => !r.builtIn).length} of your own`} />
+      </StatTiles>
+      {!data.wholeChurch && <div className="tiny">You can see and change the people who work in your branches.</div>}
+      <Toolbar><input type="search" placeholder="Search by name, phone or role" aria-label="Search the team" value={q} onChange={(e) => setQ(e.target.value)} /></Toolbar>
+      {shown.length === 0 ? <Card><EmptyState icon="people" title={data.people.length === 0 ? 'No team members yet' : 'Nobody matches that'} text={data.people.length === 0 ? 'Add the people who help you run the church.' : 'Try a different name, phone or role.'}
+        action={data.people.length === 0 && data.canManage ? <Button onClick={() => setAdding('new')}>Add team member</Button> : undefined} /></Card> : (
+        <Card pad={false}>
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th>Name</th><th>Phone</th><th>Access</th><th /></tr></thead>
+          <tbody>
+          {shown.map((p) => (
             <tr key={p.userId}>
-              <td className="tm-name"><b>{p.name || 'No name yet'}</b> {p.you && <Badge tone="info">You</Badge>}{p.email && <div className="tiny" style={{ overflowWrap: 'anywhere' }}>{p.email}</div>}</td>
+              <td className="tm-name"><b>{p.name || 'No name yet'}</b> {p.you && <StatusChip tone="info">You</StatusChip>}{p.email && <div className="tiny" style={{ overflowWrap: 'anywhere' }}>{p.email}</div>}</td>
               <td className="mono">{p.phone}</td>
               <td style={{ minWidth: 220 }}>
                 {p.assignments.length === 0 ? <span className="tiny">No access</span> : (
@@ -149,7 +162,9 @@ function People({ data, catalog, reload, toast }: { data: TeamData; catalog: Per
               <td>{data.canManage && <Button small kind="ghost" onClick={() => setAdding(p)}>Add access</Button>}</td>
             </tr>
           ))}
-        </Table>
+          </tbody>
+        </table></div>
+        </Card>
       )}
       {adding && <AddDialog data={data} catalog={catalog} person={adding === 'new' ? undefined : adding} onClose={() => setAdding(null)} onDone={(m) => { setAdding(null); toast(m); reload(); }} />}
       {removing && (
@@ -184,11 +199,13 @@ function RoleForm({ role, catalog, onClose, onDone }: { role?: Role; catalog: Pe
   const [sel, setSel] = useState<Set<string>>(new Set(role?.permissions ?? []));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [find, setFind] = useState('');
   const groups = useMemo(() => {
     const m = new Map<string, Perm[]>();
-    for (const p of catalog) m.set(p.group, [...(m.get(p.group) ?? []), p]);
+    const t = find.trim().toLowerCase();
+    for (const p of catalog) if (!t || `${p.label} ${p.hint ?? ''} ${p.group}`.toLowerCase().includes(t)) m.set(p.group, [...(m.get(p.group) ?? []), p]);
     return [...m.entries()];
-  }, [catalog]);
+  }, [catalog, find]);
   const toggle = (k: string) => setSel((c) => { const n = new Set(c); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const all = (ps: Perm[]) => setSel((c) => { const n = new Set(c); const every = ps.every((p) => n.has(p.key)); ps.forEach((p) => (every ? n.delete(p.key) : n.add(p.key))); return n; });
   const save = async () => {
@@ -201,12 +218,16 @@ function RoleForm({ role, catalog, onClose, onDone }: { role?: Role; catalog: Pe
     } catch (e: any) { setErr(friendly(e?.message)); setBusy(false); }
   };
   return (
-    <Modal title={role ? `Edit role: ${role.name}` : 'New role'} onClose={onClose}>
+    <SidePanel title={role ? `Edit role: ${role.name}` : 'New role'} subtitle="Tick what people with this role may do." width={560} onClose={onClose}>
       <div className="stack">
         <Field label="Role name" hint="For example Youth treasurer"><input maxLength={60} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <div className="tm-sticky"><b>{sel.size}</b> {sel.size === 1 ? 'permission' : 'permissions'} selected</div>
+        <div className="tm-sticky">
+          <input type="search" placeholder="Find a permission, for example: refund, member, message" aria-label="Find a permission" value={find} onChange={(e) => setFind(e.target.value)} />
+          <div style={{ marginTop: 6 }}><b>{sel.size}</b> {sel.size === 1 ? 'permission' : 'permissions'} selected</div>
+        </div>
+        {groups.length === 0 && <div className="tiny">Nothing matches that search.</div>}
         {groups.map(([g, ps]) => (
-          <Card key={g} title={g} action={<button type="button" className="tm-link" onClick={() => all(ps)}>{ps.every((p) => sel.has(p.key)) ? 'Clear this group' : 'Select all in this group'}</button>}>
+          <OCard key={g} title={g} action={<button type="button" className="tm-link" onClick={() => all(ps)}>{ps.every((p) => sel.has(p.key)) ? 'Clear this group' : 'Select all in this group'}</button>}>
             <div className="tm-pgroup">
               {ps.map((p) => (
                 <label className="tm-pitem" key={p.key}>
@@ -216,20 +237,21 @@ function RoleForm({ role, catalog, onClose, onDone }: { role?: Role; catalog: Pe
                 </label>
               ))}
             </div>
-          </Card>
+          </OCard>
         ))}
         {err && <ErrorNote>{err}</ErrorNote>}
         <div className="row"><Button disabled={busy || !name.trim() || sel.size === 0} onClick={save}>{busy ? 'Saving...' : 'Save role'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
 
-function Roles({ data, catalog, reload, toast }: { data: TeamData; catalog: Perm[]; reload: () => void; toast: (m: string) => void }) {
+function Roles({ data, catalog, reload, toast, addSignal }: { data: TeamData; catalog: Perm[]; reload: () => void; toast: (m: string) => void; addSignal: number }) {
   const s = useSession();
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [form, setForm] = useState<Role | 'new' | null>(null);
   const [del, setDel] = useState<Role | null>(null);
+  useEffect(() => { if (addSignal > 0 && data.canManageRoles) setForm('new'); }, [addSignal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const remove = async () => {
@@ -242,16 +264,13 @@ function Roles({ data, catalog, reload, toast }: { data: TeamData; catalog: Perm
   const roles = [...data.roles.filter((r) => r.builtIn), ...data.roles.filter((r) => !r.builtIn)];
   return (
     <div className="stack">
-      <div className="row between">
-        {!data.canManageRoles ? <Note>Roles apply to the whole church, so only someone who manages every branch can change them.</Note> : <span />}
-        {data.canManageRoles && <Button onClick={() => setForm('new')}>New role</Button>}
-      </div>
+      {!data.canManageRoles && <Note>Roles apply to the whole church, so only someone who manages every branch can change them.</Note>}
       <div className="tm-roles">
         {roles.map((r) => (
-          <section className="card tm-role" key={r.id}>
+          <section className="u-card tm-role" key={r.id}>
             <div className="row between" style={{ alignItems: 'flex-start' }}>
               <b style={{ overflowWrap: 'anywhere' }}>{r.name}</b>
-              <Badge tone={r.builtIn ? 'muted' : 'info'}>{r.builtIn ? 'Built in' : 'Your role'}</Badge>
+              <StatusChip tone={r.builtIn ? 'off' : 'info'}>{r.builtIn ? 'Built in' : 'Your role'}</StatusChip>
             </div>
             <div className="tiny">{r.assigned === 0 ? 'Nobody has this role yet' : r.assigned === 1 ? '1 person has this role' : `${r.assigned} people have this role`}</div>
             <Summary keys={r.permissions} catalog={catalog} open={!!open[r.id]} />
@@ -280,17 +299,22 @@ export function Team() {
   const team = useAsync<TeamData>(() => api.get('/team' + q), [s.grant.org.id]);
   const cat = useAsync<Perm[]>(() => api.get('/team/permissions' + q), [s.grant.org.id]);
   const [seg, setSeg] = useState<'people' | 'roles'>('people');
+  const [addSignal, setAddSignal] = useState(0);
+  const [roleSignal, setRoleSignal] = useState(0);
+  const d = team.data;
+  useAction('team', (a) => { if (a === 'add') setAddSignal((n) => n + 1); });
+  const action = !d ? undefined : seg === 'people'
+    ? (d.canManage ? <Button onClick={() => setAddSignal((n) => n + 1)}>Add team member</Button> : undefined)
+    : (d.canManageRoles ? <Button onClick={() => setRoleSignal((n) => n + 1)}>New role</Button> : undefined);
   return (
     <div>
-      <PageHead title="Team" sub="Give each person only the access they need. You can only give access that you have yourself, and only for the places you look after." />
-      <div className="chips" role="group" aria-label="Show" style={{ marginBottom: 14 }}>
-        <button type="button" className={`chip ${seg === 'people' ? 'on' : ''}`} aria-pressed={seg === 'people'} onClick={() => setSeg('people')}>People</button>
-        <button type="button" className={`chip ${seg === 'roles' ? 'on' : ''}`} aria-pressed={seg === 'roles'} onClick={() => setSeg('roles')}>Roles</button>
-      </div>
-      <Load loading={team.loading || cat.loading} error={team.error ?? cat.error} hasData={!!team.data && !!cat.data}>
+      <PageHeader title="Team" subtitle="Give each person only the access they need, for the places you look after."
+        actions={action} tabs={[{ id: 'people', label: 'People' }, { id: 'roles', label: 'Roles' }]} tab={seg} onTab={(id) => setSeg(id as 'people' | 'roles')} />
+      {(team.loading || cat.loading) && !(team.data && cat.data) && !(team.error ?? cat.error) && <Skeleton rows={4} height={64} />}
+      <Load loading={false} error={team.error ?? cat.error} hasData={!!team.data && !!cat.data}>
         {team.data && cat.data && (seg === 'people'
-          ? <People data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} />
-          : <Roles data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} />)}
+          ? <People data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} addSignal={addSignal} />
+          : <Roles data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} addSignal={roleSignal} />)}
       </Load>
       {toast.node}
     </div>

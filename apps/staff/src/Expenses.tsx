@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { API_URL, Badge, Button, Card, Empty, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
+import { API_URL, Button, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
+import { Card, EmptyState, PageHeader, Section, SidePanel, Stat, StatTiles, StatusChip, Toolbar } from './ui';
+import { Loaded } from './money-bits';
 import { ExpenseBudgets, ExpenseReports, ExpenseRules } from './ExpenseTabs';
 import './expenses.css';
 
@@ -20,13 +21,13 @@ const STATUS_TABS: [string, string][] = [['', 'All'], ['submitted,awaiting_secon
 function StatusChips({ e }: { e: any }) {
   return (
     <span className="ex-chips">
-      {e.status === 'approved' && <Badge tone="good">{e.autoApproved ? 'Approved (automatic)' : 'Approved'}</Badge>}
-      {e.status === 'submitted' && <Badge tone="warn">Waiting</Badge>}
-      {e.status === 'awaiting_second' && <Badge tone="info">Needs a second approver</Badge>}
-      {e.status === 'rejected' && <Badge tone="bad">Rejected</Badge>}
-      {e.status === 'voided' && <Badge tone="muted">Voided</Badge>}
-      {e.kind === 'claim' && <Badge tone="info">Claim</Badge>}
-      {e.kind === 'claim' && e.status === 'approved' && (e.paid ? <Badge tone="good">Paid</Badge> : <Badge tone="warn">To pay</Badge>)}
+      {e.status === 'approved' && <StatusChip tone="done">{e.autoApproved ? 'Approved (automatic)' : 'Approved'}</StatusChip>}
+      {e.status === 'submitted' && <StatusChip tone="wait">Waiting</StatusChip>}
+      {e.status === 'awaiting_second' && <StatusChip tone="info">Needs a second approver</StatusChip>}
+      {e.status === 'rejected' && <StatusChip tone="bad">Rejected</StatusChip>}
+      {e.status === 'voided' && <StatusChip tone="off">Voided</StatusChip>}
+      {e.kind === 'claim' && <StatusChip tone="info">Claim</StatusChip>}
+      {e.kind === 'claim' && e.status === 'approved' && (e.paid ? <StatusChip tone="done">Paid</StatusChip> : <StatusChip tone="wait">To pay</StatusChip>)}
     </span>
   );
 }
@@ -34,7 +35,7 @@ function StatusChips({ e }: { e: any }) {
 function Receipts({ e }: { e: any }) {
   if (e.files > 0) return <span className="ex-clip" title={`${e.files} receipt${e.files === 1 ? '' : 's'}`}>&#128206; {e.files}</span>;
   if (e.status === 'rejected' || e.status === 'voided') return <span className="tiny">-</span>;
-  return <span className="ex-noreceipt" title={e.noReceiptReason || 'No receipt and no reason given'} tabIndex={0}><Badge tone="bad">No receipt</Badge></span>;
+  return <span className="ex-noreceipt" title={e.noReceiptReason || 'No receipt and no reason given'} tabIndex={0}><StatusChip tone="bad">No receipt</StatusChip></span>;
 }
 
 const orgParam = (s: ReturnType<typeof useSession>) => (s.orgs.length > 1 ? `org=${encodeURIComponent(s.grant.org.id)}` : '');
@@ -234,7 +235,7 @@ function Record({ setup, onClose, onDone }: { setup: any; onClose: () => void; o
           </div>
         )}
         {err && <ErrorNote>{err}</ErrorNote>}
-        <div className="row"><Button disabled={busy} onClick={submit}>{busy ? 'Saving...' : needOverride ? 'Record with override' : 'Record expense'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
+        <div className="mn-btns end"><Button kind="ghost" onClick={onClose}>Cancel</Button><Button disabled={busy} onClick={submit}>{busy ? 'Saving...' : needOverride ? 'Record with override' : 'Record expense'}</Button></div>
       </div>
     </Modal>
   );
@@ -282,8 +283,8 @@ function Detail({ id, setup, onClose, onChanged, toast }: { id: string; setup: a
   const mine = !!e && (e.recordedById ? e.recordedById === s.user.id : e.recordedBy === s.user.name);
 
   return (
-    <Modal title={e ? `${e.code}: ${e.payee}` : 'Expense'} onClose={onClose}>
-      <Load loading={d.loading} error={d.error} hasData={!!e}>
+    <SidePanel title={e ? `${e.code}: ${e.payee}` : 'Expense'} subtitle={e ? `${e.branch} · ${day(e.date)}` : undefined} onClose={onClose} width={520}>
+      <Loaded loading={d.loading} error={d.error} hasData={!!e} rows={3} height={64}>
         {e && (
           <div className="stack">
             <div className="row between" style={{ alignItems: 'flex-start' }}><StatusChips e={e} /><b style={{ fontSize: 20 }}>{kes(e.amount)}</b></div>
@@ -323,24 +324,24 @@ function Detail({ id, setup, onClose, onChanged, toast }: { id: string; setup: a
             {mode === '' && (
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 {waiting && e.mayApprove && <><Button disabled={busy} onClick={() => decide(true)}>{e.needsTwo && e.status === 'submitted' ? 'Approve (first)' : 'Approve'}</Button><Button kind="danger" onClick={() => reset('reject')}>Reject</Button></>}
-                {e.status === 'approved' && can.approve && <Button kind="ghost" onClick={() => reset('void')}>Void</Button>}
-                {waiting && !can.approve && <Button kind="ghost" onClick={() => reset('void')}>Void</Button>}
+                {e.status === 'approved' && can.approve && <Button kind="danger" onClick={() => reset('void')}>Void</Button>}
+                {waiting && !can.approve && <Button kind="danger" onClick={() => reset('void')}>Void</Button>}
                 {e.kind === 'claim' && e.status === 'approved' && !e.paid && can.record && <Button onClick={() => reset('paid')}>Mark as paid</Button>}
               </div>
             )}
             {mode === 'reject' && (
               <div className="stack"><Field label="Why are you rejecting this?" hint="The person who recorded it will see this."><textarea rows={3} maxLength={300} value={text} onChange={(x) => setText(x.target.value)} /></Field>
-                <div className="row"><Button kind="danger" disabled={busy} onClick={() => decide(false)}>{busy ? 'Saving...' : 'Reject'}</Button><Button kind="ghost" onClick={() => reset('')}>Back</Button></div></div>
+                <div className="mn-btns end"><Button kind="ghost" onClick={() => reset('')}>Back</Button><Button kind="danger" disabled={busy} onClick={() => decide(false)}>{busy ? 'Saving...' : 'Reject'}</Button></div></div>
             )}
             {mode === 'void' && (
               <div className="stack"><Note tone="warn">Voiding keeps the record and removes it from the totals. An approved expense cannot be edited.</Note>
                 <Field label="Why is it being voided?"><textarea rows={3} maxLength={300} value={text} onChange={(x) => setText(x.target.value)} /></Field>
-                <div className="row"><Button kind="danger" disabled={busy} onClick={voidIt}>{busy ? 'Saving...' : 'Void this expense'}</Button><Button kind="ghost" onClick={() => reset('')}>Back</Button></div></div>
+                <div className="mn-btns end"><Button kind="ghost" onClick={() => reset('')}>Back</Button><Button kind="danger" disabled={busy} onClick={voidIt}>{busy ? 'Saving...' : 'Void this expense'}</Button></div></div>
             )}
             {mode === 'paid' && (
               <div className="stack"><Note>This only records that the church paid this person back elsewhere. ChurchOS sends no money.</Note>
                 <Field label="Payment reference" hint="e.g. the M-Pesa code"><input value={text} maxLength={80} onChange={(x) => setText(x.target.value)} /></Field>
-                <div className="row"><Button disabled={busy} onClick={paid}>{busy ? 'Saving...' : 'Mark as paid'}</Button><Button kind="ghost" onClick={() => reset('')}>Back</Button></div></div>
+                <div className="mn-btns end"><Button kind="ghost" onClick={() => reset('')}>Back</Button><Button disabled={busy} onClick={paid}>{busy ? 'Saving...' : 'Mark as paid'}</Button></div></div>
             )}
             {needOverride && (
               <div className="ex-amber stack"><b>Owner override</b><div className="tiny">The restricted fund has less than this. Say why you are going on (at least 10 characters).</div>
@@ -355,8 +356,8 @@ function Detail({ id, setup, onClose, onChanged, toast }: { id: string; setup: a
             {err && <ErrorNote>{err}</ErrorNote>}
           </div>
         )}
-      </Load>
-    </Modal>
+      </Loaded>
+    </SidePanel>
   );
 }
 
@@ -415,70 +416,66 @@ function ExpenseList({ setup, rec, setRec }: { setup: any; rec: boolean; setRec:
   const waitingKey = 'submitted,awaiting_second';
   const projectsAll: any[] = setup.projects;
 
+  const [more, setMore] = useState(false);
+  const filtered = !!(status || kind || category || project || q || from || to || unpaid);
   return (
     <>
       {toast.node}
-      <div className="ex-tiles">
-        <button type="button" className={'ex-tile' + (x?.toApprove > 0 ? ' warn' : '') + (status === waitingKey ? ' on' : '')} onClick={() => { clear(); setStatus(waitingKey); }}><span className="l">To approve</span><span className="v">{x ? x.toApprove : '-'}</span></button>
-        <button type="button" className={'ex-tile' + (status === 'approved' && !unpaid ? ' on' : '')} onClick={() => { clear(); setStatus('approved'); }}><span className="l">Approved so far</span><span className="v">{x ? kesWhole(x.approvedTotal) : '-'}</span></button>
-        <button type="button" className={'ex-tile' + (unpaid ? ' on' : '')} onClick={() => { setKind('claim'); setStatus('approved'); setUnpaid(true); }}><span className="l">Claims to pay</span><span className="v">{x ? x.claimsToPay : '-'}</span></button>
-      </div>
-      <Card>
-        <div className="stack">
-          <div className="chips">
-            {STATUS_TABS.map(([k, t]) => <button key={k || 'all'} type="button" className={'chip' + (status === k && !unpaid ? ' on' : '')} onClick={() => { setUnpaid(false); setStatus(k); }}>{t}</button>)}
-            {unpaid && <button type="button" className="chip on" onClick={() => setUnpaid(false)}>Claims to pay &times;</button>}
-          </div>
-          <div className="ex-filters">
-            <Field label="Type"><select value={kind} onChange={(e) => setKind(e.target.value)}><option value="">Expenses and claims</option><option value="expense">Expenses</option><option value="claim">Claims</option></select></Field>
-            <Field label="Category"><select value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{setup.categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
-            <Field label="Project"><select value={project} onChange={(e) => setProject(e.target.value)}><option value="">All projects</option>{projectsAll.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
-            {setup.branches.length > 1 && <Field label="Branch"><select value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">{s.scope === 'all' ? 'All branches' : 'Selected branch'}</option>{setup.branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
-            <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
-            <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
-            <Field label="Search"><input type="search" placeholder="Payee, code or note" value={q} onChange={(e) => setQ(e.target.value)} /></Field>
-          </div>
+      <StatTiles>
+        <Stat label="To approve" value={x ? x.toApprove : '-'} tone={x?.toApprove > 0 ? 'wait' : undefined} onClick={() => { clear(); setStatus(waitingKey); }} />
+        <Stat label="Approved so far" value={x ? kesWhole(x.approvedTotal) : '-'} tone="good" onClick={() => { clear(); setStatus('approved'); }} />
+        <Stat label="Claims to pay" value={x ? x.claimsToPay : '-'} onClick={() => { setKind('claim'); setStatus('approved'); setUnpaid(true); }} />
+      </StatTiles>
+      <Section>
+        <Toolbar end={<Button kind="ghost" small onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>}>
+          <input type="search" aria-label="Search expenses" placeholder="Search payee, code or note" value={q} onChange={(e) => setQ(e.target.value)} />
+        </Toolbar>
+        <div className="chips">
+          {STATUS_TABS.map(([k, t]) => <button key={k || 'all'} type="button" className={'chip' + (status === k && !unpaid ? ' on' : '')} onClick={() => { setUnpaid(false); setStatus(k); }}>{t}</button>)}
+          {unpaid && <button type="button" className="chip on" onClick={() => setUnpaid(false)}>Claims to pay &times;</button>}
+          <button type="button" className={'chip' + (more ? ' on' : '')} aria-expanded={more} onClick={() => setMore(!more)}>{more ? 'Fewer filters' : 'More filters'}</button>
         </div>
-      </Card>
-      <div style={{ height: 16 }} />
-      {err && <Note tone="bad">{err}</Note>}
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        {list.length === 0 ? <Empty>{status || kind || category || project || q || from || to || unpaid ? 'Nothing matches these filters.' : 'No expenses yet. Record the first one with the button above.'}</Empty> : (
-          <>
-            <div className="ex-table-wrap table-wrap">
-              <table className="ex-table">
-                <thead><tr><th>Date</th><th>Paid to</th><th>Category</th><th className="num">Amount</th><th>Status</th><th>Recorded by</th><th>Receipts</th><th /></tr></thead>
-                <tbody>
-                  {list.map((e) => (
-                    <tr key={e.id} onClick={() => setOpen(e.id)}>
-                      <td className="ex-clip">{day(e.date)}</td>
-                      <td className="ex-wrap"><b>{e.payee}</b><div className="tiny mono">{e.code}</div></td>
-                      <td className="ex-wrap">{e.category}{e.project && <div className="tiny">{e.project}</div>}</td>
-                      <td className="num">{kes(e.amount)}</td>
-                      <td><StatusChips e={e} /></td>
-                      <td className="ex-wrap">{e.recordedBy}</td>
-                      <td onClick={(ev) => ev.stopPropagation()}><Receipts e={e} /></td>
-                      <td>{e.mayApprove && <Button small onClick={() => setOpen(e.id)}>Approve</Button>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {more && (
+          <Card>
+            <div className="mn-fields tight">
+              <Field label="Type"><select value={kind} onChange={(e) => setKind(e.target.value)}><option value="">Expenses and claims</option><option value="expense">Expenses</option><option value="claim">Claims</option></select></Field>
+              <Field label="Category"><select value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{setup.categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+              <Field label="Project"><select value={project} onChange={(e) => setProject(e.target.value)}><option value="">All projects</option>{projectsAll.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+              {setup.branches.length > 1 && <Field label="Branch"><select value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">{s.scope === 'all' ? 'All branches' : 'Selected branch'}</option>{setup.branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
+              <Field label="From"><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field>
+              <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field>
             </div>
-            <div className="ex-cards">
-              {list.map((e) => (
-                <div className="ex-card" key={e.id} onClick={() => setOpen(e.id)}>
-                  <div className="row between" style={{ alignItems: 'flex-start' }}><div className="ex-wrap"><b>{e.payee}</b> <span className="tiny mono">{e.code}</span></div><b className="ex-clip">{kes(e.amount)}</b></div>
-                  <div className="tiny">{day(e.date)}. {e.category}. By {e.recordedBy}</div>
-                  <StatusChips e={e} />
-                  <div className="row between"><Receipts e={e} />{e.mayApprove && <Button small onClick={() => setOpen(e.id)}>Approve</Button>}</div>
-                </div>
-              ))}
-            </div>
-          </>
+          </Card>
         )}
-      </Load>
-      <div style={{ height: 12 }} />
-      <div className="row"><Button kind="ghost" small onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button></div>
+        {err && <Note tone="bad">{err}</Note>}
+        <Loaded loading={d.loading} error={d.error} hasData={!!d.data} rows={5}>
+          {list.length === 0 ? (
+            <Card><EmptyState icon="receipt" title={filtered ? 'Nothing matches these filters' : 'No expenses yet'} text={filtered ? 'Try clearing a filter.' : 'Record the first one with the button at the top.'} /></Card>
+          ) : (
+            <Card pad={false} className="mn-wrap">
+              <div className="mn-scroll">
+                <table className="mn-table">
+                  <thead><tr><th>Date</th><th>Paid to</th><th>Category</th><th className="num">Amount</th><th>Status</th><th>Recorded by</th><th>Receipts</th><th /></tr></thead>
+                  <tbody>
+                    {list.map((e) => (
+                      <tr key={e.id} className="tap" onClick={() => setOpen(e.id)}>
+                        <td className="mn-first" data-l="Date">{day(e.date)}</td>
+                        <td data-l="Paid to"><span><b>{e.payee}</b><span className="mn-sub mono">{e.code}</span></span></td>
+                        <td data-l="Category"><span>{e.category}{e.project && <span className="mn-sub">{e.project}</span>}</span></td>
+                        <td className="num" data-l="Amount"><b>{kes(e.amount)}</b></td>
+                        <td data-l="Status"><StatusChips e={e} /></td>
+                        <td data-l="Recorded by">{e.recordedBy}</td>
+                        <td data-l="Receipts" onClick={(ev) => ev.stopPropagation()}><Receipts e={e} /></td>
+                        <td className="mn-act">{e.mayApprove && <Button small onClick={() => setOpen(e.id)}>Approve</Button>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </Loaded>
+      </Section>
       {open && <Detail id={open} setup={setup} onClose={() => setOpen('')} onChanged={d.reload} toast={toast.show} />}
       {rec && <Record setup={setup} onClose={() => setRec(false)} onDone={(m) => { setRec(false); toast.show(m); d.reload(); }} />}
     </>
@@ -492,23 +489,29 @@ export function Expenses() {
   const [rec, setRec] = useState(false);
   const setup = setupQ.data;
   const can = setup?.can ?? {};
-  const tabs: [string, string][] = [['expenses', 'Expenses']];
-  if (can.view || can.approve || can.manage || can.settings) tabs.push(['budgets', 'Budgets'], ['reports', 'Reports']);
-  if (can.settings || can.manage) tabs.push(['rules', 'Rules']);
+  const tabs: { id: string; label: string }[] = [{ id: 'expenses', label: 'Expenses' }];
+  if (can.view || can.approve || can.manage || can.settings) tabs.push({ id: 'budgets', label: 'Budgets' }, { id: 'reports', label: 'Reports' });
+  if (can.settings || can.manage) tabs.push({ id: 'rules', label: 'Rules' });
   return (
     <>
-      <PageHead title="Expenses" sub="What the church has spent. ChurchOS records it and does not send any money." action={can.record ? <Button onClick={() => { setTab('expenses'); setRec(true); }}>Record an expense</Button> : undefined} />
-      <Load loading={setupQ.loading} error={setupQ.error} hasData={!!setup}>
+      <PageHeader
+        title="Expenses"
+        subtitle="What the church has spent. ChurchOS records it and does not send any money."
+        actions={can.record ? <Button onClick={() => { setTab('expenses'); setRec(true); }}>Record an expense</Button> : undefined}
+        tabs={tabs.length > 1 ? tabs : undefined}
+        tab={tab}
+        onTab={setTab}
+      />
+      <Loaded loading={setupQ.loading} error={setupQ.error} hasData={!!setup} rows={4}>
         {setup && (
           <>
-            {tabs.length > 1 && <div className="chips ex-tabs">{tabs.map(([k, t]) => <button key={k} type="button" className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{t}</button>)}</div>}
             {tab === 'expenses' && <ExpenseList setup={setup} rec={rec} setRec={setRec} />}
             {tab === 'budgets' && <ExpenseBudgets />}
             {tab === 'reports' && <ExpenseReports />}
             {tab === 'rules' && <ExpenseRules />}
           </>
         )}
-      </Load>
+      </Loaded>
     </>
   );
 }

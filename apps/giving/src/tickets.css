@@ -71,3 +71,6 @@
 .tk .tk-creditdone b { font-size: 1.2rem; color: var(--good); }
 .tk .tk-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.5rem; font-weight: 800; letter-spacing: .04em; background: var(--surface); border-radius: 12px; padding: 12px 8px; user-select: all; word-break: break-all; }
 @media (max-width: 380px) { .tk .tk-code { font-size: 1.25rem; } }
+
+/* Manrope: figures in rows line up */
+.tk .tk-row, .tk .tk-total { font-variant-numeric: tabular-nums; }

@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, kes, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, Empty, ErrorNote, Field, Note, kes, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
-import { Modal } from './MemberForm';
+import { Load } from './bits';
+import { Card as UCard, EmptyState, PageHeader, SidePanel, Skeleton, StatusChip } from './ui';
+import { useAction } from './prefill';
 import { ItemThumb } from './ShopItems';
 import './adverts.css';
+import './comm.css';
 
-const STATE: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' | 'info' | 'muted' }> = {
-  live: { text: 'Live', tone: 'good' }, scheduled: { text: 'Scheduled', tone: 'info' }, expired: { text: 'Finished', tone: 'muted' },
-  draft: { text: 'Draft', tone: 'muted' }, pending: { text: 'Waiting for approval', tone: 'warn' }, awaiting_payment: { text: 'Waiting for payment', tone: 'warn' },
-  approved: { text: 'Approved', tone: 'good' }, paused: { text: 'Paused', tone: 'warn' }, ended: { text: 'Ended', tone: 'muted' },
+const STATE: Record<string, { text: string; tone: 'done' | 'wait' | 'bad' | 'info' | 'off' }> = {
+  live: { text: 'Live', tone: 'done' }, scheduled: { text: 'Scheduled', tone: 'info' }, expired: { text: 'Finished', tone: 'off' },
+  draft: { text: 'Draft', tone: 'off' }, pending: { text: 'Waiting for approval', tone: 'wait' }, awaiting_payment: { text: 'Waiting for payment', tone: 'wait' },
+  approved: { text: 'Approved', tone: 'done' }, paused: { text: 'Paused', tone: 'wait' }, ended: { text: 'Ended', tone: 'off' },
   rejected: { text: 'Not approved', tone: 'bad' }, taken_down: { text: 'Taken down', tone: 'bad' },
 };
 
@@ -138,7 +140,7 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
 
   return (
     <div className="stack">
-      <div className="row between"><h2 style={{ margin: 0 }}>{advert ? 'Edit advert' : 'New advert'}</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
+      <PageHeader title={advert ? 'Edit advert' : 'New advert'} subtitle="A picture and a short message at the top of the member app." actions={<Button kind="ghost" onClick={onClose}>Cancel</Button>} />
       {editingLive && <Note tone="warn">Changing a live advert takes it offline until someone approves it again.</Note>}
 
       <Card title="1. Artwork and words">
@@ -278,7 +280,7 @@ function Decide({ advert, onClose, onDone }: { advert: any; onClose: () => void;
     } catch (e: any) { setErr(explain(e)); setBusy(false); }
   };
   return (
-    <Modal title="Approve this advert?" onClose={onClose}>
+    <SidePanel title="Approve this advert?" subtitle={advert.title} onClose={onClose}>
       <div className="stack">
         <Preview src={api.url(advert.imageUrl)} title={advert.title} body={advert.body ?? ''} />
         <div className="tiny">Shown to: {advert.audienceLabel}. {advert.advertiser ? `Paid advert from ${advert.advertiser.name}.` : ''}</div>
@@ -298,13 +300,13 @@ function Decide({ advert, onClose, onDone }: { advert: any; onClose: () => void;
           )}
         </div>
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
 
 function AdvertCard({ a, canManage, onEdit, onDecide, reload, toast }: { a: any; canManage: boolean; onEdit: () => void; onDecide: () => void; reload: () => void; toast: (t: string, tone?: 'good' | 'bad') => void }) {
   const [busy, setBusy] = useState(false);
-  const st = STATE[a.state] ?? { text: a.state, tone: 'muted' as const };
+  const st = STATE[a.state] ?? { text: a.state, tone: 'off' as const };
   const act = async (verb: string, done: string) => {
     setBusy(true);
     try { await api.post(`/adverts/${a.id}/${verb}`); toast(done); reload(); } catch (e: any) { toast(explain(e), 'bad'); }
@@ -316,12 +318,12 @@ function AdvertCard({ a, canManage, onEdit, onDecide, reload, toast }: { a: any;
   const finished = a.status === 'ended' || a.status === 'taken_down';
   const when = a.endsAt ? `${shortDate(a.startsAt)} to ${shortDate(a.endsAt)}` : `From ${shortDate(a.startsAt)}, until stopped`;
   return (
-    <section className="card adv-item">
+    <section className="comm-item comm-advert" style={{ cursor: 'default' }}>
       <div className="adv-thumb" style={{ backgroundImage: `url("${api.url(a.imageUrl)}")` }} role="img" aria-label={`Artwork for ${a.title}`} />
       <div className="stack" style={{ gap: 8, minWidth: 0 }}>
         <div className="row between" style={{ alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}><b style={{ overflowWrap: 'anywhere' }}>{a.title}</b>{a.body && <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{a.body}</div>}</div>
-          <Badge tone={st.tone}>{st.text}</Badge>
+          <StatusChip tone={st.tone}>{st.text}</StatusChip>
         </div>
         <div className="tiny">Shown to: {a.audienceLabel}. {when}.{a.advertiser && <> Paid advert from {a.advertiser.name}{a.advertiser.price != null && <> for {kes(a.advertiser.price)}</>}.</>}</div>
         <div className="adv-stats"><span><b>{a.stats.views.toLocaleString()}</b> views</span><span><b>{a.stats.taps.toLocaleString()}</b> taps</span><span><b>{a.stats.viewers.toLocaleString()}</b> people</span></div>
@@ -354,8 +356,9 @@ export function Adverts() {
   const [mode, setMode] = useState<'list' | 'form'>('list');
   const [editing, setEditing] = useState<any>(null);
   const [deciding, setDeciding] = useState<any>(null);
-  const [tab, setTab] = useState<'all' | 'mine'>('all');
+  const [tab, setTab] = useState<string>('all');
   const canManage = s.can('adverts.manage');
+  useAction('adverts', (a) => { if (a === 'new' && canManage) { setEditing(null); setMode('form'); } });
   const rows = list.data ?? [];
   const waiting = rows.filter((a) => a.canApprove);
   const shown = tab === 'mine' ? waiting : rows;
@@ -363,28 +366,25 @@ export function Adverts() {
   if (mode === 'form') {
     return (
       <div>
-        <PageHead title="Adverts" />
         <AdvertForm advert={editing} onClose={() => setMode('list')} onSaved={(m) => { setMode('list'); toast.show(m); list.reload(); }} />
         {toast.node}
       </div>
     );
   }
 
+  const tabs = s.can('adverts.approve') ? [{ id: 'all', label: 'All adverts' }, { id: 'mine', label: 'Needs my approval', badge: waiting.length }] : undefined;
   return (
     <div>
-      <PageHead title="Adverts" sub="Pictures with a short message that show at the top of the member app." action={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New advert</Button> : undefined} />
+      <PageHeader title="Adverts" subtitle="Pictures with a short message that show at the top of the member app." actions={canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New advert</Button> : undefined}
+        tabs={tabs} tab={tab} onTab={setTab} />
       <div className="stack">
         <Note>Someone else must approve every advert before it goes live, so you cannot approve one you created or sent yourself.</Note>
-        {s.can('adverts.approve') && (
-          <div className="chips" role="tablist">
-            <button type="button" className={`chip ${tab === 'all' ? 'on' : ''}`} onClick={() => setTab('all')}>All adverts</button>
-            <button type="button" className={`chip ${tab === 'mine' ? 'on' : ''}`} onClick={() => setTab('mine')}>Needs my approval{waiting.length > 0 ? ` (${waiting.length})` : ''}</button>
-          </div>
-        )}
-        <Load loading={list.loading} error={list.error} hasData={!!list.data}>
+        <Load loading={false} error={list.error} hasData={!!list.data}>
+          {!list.data && !list.error && <Skeleton rows={3} height={130} />}
           {list.data && (shown.length === 0
-            ? <Empty>{tab === 'mine' ? 'Nothing is waiting for your approval.' : `No adverts yet.${canManage ? ' Create your first one.' : ''}`}</Empty>
-            : <div>{shown.map((a) => <AdvertCard key={a.id} a={a} canManage={canManage} reload={list.reload} toast={toast.show} onEdit={() => { setEditing(a); setMode('form'); }} onDecide={() => setDeciding(a)} />)}</div>)}
+            ? <UCard><EmptyState icon="communicate" title={tab === 'mine' ? 'Nothing is waiting for you' : 'No adverts yet'} text={tab === 'mine' ? 'Adverts that need your approval will show here.' : canManage ? 'Create your first advert for the member app.' : 'Adverts for your church will show here.'}
+                action={tab === 'all' && canManage ? <Button onClick={() => { setEditing(null); setMode('form'); }}>New advert</Button> : undefined} /></UCard>
+            : <div className="comm-list">{shown.map((a) => <AdvertCard key={a.id} a={a} canManage={canManage} reload={list.reload} toast={toast.show} onEdit={() => { setEditing(a); setMode('form'); }} onDecide={() => setDeciding(a)} />)}</div>)}
         </Load>
       </div>
       {deciding && <Decide advert={deciding} onClose={() => setDeciding(null)} onDone={(m) => { setDeciding(null); toast.show(m); list.reload(); }} />}

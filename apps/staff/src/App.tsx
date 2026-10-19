@@ -1,123 +1,51 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
-import { Badge, Button, ErrorNote, HelpButton, LoginGate, Spinner } from '@churchos/ui';
+import { Badge, Button, ErrorNote, HelpButton, LoginGate } from '@churchos/ui';
 import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
 import { EmailGate } from './EmailGate';
-import { Adverts } from './Adverts';
-import { Notices } from './Notices';
-import { Events } from './Events';
-import { Resources } from './Resources';
-import { Bookings } from './Bookings';
-import { CalendarPage } from './CalendarPage';
-import { Dashboard } from './Dashboard';
-import { Collections } from './Collections';
-import { RegularGiving } from './RegularGiving';
-import { Settlements } from './Settlements';
-import { Cash } from './Cash';
-import { GivingRecords } from './GivingRecord';
-import { Members, Transfers } from './Members';
-import { Projects } from './Projects';
-import { Help } from './Help';
-import { Verification } from './Verification';
-import { Messages } from './Messages';
-import { Wallets } from './Wallets';
-import { Integrations } from './Integrations';
-import { Groups } from './Groups';
-import { Profile } from './Profile';
-import { Payout } from './Payout';
-import { WalletBanner } from './WalletBanner';
+import { WalletNotice, useWalletAlert } from './WalletBanner';
+import { noteVisit, topPages } from './usage';
 import { Notifications } from './Notifications';
-import { Records } from './Records';
-import { Template } from './Template';
-import { AuditPage } from './Audit';
-import { Team } from './Team';
-import { Shop } from './Shop';
-import { Checkin } from './Checkin';
-import { Services } from './Services';
-import { Expenses } from './Expenses';
-import { Usher } from './Usher';
-import { Attendance } from './Attendance';
-import { Children } from './Children';
-import { Prayer } from './Prayer';
-import { Suggestions } from './Suggestions';
-import { Lectionary } from './Lectionary';
-import { Boundaries } from './Boundaries';
-import { TodayPage } from './Today';
-import { InstallButton, useOnline } from './Install';
+import { InstallButton, useInstall, useOnline } from './Install';
+import { Icon } from './icons';
+import { PAGES, pageLabel, type PageDef } from './nav';
+import { AREAS, QUICK_ACTIONS, areaOfPage, type Area } from './navmap';
+import { WordsProvider, useWords } from './words';
+import { CommandBar } from './CommandBar';
+import { PageSkeleton } from './ui';
 import './phone.css';
+import './shell.css';
 
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop', checkin: 'staff.checkin', today: 'staff.dashboard', children: 'staff.dashboard', prayer: 'staff.dashboard', lectionary: 'staff.dashboard', boundaries: 'staff.dashboard', suggestions: 'staff.dashboard',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop', checkin: 'staff.checkin', today: 'staff.dashboard', children: 'staff.dashboard', prayer: 'staff.dashboard', lectionary: 'staff.dashboard', boundaries: 'staff.dashboard', suggestions: 'staff.dashboard', wording: 'staff.dashboard',
 };
 
-const PAGES: { id: string; label: string; any: string[]; el: () => JSX.Element }[] = [
-  { id: 'today', label: 'Today', any: ['*'], el: TodayPage },
-  { id: 'dashboard', label: 'Dashboard', any: ['collections.view'], el: Dashboard },
-  { id: 'collections', label: 'Collections', any: ['collections.view'], el: Collections },
-  { id: 'giving-records', label: 'Giving records', any: ['giving.ledger'], el: GivingRecords },
-  { id: 'expenses', label: 'Expenses', any: ['expenses.view', 'expenses.record', 'expenses.approve'], el: Expenses },
-  { id: 'regular-giving', label: 'Regular giving', any: ['collections.view'], el: RegularGiving },
-  { id: 'settlements', label: 'Settlements', any: ['settlements.view'], el: Settlements },
-  { id: 'cash', label: 'Cash', any: ['cash.count', 'cash.approve'], el: Cash },
-  { id: 'members', label: 'Members', any: ['members.view', 'members.edit'], el: Members },
-  { id: 'transfers', label: 'Transfers', any: ['transfers.approve'], el: Transfers },
-  { id: 'groups', label: 'Groups', any: ['members.view', 'groups.manage'], el: Groups },
-  { id: 'messages', label: 'Messages', any: ['messages.send', 'messages.view'], el: Messages },
-  { id: 'wallets', label: 'Messaging wallets', any: ['wallets.view'], el: Wallets },
-  { id: 'integrations', label: 'Messaging settings', any: ['integrations.manage', 'wallets.view'], el: Integrations },
-  { id: 'notices', label: 'Notices', any: ['notices.view', 'notices.manage'], el: Notices },
-  { id: 'events', label: 'Events', any: ['events.view', 'events.manage'], el: Events },
-  { id: 'bookings', label: 'Bookings', any: ['bookings.view'], el: Bookings },
-  { id: 'calendar', label: 'Calendar', any: ['bookings.view'], el: CalendarPage },
-  { id: 'resources', label: 'Resources', any: ['bookings.view', 'resources.manage'], el: Resources },
-  { id: 'shop', label: 'Shop', any: ['shop.view', 'shop.sell', 'shop.manage'], el: Shop },
-  { id: 'checkin', label: 'Check-in', any: ['events.checkin'], el: Checkin },
-  { id: 'attendance', label: 'Attendance', any: ['attendance.view'], el: Attendance },
-  { id: 'services', label: 'Services', any: ['attendance.manage'], el: Services },
-  { id: 'lectionary', label: 'Lectionary', any: ['attendance.manage', 'attendance.view'], el: Lectionary },
-  { id: 'boundaries', label: 'Check-in boundary', any: ['attendance.manage', 'attendance.view'], el: Boundaries },
-  { id: 'usher', label: 'Usher', any: ['attendance.checkin'], el: Usher },
-  { id: 'children', label: 'Children', any: ['kids.checkin', 'kids.manage'], el: Children },
-  { id: 'prayer', label: 'Prayer', any: ['prayer.respond'], el: Prayer },
-  { id: 'suggestions', label: 'Suggestions', any: ['suggestions.view'], el: Suggestions },
-  { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: Adverts },
-  { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: Projects },
-  { id: 'help', label: 'Payment help', any: ['reversals.request'], el: Help },
-  { id: 'records', label: 'Records', any: ['records.view'], el: Records },
-  { id: 'template', label: 'Certificate design', any: ['records.view'], el: Template },
-  { id: 'team', label: 'Team', any: ['team.view', 'team.manage'], el: Team },
-  { id: 'audit', label: 'Audit log', any: ['audit.view'], el: AuditPage },
-  { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: Verification },
-  { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: Payout },
-  // Everyone signed in has a profile, so there is no permission to check ('*').
-  { id: 'profile', label: 'My profile', any: ['*'], el: Profile },
-];
-
-const MORE_GROUPS: { title: string; ids: string[] }[] = [
-  { title: 'On the day', ids: ['usher', 'children', 'checkin', 'attendance', 'prayer', 'suggestions'] },
-  { title: 'Money', ids: ['dashboard', 'collections', 'giving-records', 'expenses', 'regular-giving', 'settlements', 'cash', 'transfers', 'projects', 'shop', 'help'] },
-  { title: 'People and church life', ids: ['members', 'groups', 'messages', 'notices', 'events', 'bookings', 'calendar', 'resources', 'adverts'] },
-  { title: 'Setup and records', ids: ['services', 'lectionary', 'boundaries', 'records', 'template', 'team', 'audit', 'verification', 'payout', 'wallets', 'integrations'] },
-  { title: 'Account', ids: ['profile'] },
-];
 const APPROVAL_PAGES = ['expenses', 'cash', 'events'];
 const APPROVAL_RIGHT: Record<string, string> = { expenses: 'expenses.approve', cash: 'cash.approve', events: 'events.manage' };
+const COLLAPSE_KEY = 'churchos:staff-nav-collapsed';
 
-function usePhone() {
-  const q = '(max-width: 760px)';
-  const [phone, setPhone] = useState(() => window.matchMedia(q).matches);
+/** phone <= 760px, tablet 761-1099px (rail only, flyout), desktop >= 1100px (rail + second panel). */
+type Layout = 'phone' | 'tablet' | 'desktop';
+function useLayout(): Layout {
+  const get = (): Layout => (window.matchMedia('(max-width: 760px)').matches ? 'phone' : window.matchMedia('(min-width: 1100px)').matches ? 'desktop' : 'tablet');
+  const [l, setL] = useState<Layout>(get);
   useEffect(() => {
-    const m = window.matchMedia(q);
-    const on = () => setPhone(m.matches);
-    m.addEventListener('change', on);
-    return () => m.removeEventListener('change', on);
+    const qs = [window.matchMedia('(max-width: 760px)'), window.matchMedia('(min-width: 1100px)')];
+    const on = () => setL(get());
+    qs.forEach((m) => m.addEventListener('change', on));
+    return () => qs.forEach((m) => m.removeEventListener('change', on));
   }, []);
-  return phone;
+  return l;
 }
 
 const initials = (n: string) => (n || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('') || '?';
+const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
+
+type NavPage = { p: PageDef; label: string };
+type NavGroupV = { title?: string; items: NavPage[] };
+type AreaV = Area & { groupsV: NavGroupV[]; first?: NavPage };
 
 function Shell({ signOut }: { signOut: () => void }) {
   const [me, setMe] = useState<any>();
@@ -126,21 +54,18 @@ function Shell({ signOut }: { signOut: () => void }) {
   const [scope, setScope] = useState('all');
   const [page, setPageState] = useState('');
   const pageRef = useRef('');
-  const phone = usePhone();
-  const [menu, setMenu] = useState(false);
-  const online = useOnline();
 
   // Keep the browser Back button working: every page change is a history entry.
   const setPage = useCallback((p: string) => {
     if (pageRef.current !== p) { try { window.history.pushState({ churchosPage: p }, ''); } catch { /* ignore */ } }
     pageRef.current = p;
-    setPageState(p);
-    setMenu(false);
+    // A transition keeps the current page on screen until the next page's code has loaded: no flash of skeleton, no jump.
+    startTransition(() => setPageState(p));
     window.scrollTo(0, 0);
   }, []);
   useEffect(() => {
     try { window.history.replaceState({ churchosPage: '' }, ''); } catch { /* ignore */ }
-    const on = (e: PopStateEvent) => { const p = e.state?.churchosPage ?? ''; pageRef.current = p; setPageState(p); setMenu(false); };
+    const on = (e: PopStateEvent) => { const p = e.state?.churchosPage ?? ''; pageRef.current = p; startTransition(() => setPageState(p)); };
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
   }, []);
@@ -148,7 +73,6 @@ function Shell({ signOut }: { signOut: () => void }) {
   const [gate, setGate] = useState(false);
   const [tick, setTick] = useState(0);
   const [kyc, setKyc] = useState<KycSummary | null>(null);
-  const unverified = !!kyc && kyc.tone !== 'done';
 
   useEffect(() => {
     api.get('/staff/me').then(setMe).catch((e) => setError(friendly(e.message)));
@@ -178,7 +102,7 @@ function Shell({ signOut }: { signOut: () => void }) {
         return s ? `?${s}` : '';
       },
     };
-  }, [me, grant, scope]);
+  }, [me, grant, scope, setPage]);
 
   useEffect(() => {
     if (!session || !session.can('kyc.manage')) { setKyc(null); return; }
@@ -191,7 +115,7 @@ function Shell({ signOut }: { signOut: () => void }) {
   }, [session, page]);
 
   if (error) return <main className="login"><div className="login-card"><ErrorNote>{error}</ErrorNote><Button onClick={signOut}>Sign out</Button></div></main>;
-  if (!me) return <Spinner />;
+  if (!me) return <div className="boot"><PageSkeleton /></div>;
   if (me.orgs.length === 0 || !session) {
     return (
       <main className="login"><div className="login-card">
@@ -203,123 +127,291 @@ function Shell({ signOut }: { signOut: () => void }) {
     );
   }
 
-  const visible = PAGES.filter((p) => p.any.includes('*') || p.any.some((a) => session.can(a)));
-  const defaultId = phone ? 'today' : (visible.find((p) => p.id !== 'today') ?? visible[0])?.id;
-  const onMore = phone && page === 'more';
-  const current = visible.find((p) => p.id === page) ?? visible.find((p) => p.id === defaultId) ?? visible[0];
+  return (
+    <SessionCtx.Provider value={session}>
+      <WordsProvider orgId={grant.org.id} multiOrg={me.orgs.length > 1}>
+        <Frame me={me} orgIdx={orgIdx} setOrgIdx={setOrgIdx} page={page} setPage={setPage} kyc={kyc} gateOpen={gate} reloadMe={reloadMe} tick={tick} signOut={signOut} />
+      </WordsProvider>
+    </SessionCtx.Provider>
+  );
+}
+
+type FrameProps = {
+  me: any; orgIdx: number; setOrgIdx: (n: number) => void; page: string; setPage: (p: string) => void;
+  kyc: KycSummary | null; gateOpen: boolean; reloadMe: () => void; tick: number; signOut: () => void;
+};
+
+function AccountMenu({ me, orgName, onProfile, signOut, onClose }: { me: any; orgName: string; onProfile: () => void; signOut: () => void; onClose: () => void }) {
+  const inst = useInstall();
+  return (
+    <>
+      <div className="avatar-scrim" onClick={onClose} />
+      <div className="avatar-menu" role="menu">
+        <div className="avatar-who"><b>{me.user.name || me.user.phone}</b><div className="tiny">{orgName}</div></div>
+        <button type="button" role="menuitem" onClick={() => { onClose(); onProfile(); }}><Icon name="user" size={18} />My profile</button>
+        {inst.available && !inst.ios && <button type="button" role="menuitem" onClick={() => { onClose(); inst.run(); }}><Icon name="download" size={18} />Install the app</button>}
+        {inst.available && inst.ios && <div className="tiny" style={{ padding: '6px 12px' }}>To install: tap Share, then Add to Home Screen.</div>}
+        <button type="button" role="menuitem" className="danger" onClick={signOut}><Icon name="signout" size={18} />Sign out</button>
+      </div>
+    </>
+  );
+}
+
+/** The signed-in frame: navigation (rail, second panel, flyout, phone tabs and menu), top bar, command bar, and the current page. */
+function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, tick, signOut }: FrameProps) {
+  const w = useWords();
+  const layout = useLayout();
+  const phone = layout === 'phone';
+  const online = useOnline();
+  const s = useContext(SessionCtx);
+  const grant = s.grant;
+  const [menu, setMenu] = useState(false);
+  const [cmd, setCmd] = useState(false);
+  const [flyout, setFlyout] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; } });
+  const unverified = !!kyc && kyc.tone !== 'done';
+  const wallet = useWalletAlert(page);
+  const main = useRef<HTMLElement>(null);
+  const [visits, setVisits] = useState(0);
+  useEffect(() => { const on = () => setVisits((n) => n + 1); window.addEventListener('churchos:visits', on); return () => window.removeEventListener('churchos:visits', on); }, []);
+
+  const toggleCollapsed = () => setCollapsed((c) => { try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1'); } catch { /* ignore */ } return !c; });
+
+  // Ctrl+K / Cmd+K opens the command bar from anywhere.
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setCmd((v) => !v); } };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
+  // Any page change closes menus.
+  useEffect(() => { setMenu(false); setFlyout(null); }, [page, layout]);
+  useEffect(() => {
+    if (!flyout) return;
+    const on = (e: KeyboardEvent) => { if (e.key === 'Escape') setFlyout(null); };
+    document.addEventListener('keydown', on);
+    return () => document.removeEventListener('keydown', on);
+  }, [flyout]);
+
+  const visible = PAGES.filter((p) => p.any.includes('*') || p.any.some((a) => s.can(a)));
+  const byId = (id: string) => visible.find((p) => p.id === id);
+  const areas = useMemo<AreaV[]>(() => AREAS.map((a) => {
+    const groupsV = a.groups.map((g) => ({ title: g.title, items: g.ids.map(byId).filter(Boolean).map((p) => ({ p: p!, label: pageLabel(p!, w) })) })).filter((g) => g.items.length > 0);
+    return { ...a, groupsV, first: groupsV[0]?.items[0] };
+  }).filter((a) => a.id === 'today' || a.groupsV.length > 0),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [s, w.many]);
+
+  const onMore = phone && page.startsWith('more');
+  const moreArea = onMore && page.includes(':') ? areas.find((a) => a.id === page.split(':')[1]) : undefined;
+  const current = byId(page) ?? byId('today') ?? visible[0];
   const Page = current?.el;
+  const activeArea = areaOfPage(current?.id ?? 'today');
   const has = (id: string) => visible.some((p) => p.id === id);
-  const approvalsPage = APPROVAL_PAGES.find((id) => has(id) && session.can(APPROVAL_RIGHT[id]));
-  const tabs: { id: string; label: string; icon: string }[] = [{ id: 'today', label: 'Today', icon: '⌂' }];
-  if (session.can('attendance.checkin')) tabs.push({ id: 'usher', label: 'Check-in', icon: '✔' });
-  if (session.can('kids.checkin')) tabs.push({ id: 'children', label: 'Children', icon: '☺' });
-  if (approvalsPage) tabs.push({ id: approvalsPage, label: 'Approvals', icon: '✓' });
+  const approvalsPage = APPROVAL_PAGES.find((id) => has(id) && s.can(APPROVAL_RIGHT[id]));
+  const tabs: { id: string; label: string; icon: any }[] = [{ id: 'today', label: 'Today', icon: 'today' }];
+  if (s.can('attendance.checkin')) tabs.push({ id: 'usher', label: 'Check-in', icon: 'checkin' });
+  if (s.can('kids.checkin')) tabs.push({ id: 'children', label: 'Children', icon: 'child' });
+  if (approvalsPage && tabs.length < 4) tabs.push({ id: approvalsPage, label: 'Approvals', icon: 'check' });
   const activeTab = onMore ? 'more' : (tabs.find((t) => t.id === current?.id)?.id ?? 'more');
-  const grouped = new Set(MORE_GROUPS.flatMap((g) => g.ids));
-  const groups = [...MORE_GROUPS, { title: 'Other', ids: visible.map((p) => p.id).filter((id) => !grouped.has(id) && id !== 'today') }]
-    .map((g) => ({ title: g.title, items: g.ids.map((id) => visible.find((p) => p.id === id)).filter(Boolean) as typeof visible }))
-    .filter((g) => g.items.length > 0);
+  const prevPage = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    noteVisit(current?.id ?? '');
+    // Move keyboard focus to the new page (not on first load) so Tab continues from the content, not from the menu you just used.
+    const was = prevPage.current; prevPage.current = current?.id;
+    if (was === undefined || was === current?.id) return;
+    main.current?.focus({ preventScroll: true });
+  }, [current?.id]);
+  const shortcuts = useMemo(() => topPages(8).map((id) => byId(id)).filter((p): p is PageDef => !!p && p.id !== 'today').slice(0, 5).map((p) => ({ p, label: pageLabel(p, w) })),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [visits, s, w.many, page]);
+
+  const orgLabel = grant.org.name || 'ChurchOS';
   const picker = (
-    <div className="row phone-pick" style={{ marginBottom: 16 }}>
+    <div className="picker">
       {me.orgs.length > 1 && (
-        <select aria-label="Church" value={orgIdx} onChange={(e) => { setOrgIdx(Number(e.target.value)); setScope('all'); }}>
+        <select aria-label="Church" value={orgIdx} onChange={(e) => { setOrgIdx(Number(e.target.value)); s.setScope('all'); }}>
           {me.orgs.map((o: any, i: number) => <option key={o.org.id} value={i}>{o.org.name}</option>)}
         </select>
       )}
-      <select aria-label="Branch scope" value={scope} onChange={(e) => setScope(e.target.value)}>
+      <select aria-label="Branch scope" value={s.scope} onChange={(e) => s.setScope(e.target.value)}>
         {grant.branches.length > 1 && <option value="all">All branches</option>}
         {grant.branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
       </select>
-      <span className="tiny phone-hide">{grant.org.name}</span>
       {unverified && <Badge tone="warn">Not verified</Badge>}
-      {!phone && <span style={{ marginLeft: 'auto' }}><Notifications /></span>}
     </div>
   );
 
+  const account = (
+    <div className="avatar-wrap">
+      <button type="button" className="avatar" aria-label="Account menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>{initials(me.user.name || me.user.phone)}</button>
+      {menu && <AccountMenu me={me} orgName={orgLabel} onProfile={() => setPage('profile')} signOut={signOut} onClose={() => setMenu(false)} />}
+    </div>
+  );
+
+  const pageLink = (it: NavPage, onDone?: () => void) => (
+    <button key={it.p.id} type="button" className={`sn-link ${current?.id === it.p.id ? 'active' : ''}`} aria-current={current?.id === it.p.id ? 'page' : undefined} onClick={() => { setPage(it.p.id); onDone?.(); }}>
+      {it.label}
+    </button>
+  );
+  const areaList = (a: AreaV, onDone?: () => void) => (
+    <>
+      {a.id === 'today' ? (
+        <>
+          {pageLink({ p: byId('today')!, label: 'Today' }, onDone)}
+          <div className="sn-title">Your shortcuts</div>
+          {shortcuts.length === 0
+            ? <p className="sn-empty">The pages you open most will show up here.</p>
+            : shortcuts.map((it) => pageLink(it, onDone))}
+        </>
+      ) : a.groupsV.map((g, i) => (
+        <div key={i} className="sn-group">
+          {g.title && <div className="sn-title">{g.title}</div>}
+          {g.items.map((it) => pageLink(it, onDone))}
+        </div>
+      ))}
+    </>
+  );
+
+  const banners = (
+    <>
+      {kyc && kyc.tone !== 'done' && current?.id !== 'verification' && <VerificationBanner s={kyc} onGo={() => setPage('verification')} />}
+      <WalletNotice page={current?.id ?? ''} bad={wallet.bad} anyEmpty={wallet.anyEmpty} />
+      {kyc && <VerificationDialog s={kyc} userKey={me.user.id} onGo={() => setPage('verification')} />}
+    </>
+  );
+  const body = Page
+    ? <Suspense fallback={<PageSkeleton />}><Page key={`${current.id}:${grant.org.id}:${s.scope}:${tick}`} /></Suspense>
+    : <ErrorNote>You do not have access to any pages yet.</ErrorNote>;
+
+  const searchBtn = phone
+    ? <button type="button" className="icon-btn" aria-label="Search" onClick={() => setCmd(true)}><Icon name="search" size={22} /></button>
+    : <button type="button" className="ns-search" aria-label="Search or jump to" onClick={() => setCmd(true)}><Icon name="search" size={18} /><span>Search or jump to</span><kbd>{isMac ? '⌘ K' : 'Ctrl K'}</kbd></button>;
+
   return (
-    <SessionCtx.Provider value={session}>
-      <div className={`shell ${phone ? 'phone' : ''}`}>
-        {((me.emailRequired && !me.emailVerified) || gate) && <EmailGate initialEmail={me.user.email} onVerified={reloadMe} />}
-        {phone && (
-          <header className="topbar">
-            <div className="topbar-title"><span className="brand">{grant.org.name || 'ChurchOS'}</span></div>
+    <div className={`shell ns ${layout} ${layout === 'desktop' && collapsed ? 'collapsed' : ''}`}>
+      <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
+      {((me.emailRequired && !me.emailVerified) || gateOpen) && <EmailGate initialEmail={me.user.email} onVerified={reloadMe} />}
+
+      {phone ? (
+        <header className="topbar">
+          <div className="topbar-title"><span className="brand-name">{orgLabel}</span></div>
+          {searchBtn}
+          <Notifications />
+          {account}
+        </header>
+      ) : (
+        <>
+          <nav className="rail" aria-label="Areas">
+            <button type="button" className="rail-logo" aria-label="ChurchOS: go to Today" onClick={() => setPage('today')}><Icon name="worship" size={22} /></button>
+            {areas.map((a) => {
+              const on = activeArea?.id === a.id;
+              return (
+                <button key={a.id} type="button" className={`rail-item ${on ? 'active' : ''}`} aria-current={on ? 'page' : undefined} aria-haspopup={layout === 'tablet' && a.id !== 'today' ? 'menu' : undefined}
+                  onClick={() => { if (layout === 'tablet' && a.id !== 'today') setFlyout((f) => (f === a.id ? null : a.id)); else if (a.first) setPage(a.first.p.id); }}>
+                  <span className="rail-pill"><Icon name={a.icon} size={22} />{a.id === 'communicate' && wallet.bad.length > 0 && <span className={`rail-dot ${wallet.anyEmpty ? 'bad' : 'warn'}`} role="img" aria-label={wallet.anyEmpty ? 'Messaging credit has run out' : 'Messaging credit is running low'} />}</span>
+                  <span className="rail-label">{a.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+          {layout === 'desktop' && !collapsed && (
+            <nav className="subnav" aria-label={`${activeArea?.label ?? 'Pages'} pages`}>
+              <div className="sn-head">
+                <div className="sn-titles"><span className="tiny">{orgLabel}</span><h2>{activeArea?.label ?? 'Today'}</h2></div>
+                <button type="button" className="icon-btn sm" aria-label="Hide the page list" onClick={toggleCollapsed}><Icon name="chevron" size={18} style={{ transform: 'rotate(180deg)' }} /></button>
+              </div>
+              {areas.filter((a) => a.id === (activeArea?.id ?? 'today')).map((a) => <div key={a.id}>{areaList(a)}</div>)}
+            </nav>
+          )}
+          {layout === 'tablet' && flyout && (
+            <>
+              <div className="fly-scrim" onClick={() => setFlyout(null)} />
+              <nav className="subnav flyout" aria-label="Pages">
+                <div className="sn-head"><div className="sn-titles"><h2>{areas.find((a) => a.id === flyout)?.label}</h2></div><button type="button" className="icon-btn sm" aria-label="Close" onClick={() => setFlyout(null)}><Icon name="close" size={18} /></button></div>
+                {areas.filter((a) => a.id === flyout).map((a) => <div key={a.id}>{areaList(a, () => setFlyout(null))}</div>)}
+              </nav>
+            </>
+          )}
+        </>
+      )}
+
+      <div className="ns-main">
+        {!phone && (
+          <header className="ns-top">
+            {layout === 'desktop' && collapsed && <button type="button" className="icon-btn" aria-label="Show the page list" onClick={toggleCollapsed}><Icon name="menu" size={20} /></button>}
+            {picker}
+            <span className="spacer" />
+            {searchBtn}
             <Notifications />
-            <div className="avatar-wrap">
-              <button type="button" className="avatar" aria-label="Account menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>{initials(me.user.name || me.user.phone)}</button>
-              {menu && (
-                <>
-                  <div className="avatar-scrim" onClick={() => setMenu(false)} />
-                  <div className="avatar-menu" role="menu">
-                    <div className="avatar-who"><b>{me.user.name || me.user.phone}</b><div className="tiny">{grant.org.name}</div></div>
-                    <button type="button" role="menuitem" onClick={() => setPage('profile')}>My profile</button>
-                    <button type="button" role="menuitem" onClick={signOut}>Sign out</button>
-                  </div>
-                </>
-              )}
-            </div>
+            {account}
           </header>
         )}
-        {!phone && (
-          <aside className="sidebar">
-            <div className="brand">ChurchOS</div>
-            {visible.map((p) => (
-              <button key={p.id} className={`nav-link ${current?.id === p.id ? 'active' : ''}`} onClick={() => setPage(p.id)}>{p.label}</button>
-            ))}
-            <div className="userbox">
-              <div><b>{me.user.name || me.user.phone}</b></div>
-              <div className="tiny">{grant.org.name} {unverified && <Badge tone="warn">Not verified</Badge>}</div>
-              <button className="nav-link" style={{ padding: '6px 0' }} onClick={signOut}>Sign out</button>
-            </div>
-          </aside>
-        )}
-        <main className="content">
+        <main className="content" id="main" tabIndex={-1} ref={main} aria-label={current ? pageLabel(current, w) : 'Content'}>
           {phone && !online && <div className="note warn" role="status" style={{ marginBottom: 12 }}>You are offline. Staff screens always need a connection.</div>}
           {onMore ? (
             <div className="more">
-              <h1>More</h1>
-              {picker}
-              {groups.map((g) => (
-                <section key={g.title} className="more-group">
-                  <h2>{g.title}</h2>
-                  <div className="more-list">
-                    {g.items.map((p) => <button key={p.id} type="button" className="more-item" onClick={() => setPage(p.id)}>{p.label}<span aria-hidden="true">›</span></button>)}
+              {moreArea ? (
+                <>
+                  <button type="button" className="more-back" onClick={() => setPage('more')}><Icon name="chevron" size={18} style={{ transform: 'rotate(180deg)' }} />Menu</button>
+                  <h1>{moreArea.label}</h1>
+                  {moreArea.groupsV.map((g, i) => (
+                    <section key={i} className="more-group">
+                      {g.title && <h2>{g.title}</h2>}
+                      <div className="more-list">
+                        {g.items.map((it) => <button key={it.p.id} type="button" className="more-item" onClick={() => setPage(it.p.id)}>{it.label}<Icon name="chevron" size={18} /></button>)}
+                      </div>
+                    </section>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <h1>Menu</h1>
+                  {picker}
+                  <div className="more-grid">
+                    {areas.filter((a) => a.id !== 'today').map((a) => (
+                      <button key={a.id} type="button" className="more-tile" onClick={() => (a.groupsV.length === 1 && a.groupsV[0].items.length === 1 ? setPage(a.first!.p.id) : setPage('more:' + a.id))}>
+                        <span className="more-tile-ico"><Icon name={a.icon} size={28} /></span>
+                        <b>{a.label}</b>
+                        <span className="tiny">{a.groupsV.reduce((n, g) => n + g.items.length, 0)} pages</span>
+                      </button>
+                    ))}
                   </div>
-                </section>
-              ))}
-              <section className="more-group">
-                <h2>This app</h2>
-                <InstallButton />
-                <button type="button" className="more-item more-signout" onClick={signOut}>Sign out</button>
-              </section>
+                  <section className="more-group">
+                    <h2>This app</h2>
+                    <InstallButton />
+                    <button type="button" className="more-item more-signout" onClick={signOut}>Sign out</button>
+                  </section>
+                </>
+              )}
             </div>
           ) : (
             <>
-              {picker}
-              {kyc && kyc.tone !== 'done' && current?.id !== 'verification' && <VerificationBanner s={kyc} onGo={() => setPage('verification')} />}
-              <WalletBanner page={current?.id ?? ''} />
-              {kyc && <VerificationDialog s={kyc} userKey={me.user.id} onGo={() => setPage('verification')} />}
-              {Page ? <Page key={`${current.id}:${grant.org.id}:${scope}:${tick}`} /> : <ErrorNote>You do not have access to any pages yet.</ErrorNote>}
+              {phone && picker}
+              {banners}
+              {body}
             </>
           )}
           <div style={{ height: 80 }} aria-hidden="true" />
         </main>
-        {phone && (
-          <nav className="tabs-bottom" aria-label="Main">
-            {tabs.map((t) => (
-              <button key={t.id} type="button" className={activeTab === t.id ? 'active' : ''} aria-current={activeTab === t.id ? 'page' : undefined} onClick={() => setPage(t.id)}><span aria-hidden="true" className="ti">{t.icon}</span>{t.label}</button>
-            ))}
-            <button type="button" className={activeTab === 'more' ? 'active' : ''} aria-current={activeTab === 'more' ? 'page' : undefined} onClick={() => setPage('more')}><span aria-hidden="true" className="ti">⋯</span>More</button>
-          </nav>
-        )}
-        <HelpButton api={api} audience="staff" screen={HELP_SCREEN[current?.id ?? ''] ?? 'staff.dashboard'} />
       </div>
-    </SessionCtx.Provider>
+
+      {phone && (
+        <nav className="tabs-bottom" aria-label="Main">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" className={activeTab === t.id ? 'active' : ''} aria-current={activeTab === t.id ? 'page' : undefined} onClick={() => setPage(t.id)}><Icon name={t.icon} size={22} />{t.label}</button>
+          ))}
+          <button type="button" className={activeTab === 'more' ? 'active' : ''} aria-current={activeTab === 'more' ? 'page' : undefined} onClick={() => setPage('more')}><Icon name="grid" size={22} />Menu</button>
+        </nav>
+      )}
+      {cmd && <CommandBar onClose={() => setCmd(false)} />}
+      <HelpButton api={api} audience="staff" screen={HELP_SCREEN[current?.id ?? ''] ?? 'staff.dashboard'} />
+    </div>
   );
 }
 
 export function App() {
   return (
-    <LoginGate api={api} title="ChurchOS Staff" subtitle="Sign in to manage your church's giving." allow={() => true}>
+    <LoginGate api={api} title="ChurchOS Staff" subtitle="Sign in to look after your people, your worship and your money." allow={() => true}>
       {({ signOut }) => <Shell signOut={signOut} />}
     </LoginGate>
   );

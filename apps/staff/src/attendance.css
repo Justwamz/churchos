@@ -55,3 +55,16 @@
 .at-care:last-child { border-bottom: 0; }
 .at-switch { display: flex; gap: 10px; align-items: center; font-size: 15px; }
 .at-switch input { width: 20px; height: 20px; flex: none; }
+
+/* worship pass: attendance */
+.at-list { display: grid; }
+.at-list > .at-vis, .at-list > .at-care { padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
+.at-list > :last-child { border-bottom: 0; }
+.at-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
+.at-care-r { text-align: right; }
+.at-line { margin: 14px 0 0; }
+@media (max-width: 600px) {
+  .at-care-r { text-align: left; }
+  .at-list > .at-vis, .at-list > .at-care { padding: 14px 16px; }
+  .at-actions .btn, .at-actions a.btn { flex: 1 1 auto; justify-content: center; }
+}

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Badge, Button, Empty, ErrorNote, Field, Note, Spinner, Table, kes, phonePretty, shortDate, useAsync } from '@churchos/ui';
+import { Button, Empty, ErrorNote, Field, Note, Spinner, Table, kes, phonePretty, shortDate, useAsync } from '@churchos/ui';
 import { api, friendly, methodLabel, useSession, type Session } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './bits';
+import { Card as UCard, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip } from './ui';
+import './comm.css';
 
 /** Only send ?org= for people who belong to several churches, like the other pages. */
 export const orgQs = (s: Session) => (s.orgs.length > 1 ? `?org=${s.grant.org.id}` : '');
@@ -12,23 +14,13 @@ export type WalletInfo = {
   price?: { current: number; next: number | null; unitsLeftInBand: number | null; usedThisMonth: number; month: string };
 };
 
-const STATE: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' }> = {
-  ok: { text: 'Healthy', tone: 'good' }, low: { text: 'Running low', tone: 'warn' }, empty: { text: 'Empty', tone: 'bad' },
+const STATE: Record<string, { text: string; tone: 'done' | 'wait' | 'bad' }> = {
+  ok: { text: 'Healthy', tone: 'done' }, low: { text: 'Running low', tone: 'wait' }, empty: { text: 'Empty', tone: 'bad' },
 };
 const CH = { sms: 'SMS', whatsapp: 'WhatsApp' } as const;
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  return (
-    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="modal" style={{ maxHeight: 'calc(100vh - 32px)', overflowY: 'auto' }}>
-        <div className="row between" style={{ marginBottom: 8 }}>
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          <Button kind="ghost" small onClick={onClose}>Close</Button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+  return <SidePanel title={title} onClose={onClose} width={460}><div className="stack">{children}</div></SidePanel>;
 }
 
 // ---------- top-up journey ----------
@@ -113,10 +105,10 @@ function TopUp({ wallet, onClose, onDone }: { wallet: WalletInfo; onClose: () =>
       {step === 2 && (
         <>
           <p className="muted">How would you like to pay KES {fmt(amount)}?</p>
-          <div style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
+          <div className="comm-pay">
             {(['mpesa', 'card'] as const).map((m) => (
               <button key={m} type="button" onClick={() => setMethod(m)} aria-pressed={method === m}
-                style={{ textAlign: 'left', padding: 16, borderRadius: 12, border: `2px solid ${method === m ? 'var(--brand)' : 'var(--line)'}`, background: method === m ? 'var(--brand-tint)' : 'var(--surface)', color: 'var(--ink)', font: 'inherit', cursor: 'pointer' }}>
+                className={`comm-choice ${method === m ? 'on' : ''}`}>
                 <b style={{ fontSize: 17 }}>{m === 'mpesa' ? 'M-Pesa' : 'Card'}</b>
                 <div className="tiny">{m === 'mpesa' ? 'We send a prompt to your phone. Enter your PIN.' : "Pay on the payment provider's secure page."}</div>
                 {m === 'card' && <div className="tiny" style={{ marginTop: 4 }}>Development build: use 4242 4242 4242 4242</div>}
@@ -161,7 +153,7 @@ function TopUp({ wallet, onClose, onDone }: { wallet: WalletInfo; onClose: () =>
               <div style={{ fontSize: 40, color: 'var(--good)' }} aria-hidden>✓</div>
               <h3>Top-up received</h3>
               <p className="muted">KES {fmt(amount)} was added to {wallet.label}.</p>
-              {newBalance !== null && <p>New balance<br /><b style={{ fontFamily: 'var(--serif)', fontSize: '2rem' }}>{kes(newBalance)}</b></p>}
+              {newBalance !== null && <p>New balance<br /><b style={{ fontSize: '2rem' }}>{kes(newBalance)}</b></p>}
               <Button onClick={onClose}>Done</Button>
             </div>
           )}
@@ -249,7 +241,7 @@ function Activity({ wallet }: { wallet: WalletInfo }) {
                 <Table head={['Date', 'How', 'Amount', 'Status']}>
                   {data.topups.map((t: any) => (
                     <tr key={t.id}><td>{shortDate(t.created_at)}</td><td>{methodLabel(t.method)}</td><td className="mono">{kes(t.amount)}</td>
-                      <td><Badge tone={t.status === 'completed' ? 'good' : t.status === 'failed' ? 'bad' : 'warn'}>{t.status === 'completed' ? 'Received' : t.status === 'failed' ? 'Not completed' : 'Waiting'}</Badge></td></tr>
+                      <td><StatusChip tone={t.status === 'completed' ? 'done' : t.status === 'failed' ? 'bad' : 'wait'}>{t.status === 'completed' ? 'Received' : t.status === 'failed' ? 'Not completed' : 'Waiting'}</StatusChip></td></tr>
                   ))}
                 </Table>
               )}
@@ -282,27 +274,29 @@ function WalletCard({ w, all, reload }: { w: WalletInfo; all: WalletInfo[]; relo
     try { await navigator.clipboard.writeText(w.paybillReference); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* ignore */ }
   };
   return (
-    <section className="card" style={{ borderTop: `4px solid var(--${st.tone})`, minWidth: 0 }}>
-      <div className="row between" style={{ marginBottom: 4 }}>
-        <div><Badge tone="info">{CH[w.channel]}</Badge> <b>{w.label}</b></div>
-        <Badge tone={st.tone}>{st.text}</Badge>
+    <section className="u-card comm-wallet">
+      <div className="comm-wallet-top">
+        <div><StatusChip tone="info">{CH[w.channel]}</StatusChip> <b>{w.label}</b></div>
+        <StatusChip tone={st.tone}>{st.text}</StatusChip>
       </div>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: '2.4rem', lineHeight: 1.1, margin: '8px 0 2px', color: w.state === 'ok' ? 'var(--ink)' : `var(--${st.tone})` }} className="mono">{kes(w.balance)}</div>
+      <div className={`comm-balance s-${w.state}`}>{kes(w.balance)}</div>
       <div className="muted">About {fmt(w.messagesLeft)} messages left</div>
+      {w.state === 'low' && <div className="comm-calm low">Credit is getting low. Top up when you can so messages keep going out.</div>}
+      {w.state === 'empty' && <div className="comm-calm out"><b>No credit left.</b> {CH[w.channel]} messages are paused until you top up. In-app messages still go out.</div>}
       {w.price && (
-        <div className="tiny" style={{ marginTop: 4 }}>
+        <div className="tiny">
           Costs {kes(w.price.current)} per {w.channel === 'sms' ? 'SMS' : 'message'} now.
           {w.price.unitsLeftInBand !== null && w.price.next !== null && <> {fmt(w.price.unitsLeftInBand)} more at this price, then {kes(w.price.next)} per {w.channel === 'sms' ? 'SMS' : 'message'}.</>}
           {w.price.unitsLeftInBand === null && <> This is the lowest price.</>}
           {' '}Used this month: {fmt(w.price.usedThisMonth)}.
         </div>
       )}
-      <div className="tiny" style={{ marginTop: 4 }}>Warning level {kes(w.threshold)}</div>
-      <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--brand-tint)' }}>
-        <div className="tiny">You can also top up by paybill using this reference</div>
-        <div className="row between"><b className="mono">{w.paybillReference}</b><Button kind="ghost" small onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button></div>
+      <div className="tiny">Warning level {kes(w.threshold)}</div>
+      <div className="comm-ref">
+        <div><div className="tiny">Or top up by paybill with this reference</div><b className="mono">{w.paybillReference}</b></div>
+        <Button kind="ghost" small onClick={copy}>{copied ? 'Copied' : 'Copy'}</Button>
       </div>
-      <div className="row" style={{ marginTop: 12 }}>
+      <div className="comm-actions">
         {w.canTopUp && <Button onClick={() => setModal('topup')}>Top up</Button>}
         {w.canManage && <Button kind="ghost" onClick={() => setModal('move')}>Move credit</Button>}
         {w.canManage && <Button kind="ghost" onClick={() => setModal('level')}>Warning level</Button>}
@@ -325,19 +319,30 @@ export function Wallets() {
   const perBranch = data?.mode === 'per_branch';
   const rates = data?.rates;
   const cards = (list: WalletInfo[]) => (
-    <div className="grid cols-2">{list.map((w) => <WalletCard key={w.id} w={w} all={wallets} reload={reload} />)}</div>
+    <div className="comm-wallets">{list.map((w) => <WalletCard key={w.id} w={w} all={wallets} reload={reload} />)}</div>
   );
+  const sum = (ch: 'sms' | 'whatsapp') => wallets.filter((w) => w.channel === ch).reduce((n, w) => n + w.balance, 0);
+  const attention = wallets.filter((w) => w.state !== 'ok').length;
   return (
     <div>
-      <PageHead title="Messaging wallets" sub="Credit that pays for SMS and WhatsApp messages. In-app messages are always free." action={s.can('integrations.manage') ? <Button kind="ghost" onClick={() => s.go('integrations')}>Messaging settings</Button> : undefined} />
-      <Load loading={loading} error={error} hasData={!!data}>
+      <PageHeader title="Messaging wallets" subtitle="Credit that pays for SMS and WhatsApp messages. In-app messages are always free."
+        actions={s.can('integrations.manage') ? <Button kind="ghost" onClick={() => s.go('integrations')}>Messaging settings</Button> : undefined} />
+      <Load loading={false} error={error} hasData={!!data}>
+        {!data && !error && <Skeleton rows={2} height={220} />}
         {data && (
           <div className="stack">
-            <Note>
+            {wallets.length > 0 && (
+              <StatTiles>
+                <Stat label="SMS credit" value={kes(sum('sms'))} />
+                <Stat label="WhatsApp credit" value={kes(sum('whatsapp'))} />
+                <Stat label="Need a top-up" value={attention} tone={attention ? 'wait' : 'good'} hint={attention ? 'Running low or empty' : 'All healthy'} />
+              </StatTiles>
+            )}
+            <div className="comm-calm">
               {perBranch ? 'Each branch pays for its own messages.' : 'All branches share these wallets.'}
               {rates && <> Right now SMS costs {kes(rates.sms)} per message part and WhatsApp costs {kes(rates.whatsapp)} per message. Prices are set by ChurchOS and get cheaper the more you send in a month.</>}
-            </Note>
-            {wallets.length === 0 && <Empty>There are no wallets you can see yet.</Empty>}
+            </div>
+            {wallets.length === 0 && <UCard><EmptyState icon="wallet" title="No wallets yet" text="There are no wallets you can see yet." /></UCard>}
             {org.length > 0 && <div><h2 style={{ marginBottom: 10 }}>Church-wide</h2>{cards(org)}</div>}
             {perBranch && branch.length > 0 && <div><h2 style={{ marginBottom: 10 }}>By branch</h2>{cards(branch)}</div>}
           </div>

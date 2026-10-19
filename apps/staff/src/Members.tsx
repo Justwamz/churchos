@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Empty, Note, StatusBadge, Table, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Note, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Hist, Load, PageHead } from './bits';
+import { Hist } from './bits';
 import { MemberPhone } from './Reveal';
-import { HouseholdModal, MemberFormModal, useDebounced } from './MemberForm';
+import { Gate, HouseholdModal, MemberFormModal, initials, useDebounced } from './MemberForm';
 import { MemberRecords } from './Records';
 import { GivingRecordModal } from './GivingRecord';
 import { ConsentDialog } from './ConsentDialog';
+import { usePrefill } from './prefill';
 import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
+import { Icon } from './icons';
+import { Card, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip, Toolbar } from './ui';
+import './people.css';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 /** 'MM-DD' to '14 Jun'. */
@@ -16,77 +20,106 @@ export const birthdayText = (b: string | null | undefined) => {
   return m ? `${Number(m[2])} ${MONTHS[Number(m[1]) - 1] ?? ''}` : '-';
 };
 
-function Insights({ onEdit }: { onEdit: (id: string) => void }) {
-  const s = useSession();
-  const d = useAsync<any>(() => api.get('/members/insights' + s.qs()), [s.qs()]);
-  const x = d.data;
-  const empty = x && !x.birthdays.length && !x.turningEighteen.length && !x.needsOwnPhone.length;
+type Tab = 'all' | 'households' | 'birthdays' | 'attention' | 'numbers';
+
+function Avatar({ m, sm }: { m: any; sm?: boolean }) {
+  return <span className={`pp-avatar ${m.category === 'child' ? 'child' : ''} ${sm ? 'sm' : ''}`} aria-hidden="true">{initials(m.full_name)}</span>;
+}
+
+function Chips({ m }: { m: any }) {
   return (
-    <Card title="Insights">
-      <Load loading={d.loading} error={d.error} hasData={!!x}>
-        {x && (empty ? <Empty>All calm. No birthdays this week and nothing needs attention.</Empty> : (
-          <div className="grid cols-3">
-            {x.birthdays.length > 0 && (
-              <div><h4 style={{ margin: '0 0 6px' }}>Birthdays this week</h4>
-                {x.birthdays.map((b: any) => (
-                  <div key={b.id} className="row between" style={{ fontSize: 14 }}><span>{b.full_name}</span>
-                    <span>{b.days_away === 0 ? <Badge tone="good">Today!</Badge> : birthdayText(b.birthday)}</span></div>
-                ))}</div>
-            )}
-            {x.turningEighteen.length > 0 && (
-              <div><h4 style={{ margin: '0 0 6px' }}>Turning 18 soon</h4>
-                {x.turningEighteen.map((c: any) => (
-                  <div key={c.id} className="row between" style={{ fontSize: 14 }}><span>{c.full_name}</span>
-                    <span className="tiny">{c.days_until_18 <= 0 ? 'today' : `in ${c.days_until_18} day${c.days_until_18 === 1 ? '' : 's'}`}</span></div>
-                ))}</div>
-            )}
-            {x.needsOwnPhone.length > 0 && (
-              <div><h4 style={{ margin: '0 0 6px' }}>Needs their own phone number</h4>
-                {x.needsOwnPhone.map((a: any) => (
-                  <div key={a.id} className="row between" style={{ fontSize: 14 }}>
-                    <span>{a.full_name}<br /><span className="tiny">{a.guardians?.length ? `Guardians: ${a.guardians.map((g: any) => g.full_name).join(', ')}` : ''}</span></span>
-                    {s.can('members.edit') && <Button small kind="ghost" onClick={() => onEdit(a.id)}>Edit</Button>}
-                  </div>
-                ))}</div>
-            )}
-          </div>
-        ))}
-      </Load>
-    </Card>
+    <>
+      {m.is_primary_contact && <StatusChip tone="info">Primary contact</StatusChip>}
+      {m.category === 'child' && <StatusChip tone="wait">Child</StatusChip>}
+      {m.category !== 'child' && !m.phone && <StatusChip tone="wait">Needs own phone</StatusChip>}
+    </>
   );
 }
 
-function MemberRows({ members, household, canEdit, canRecords, canGiving, onGiving, onConsent, onRecords, onEdit, onHousehold, onPrimary }: {
-  members: any[]; household?: any; canEdit: boolean; canRecords: boolean; canGiving: boolean; onGiving: (m: any) => void; onConsent: (m: any) => void; onRecords: (m: any) => void; onEdit: (m: any) => void; onHousehold: (m: any) => void; onPrimary: (h: any, m: any) => void;
+const subline = (m: any) => [m.member_number, m.branch_name, m.age != null ? `${m.age} yrs` : m.age_band].filter(Boolean).join(' · ');
+
+function Detail({ m, household, canEdit, canRecords, canGiving, onClose, onOpen, onAct, onPrimary }: {
+  m: any; household?: any; canEdit: boolean; canRecords: boolean; canGiving: boolean; onClose: () => void; onOpen: (m: any) => void;
+  onAct: (kind: 'edit' | 'household' | 'consent' | 'records' | 'giving', m: any) => void; onPrimary: (h: any, m: any) => void;
 }) {
+  const others = (household?.members ?? []).filter((x: any) => x.id !== m.id);
   return (
-    <Table head={['Name', 'Type', 'Age', 'Birthday', 'Sex', 'Member no.', 'Branch', 'Contact', '']}>
-      {members.map((m) => (
-        <tr key={m.id}>
-          <td><b>{m.full_name}</b>{m.is_primary_contact && <> <Badge tone="info">Primary contact</Badge></>}</td>
-          <td><Badge tone={m.category === 'child' ? 'warn' : 'muted'}>{m.category === 'child' ? 'Child' : 'Adult'}</Badge></td>
-          <td>{m.age_band ?? '-'}{m.age != null && <span className="tiny"> ({m.age})</span>}</td>
-          <td>{birthdayText(m.birthday)}</td>
-          <td>{m.sex === 'male' ? 'Male' : m.sex === 'female' ? 'Female' : '-'}</td>
-          <td className="mono">{m.member_number}</td>
-          <td>{m.branch_name}</td>
-          <td>
-            {m.category === 'child' || m.phone ? <MemberPhone member={m} /> : <Badge tone="warn">Needs own phone</Badge>}
-          </td>
-          {(
-            <td><div className="row" style={{ gap: 6 }}>
-              {canEdit && <Button small kind="ghost" onClick={() => onEdit(m)}>Edit</Button>}
-              <Hist entity="membership" entityId={m.id} title={m.full_name} />
-              {canEdit && <Button small kind="ghost" onClick={() => onHousehold(m)}>Household</Button>}
-              {canEdit && <Button small kind="ghost" onClick={() => onConsent(m)}>Message choices</Button>}
-              {canRecords && <Button small kind="ghost" onClick={() => onRecords(m)}>Records</Button>}
-              {canGiving && m.category !== 'child' && <Button small kind="ghost" onClick={() => onGiving(m)}>Giving record</Button>}
-              {canEdit && household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}
-            </div></td>
-          )}
-        </tr>
-      ))}
-    </Table>
+    <SidePanel title={m.full_name} subtitle={subline(m)} onClose={onClose}
+      footer={canEdit ? <><Button onClick={() => onAct('edit', m)}>Edit details</Button><Button kind="ghost" onClick={() => onAct('consent', m)}>Message choices</Button></> : undefined}>
+      <div className="pp-psec">
+        <div className="pp-row-flex"><Chips m={m} />{m.category !== 'child' && m.phone && <StatusChip tone="off">Adult</StatusChip>}</div>
+      </div>
+      <div className="pp-psec">
+        <h3>Contact</h3>
+        <dl className="pp-dl">
+          <div><dt>Phone</dt><dd>{m.category === 'child' || m.phone ? <MemberPhone member={m} /> : <StatusChip tone="wait">Needs own phone</StatusChip>}</dd></div>
+          <div><dt>Branch</dt><dd>{m.branch_name || '-'}</dd></div>
+          <div><dt>Birthday</dt><dd>{birthdayText(m.birthday)}{m.age != null && <span className="pp-tiny"> ({m.age} yrs)</span>}</dd></div>
+          <div><dt>Sex</dt><dd>{m.sex === 'male' ? 'Male' : m.sex === 'female' ? 'Female' : '-'}</dd></div>
+          <div><dt>Member no.</dt><dd className="pp-mono">{m.member_number}</dd></div>
+        </dl>
+      </div>
+      <div className="pp-psec">
+        <h3>Household</h3>
+        {household ? (
+          <>
+            <b>{household.label}</b>
+            {others.length === 0 ? <p className="pp-note">No one else is in this household.</p> : (
+              <div className="pp-stack tight">
+                {others.map((x: any) => (
+                  <button type="button" key={x.id} className="pp-pick" onClick={() => onOpen(x)}>
+                    <b>{x.full_name}</b><span className="pp-tiny">{x.category === 'child' ? 'Child' : 'Adult'}{x.is_primary_contact ? ' · Primary contact' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : <p className="pp-note">Not in a household.</p>}
+        {canEdit && (
+          <div className="pp-actions">
+            <Button small kind="ghost" onClick={() => onAct('household', m)}>{household ? 'Change household' : 'Add to a household'}</Button>
+            {household && m.category === 'adult' && !m.is_primary_contact && <Button small kind="ghost" onClick={() => onPrimary(household, m)}>Set primary contact</Button>}
+          </div>
+        )}
+      </div>
+      {(canGiving && m.category !== 'child') || canRecords ? (
+        <div className="pp-psec">
+          <h3>Giving and records</h3>
+          <div className="pp-actions">
+            {canGiving && m.category !== 'child' && <Button small kind="ghost" onClick={() => onAct('giving', m)}>Giving record</Button>}
+            {canRecords && <Button small kind="ghost" onClick={() => onAct('records', m)}>Baptism and marriage records</Button>}
+          </div>
+        </div>
+      ) : null}
+      <div className="pp-psec">
+        <h3>History</h3>
+        <div className="pp-hist"><span className="pp-note">Who changed this member's details, and when.</span><Hist entity="membership" entityId={m.id} title={m.full_name} /></div>
+      </div>
+    </SidePanel>
+  );
+}
+
+function HouseCard({ h, open, onToggle, onPick }: { h: any; open: boolean; onToggle: () => void; onPick: (m: any) => void }) {
+  return (
+    <div className={`pp-home ${open ? 'open' : ''}`}>
+      <button type="button" className="pp-home-head" aria-expanded={open} onClick={onToggle}>
+        <span className="pp-avatar home" aria-hidden="true"><Icon name="building" size={20} /></span>
+        <div><div className="pp-name">{h.label}</div><div className="pp-sub">{h.members.length} {h.members.length === 1 ? 'person' : 'people'}{!open && ` · ${h.members.slice(0, 3).map((m: any) => m.full_name.split(' ')[0]).join(', ')}${h.members.length > 3 ? '…' : ''}`}</div></div>
+        <span className="pp-side">{h.members.some((m: any) => m.category === 'child') && <StatusChip tone="wait">Has children</StatusChip>}</span>
+        <Icon name="chevron" size={18} className="pp-chev" />
+      </button>
+      {open && (
+        <div className="pp-kids">
+          {h.members.map((m: any) => (
+            <button type="button" key={m.id} className="pp-kid" onClick={() => onPick(m)}>
+              <Avatar m={m} sm />
+              <div><div className="pp-name">{m.full_name}</div><div className="pp-sub">{m.category === 'child' ? 'Child' : 'Adult'} · {m.member_number}</div></div>
+              <span className="pp-side">{m.is_primary_contact && <StatusChip tone="info">Primary contact</StatusChip>}{m.category !== 'child' && !m.phone && <StatusChip tone="wait">Needs own phone</StatusChip>}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -94,81 +127,167 @@ export function Members() {
   const s = useSession();
   const toast = useToast();
   const [q, setQ] = useState('');
+  usePrefill('members', setQ);
   const dq = useDebounced(q.trim());
   const d = useAsync<any>(() => api.get('/members/grouped' + s.qs({ q: dq || undefined })), [s.qs(), dq]);
+  const insights = useAsync<any>(() => api.get('/members/insights' + s.qs()), [s.qs()]);
   const settings = useAsync<NumberSettings>(() => api.get('/members/settings' + s.qs({ branch: undefined })), [s.qs()]);
   const canEdit = s.can('members.edit');
-  const [form, setForm] = useState<{ member?: any } | null>(null);
-  const [hhFor, setHhFor] = useState<any>(null);
-  const [recFor, setRecFor] = useState<any>(null);
-  const [consentFor, setConsentFor] = useState<any>(null);
-  const [givingFor, setGivingFor] = useState<any>(null);
+  const [tab, setTab] = useState<Tab>('all');
+  const [sel, setSel] = useState<any>(null);
+  const [modal, setModal] = useState<{ kind: 'form' | 'household' | 'consent' | 'records' | 'giving'; member?: any } | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [insightsKey, setInsightsKey] = useState(0);
 
-  const refresh = () => { d.reload(); settings.reload(); setInsightsKey((k) => k + 1); };
-  const all: any[] = (d.data?.households ?? []).flatMap((h: any) => h.members).concat(d.data?.individuals ?? []);
-  const isOpen = (id: string) => open[id] ?? !!dq;
+  const refresh = () => { d.reload(); settings.reload(); insights.reload(); };
+  const households: any[] = d.data?.households ?? [];
+  const individuals: any[] = d.data?.individuals ?? [];
+  const all: any[] = households.flatMap((h) => h.members).concat(individuals);
+  const sorted = [...all].sort((a, b) => a.full_name.localeCompare(b.full_name));
+  const isOpen = (id: string) => open[id] ?? true;
   useEffect(() => { setOpen({}); }, [dq]);
 
-  const editById = (id: string) => {
-    const m = all.find((x: any) => x.id === id);
-    if (m) setForm({ member: m });
-    else api.get('/members' + s.qs()).then((r: any[]) => { const f = r.find((x) => x.id === id); if (f) setForm({ member: f }); }).catch((e) => toast.show(friendly(e.message), 'bad'));
+  const x = insights.data;
+  const attention: any[] = x?.needsOwnPhone ?? [];
+  const bdays: any[] = x?.birthdays ?? [];
+  const eighteen: any[] = x?.turningEighteen ?? [];
+  const t = d.data?.totals;
+
+  const selM = sel ? all.find((m) => m.id === sel.id) ?? sel : null;
+  const selHouse = selM?.household_id ? households.find((h) => h.id === selM.household_id) : undefined;
+  const openById = (id: string) => {
+    const m = all.find((z) => z.id === id);
+    if (m) setSel(m);
+    else api.get('/members' + s.qs()).then((r: any[]) => { const f = r.find((z) => z.id === id); if (f) setSel(f); }).catch((e) => toast.show(friendly(e.message), 'bad'));
   };
   const setPrimary = async (h: any, m: any) => {
     try { await api.put(`/households/${h.id}/primary-contact` + s.qs({ branch: undefined }), { membershipId: m.id }); toast.show(`${m.full_name} is now the primary contact.`); refresh(); }
     catch (e: any) { toast.show(friendly(e.message), 'bad'); }
   };
-  const setAll = (v: boolean) => setOpen(Object.fromEntries((d.data?.households ?? []).map((h: any) => [h.id, v])));
-
-  const rowProps = { canEdit, canRecords: s.can('records.view'), canGiving: s.can('giving.ledger'), onGiving: setGivingFor, onConsent: setConsentFor, onRecords: setRecFor, onEdit: (m: any) => setForm({ member: m }), onHousehold: setHhFor, onPrimary: setPrimary };
-  const t = d.data?.totals;
+  const act = (kind: 'edit' | 'household' | 'consent' | 'records' | 'giving', m: any) => setModal({ kind: kind === 'edit' ? 'form' : kind, member: m });
+  const setAll = (v: boolean) => setOpen(Object.fromEntries(households.map((h) => [h.id, v])));
+  const showSearch = tab === 'all' || tab === 'households';
 
   return (
     <>
-      <PageHead title="Members" sub="Your church family." action={canEdit && <Button onClick={() => setForm({})}>Add member</Button>} />
-      <div className="stack">
-        <Insights key={insightsKey} onEdit={editById} />
-        <Card>
-          <input style={{ width: '100%' }} aria-label="Search members" placeholder="Search by name, member number or phone" value={q} onChange={(e) => setQ(e.target.value)} />
-          {t && <div className="tiny" style={{ marginTop: 8 }}>{dq ? 'Found ' : ''}{t.households} household{t.households === 1 ? '' : 's'} and {t.members} {t.members === 1 ? 'person' : 'people'}{dq ? ' matching your search' : ''}.</div>}
-        </Card>
-        <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-          {d.data && (
-            <>
-              <Card title="Households" action={d.data.households.length > 0 && <div className="row"><Button small kind="ghost" onClick={() => setAll(true)}>Expand all</Button><Button small kind="ghost" onClick={() => setAll(false)}>Collapse all</Button></div>}>
-                {d.data.households.length === 0 ? <Empty>{dq ? 'No households match your search.' : 'No households yet.'}</Empty> : (
-                  <div className="stack" style={{ gap: 8 }}>
-                    {d.data.households.map((h: any) => (
-                      <details key={h.id} open={isOpen(h.id)} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; if (o !== isOpen(h.id)) setOpen((p) => ({ ...p, [h.id]: o })); }} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '4px 12px' }}>
-                        <summary style={{ cursor: 'pointer', padding: '8px 0', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                          <b>{h.label}</b>
-                          <span className="tiny">{h.members.length} member{h.members.length === 1 ? '' : 's'}</span>
-                          <span className="chips" style={{ gap: 4 }}>
-                            {h.members.slice(0, 3).map((m: any) => <Badge key={m.id}>{m.full_name}</Badge>)}
-                            {h.members.length > 3 && <Badge>+{h.members.length - 3}</Badge>}
-                          </span>
-                        </summary>
-                        {isOpen(h.id) && <div style={{ paddingBottom: 8 }}><MemberRows members={h.members} household={h} {...rowProps} /></div>}
-                      </details>
+      <PageHeader title="Members" subtitle="Your church family, by person and by household."
+        actions={canEdit && <Button onClick={() => setModal({ kind: 'form' })}>Add member</Button>}
+        tabs={[{ id: 'all', label: 'All' }, { id: 'households', label: 'Households' }, { id: 'birthdays', label: 'Birthdays', badge: bdays.length + eighteen.length }, { id: 'attention', label: 'Needs attention', badge: attention.length }, { id: 'numbers', label: 'Member numbers' }]}
+        tab={tab} onTab={(v) => setTab(v as Tab)} />
+
+      {tab !== 'numbers' && (
+        <StatTiles>
+          <Stat label="People" value={t ? t.members : '-'} onClick={() => setTab('all')} />
+          <Stat label="Households" value={t ? t.households : '-'} onClick={() => setTab('households')} />
+          <Stat label="Birthdays this week" value={x ? bdays.length : '-'} tone="info" onClick={() => setTab('birthdays')} />
+          <Stat label="Need attention" value={x ? attention.length : '-'} tone={attention.length ? 'wait' : undefined} onClick={() => setTab('attention')} />
+        </StatTiles>
+      )}
+
+      <div style={{ height: 24 }} />
+
+      {showSearch && (
+        <Toolbar end={tab === 'households' && households.length > 0 ? <div className="pp-all-actions"><Button small kind="ghost" onClick={() => setAll(true)}>Open all</Button><Button small kind="ghost" onClick={() => setAll(false)}>Close all</Button></div> : undefined}>
+          <input aria-label="Search members" placeholder="Search by name, member number or phone" value={q} onChange={(e) => setQ(e.target.value)} />
+          {t && <span className="pp-tiny">{dq ? 'Found ' : ''}{t.households} household{t.households === 1 ? '' : 's'}, {t.members} {t.members === 1 ? 'person' : 'people'}</span>}
+        </Toolbar>
+      )}
+
+      {(tab === 'all' || tab === 'households') && (
+        <Gate loading={d.loading} error={d.error} hasData={!!d.data} rows={6}>
+          {d.data && (tab === 'all' ? (
+            sorted.length === 0 ? <EmptyState icon="people" title={dq ? 'No one matches your search' : 'No members yet'} text={dq ? 'Try a different name, number or phone.' : 'Add your first member to get started.'} action={!dq && canEdit ? <Button onClick={() => setModal({ kind: 'form' })}>Add member</Button> : undefined} /> : (
+              <div className="pp-list">
+                {sorted.map((m) => (
+                  <button type="button" key={m.id} className="pp-item" onClick={() => setSel(m)}>
+                    <Avatar m={m} />
+                    <div><div className="pp-name">{m.full_name}</div><div className="pp-sub">{subline(m)}</div></div>
+                    <span className="pp-side"><Chips m={m} /></span>
+                    <Icon name="chevron" size={18} className="pp-chev" />
+                  </button>
+                ))}
+              </div>
+            )
+          ) : (
+            <div className="pp-stack">
+              {households.length === 0 && individuals.length === 0 ? <EmptyState icon="people" title={dq ? 'No households match your search' : 'No households yet'} text="Households group a family together." /> : (
+                <div className="pp-homes">
+                  {households.map((h) => <HouseCard key={h.id} h={h} open={isOpen(h.id)} onToggle={() => setOpen((p) => ({ ...p, [h.id]: !isOpen(h.id) }))} onPick={setSel} />)}
+                </div>
+              )}
+              {individuals.length > 0 && (
+                <>
+                  <h2 style={{ fontSize: 17 }}>Not in a household</h2>
+                  <div className="pp-list">
+                    {individuals.map((m) => (
+                      <button type="button" key={m.id} className="pp-item" onClick={() => setSel(m)}>
+                        <Avatar m={m} /><div><div className="pp-name">{m.full_name}</div><div className="pp-sub">{subline(m)}</div></div>
+                        <span className="pp-side"><Chips m={m} /></span><Icon name="chevron" size={18} className="pp-chev" />
+                      </button>
                     ))}
                   </div>
-                )}
-              </Card>
-              {d.data.individuals.length > 0 && (
-                <Card title="Not in a household"><MemberRows members={d.data.individuals} {...rowProps} /></Card>
+                </>
               )}
-            </>
-          )}
-        </Load>
-        <MemberNumberSettings settings={settings} reload={refresh} />
-      </div>
-      {form && <MemberFormModal member={form.member} nextPreview={settings.data?.preview} onClose={() => setForm(null)} onDone={refresh} />}
-      {hhFor && <HouseholdModal member={hhFor} onClose={() => setHhFor(null)} onDone={(msg) => { toast.show(msg); refresh(); }} />}
-      {recFor && <MemberRecords member={recFor} onClose={() => setRecFor(null)} />}
-      {givingFor && <GivingRecordModal member={givingFor} onClose={() => setGivingFor(null)} />}
-      {consentFor && <ConsentDialog member={consentFor} onClose={() => setConsentFor(null)} onDone={(msg) => { setConsentFor(null); toast.show(msg); }} />}
+            </div>
+          ))}
+        </Gate>
+      )}
+
+      {tab === 'birthdays' && (
+        <Gate loading={insights.loading} error={insights.error} hasData={!!x}>
+          {x && (bdays.length === 0 && eighteen.length === 0 ? <EmptyState icon="sparkle" title="No birthdays this week" text="Birthdays and children about to turn 18 show up here." /> : (
+            <div className="pp-two">
+              <div className="pp-stack tight">
+                <h2 style={{ fontSize: 17 }}>Birthdays this week</h2>
+                {bdays.length === 0 ? <p className="pp-note">None this week.</p> : (
+                  <div className="pp-list">{bdays.map((b) => (
+                    <button type="button" key={b.id} className="pp-item" onClick={() => openById(b.id)}>
+                      <span className="pp-avatar" aria-hidden="true">{initials(b.full_name)}</span><div><div className="pp-name">{b.full_name}</div><div className="pp-sub">{birthdayText(b.birthday)}</div></div>
+                      <span className="pp-side">{b.days_away === 0 ? <StatusChip tone="done">Today</StatusChip> : null}</span><Icon name="chevron" size={18} className="pp-chev" />
+                    </button>))}</div>
+                )}
+              </div>
+              <div className="pp-stack tight">
+                <h2 style={{ fontSize: 17 }}>Turning 18 soon</h2>
+                {eighteen.length === 0 ? <p className="pp-note">No one soon.</p> : (
+                  <div className="pp-list">{eighteen.map((c) => (
+                    <button type="button" key={c.id} className="pp-item" onClick={() => openById(c.id)}>
+                      <span className="pp-avatar child" aria-hidden="true">{initials(c.full_name)}</span><div><div className="pp-name">{c.full_name}</div><div className="pp-sub">{c.days_until_18 <= 0 ? 'today' : `in ${c.days_until_18} day${c.days_until_18 === 1 ? '' : 's'}`}</div></div>
+                      <span className="pp-side" /><Icon name="chevron" size={18} className="pp-chev" />
+                    </button>))}</div>
+                )}
+              </div>
+            </div>
+          ))}
+        </Gate>
+      )}
+
+      {tab === 'attention' && (
+        <Gate loading={insights.loading} error={insights.error} hasData={!!x}>
+          {x && (attention.length === 0 ? <EmptyState icon="check" title="All calm" text="Nothing needs attention right now." /> : (
+            <div className="pp-stack tight">
+              <p className="pp-note">These young adults need their own phone number.</p>
+              <div className="pp-list">{attention.map((a) => (
+                <div key={a.id} className="pp-item static">
+                  <span className="pp-avatar" aria-hidden="true">{initials(a.full_name)}</span>
+                  <div><div className="pp-name">{a.full_name}</div><div className="pp-sub">{a.guardians?.length ? `Guardians: ${a.guardians.map((g: any) => g.full_name).join(', ')}` : 'Needs their own phone number'}</div></div>
+                  <span className="pp-side">{canEdit && <Button small kind="ghost" onClick={() => { const m = all.find((z) => z.id === a.id); if (m) setModal({ kind: 'form', member: m }); else openById(a.id); }}>Edit</Button>}</span>
+                </div>))}</div>
+            </div>
+          ))}
+        </Gate>
+      )}
+
+      {tab === 'numbers' && <MemberNumberSettings settings={settings} reload={refresh} />}
+
+      {selM && !modal && (
+        <Detail m={selM} household={selHouse} canEdit={canEdit} canRecords={s.can('records.view')} canGiving={s.can('giving.ledger')}
+          onClose={() => setSel(null)} onOpen={setSel} onAct={act} onPrimary={setPrimary} />
+      )}
+      {modal?.kind === 'form' && <MemberFormModal member={modal.member} nextPreview={settings.data?.preview} onClose={() => setModal(null)} onDone={refresh} />}
+      {modal?.kind === 'household' && <HouseholdModal member={modal.member} onClose={() => setModal(null)} onDone={(msg) => { toast.show(msg); refresh(); }} />}
+      {modal?.kind === 'records' && <MemberRecords member={modal.member} onClose={() => setModal(null)} />}
+      {modal?.kind === 'giving' && <GivingRecordModal member={modal.member} onClose={() => setModal(null)} />}
+      {modal?.kind === 'consent' && <ConsentDialog member={modal.member} onClose={() => setModal(null)} onDone={(msg) => { setModal(null); toast.show(msg); }} />}
       {toast.node}
     </>
   );
@@ -178,6 +297,7 @@ export function Transfers() {
   const d = useAsync<any[]>(() => api.get('/transfers'), []);
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
+  const [tab, setTab] = useState('wait');
   const decide = async (id: string, approve: boolean) => {
     setBusy(id);
     try {
@@ -187,34 +307,36 @@ export function Transfers() {
     } catch (e: any) { toast.show(friendly(e.message), 'bad'); }
     setBusy(null);
   };
+  const rows = d.data ?? [];
+  const waiting = rows.filter((r) => r.status === 'requested');
+  const shown = tab === 'wait' ? waiting : rows.filter((r) => r.status !== 'requested');
+  const tone = (st: string) => (st === 'approved' || st === 'completed' ? 'done' : st === 'requested' ? 'wait' : st === 'rejected' ? 'bad' : 'off') as 'done' | 'wait' | 'bad' | 'off';
   return (
     <>
-      <PageHead title="Transfers" sub="Members asking to join your branches." />
+      <PageHeader title="Transfers" subtitle="Members asking to join your branches."
+        tabs={[{ id: 'wait', label: 'Waiting', badge: waiting.length }, { id: 'done', label: 'Decided' }]} tab={tab} onTab={setTab} />
       <Note tone="info">Moving between branches of the same church keeps the member number. Moving to a different church gives the member a new number there, and the old membership is closed, not deleted.</Note>
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        <div style={{ marginTop: 12 }}>
-          <Card>
-            {!d.data || d.data.length === 0 ? <Empty>No transfer requests.</Empty> : (
-              <Table head={['Requested', 'Member', 'From', 'To', 'Status', '']}>
-                {d.data.map((t) => (
-                  <tr key={t.id}>
-                    <td>{shortDate(t.created_at)}</td>
-                    <td><b>{t.full_name}</b> <span className="tiny">{t.member_number}</span></td>
-                    <td>{t.from_name}</td><td>{t.to_name}</td>
-                    <td><StatusBadge status={t.status} />{t.to_org_id && t.org_id && t.to_org_id !== t.org_id && <> <Badge tone="info">Other church</Badge></>}</td>
-                    <td>{t.status === 'requested' && (
-                      <div className="row" style={{ flexWrap: 'nowrap' }}>
-                        <Button small disabled={busy === t.id} onClick={() => decide(t.id, true)}>Approve</Button>
-                        <Button small kind="ghost" disabled={busy === t.id} onClick={() => decide(t.id, false)}>Reject</Button>
-                      </div>
-                    )}</td>
-                  </tr>
-                ))}
-              </Table>
-            )}
-          </Card>
-        </div>
-      </Load>
+      <div style={{ height: 16 }} />
+      <Gate loading={d.loading} error={d.error} hasData={!!d.data}>
+        {shown.length === 0 ? <EmptyState icon="people" title={tab === 'wait' ? 'Nothing waiting' : 'No decided transfers yet'} text={tab === 'wait' ? 'New transfer requests will show up here.' : undefined} /> : (
+          <div className="pp-cards">
+            {shown.map((t) => (
+              <Card key={t.id}>
+                <div className="pp-req">
+                  <div className="pp-req-head">
+                    <div><div className="pp-name">{t.full_name}</div><div className="pp-sub">{t.member_number} · requested {shortDate(t.created_at)}</div></div>
+                    <div className="pp-row-flex"><StatusChip tone={tone(t.status)}>{String(t.status).replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())}</StatusChip>{t.to_org_id && t.org_id && t.to_org_id !== t.org_id && <StatusChip tone="info">Other church</StatusChip>}</div>
+                  </div>
+                  <div className="pp-flow"><span>{t.from_name}</span><Icon name="chevron" size={16} /><b>{t.to_name}</b></div>
+                  {t.status === 'requested' && (
+                    <div className="pp-row-flex"><Button disabled={busy === t.id} onClick={() => decide(t.id, true)}>Approve</Button><Button kind="ghost" disabled={busy === t.id} onClick={() => decide(t.id, false)}>Reject</Button></div>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </Gate>
       {toast.node}
     </>
   );

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { Button, Empty, ErrorNote, Field, useAsync } from '@churchos/ui';
+import { Button, ErrorNote, Field, useAsync } from '@churchos/ui';
 import { api, friendly } from './session';
-import { Load, PageHead } from './bits';
+import { Icon } from './icons';
+import { Card, EmptyState, PageHeader, Skeleton } from './ui';
 import './tickets.css';
+import './worship.css';
 
 const time = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
@@ -134,15 +136,15 @@ function Door({ event }: { event: { id: string; title: string } }) {
   const tone = result ? TONE[result.result] ?? 'bad' : 'good';
 
   return (
-    <div className="ck">
-      <div className="card" style={{ textAlign: 'center' }}>
+    <div className="wo-task">
+      <div className="wo-banner" style={{ display: 'grid', textAlign: 'center', justifyItems: 'center', padding: 20 }}>
         <div className="tiny">{event.title}</div>
         {st ? (
           <>
             <div className="tk-big">Checked in {st.checkedIn} of {st.sold}</div>
-            <div className="progress" style={{ marginTop: 10 }} aria-label={`${pct}% arrived`}><i style={{ width: `${Math.max(pct, 2)}%` }} /></div>
+            <div className="progress" style={{ marginTop: 10, width: '100%' }} aria-label={`${pct}% arrived`}><i style={{ width: `${Math.max(pct, 2)}%` }} /></div>
           </>
-        ) : <div className="tiny">Loading...</div>}
+        ) : <Skeleton lines={2} />}
       </div>
 
       {result && (
@@ -158,26 +160,26 @@ function Door({ event }: { event: { id: string; title: string } }) {
       {sendErr && <ErrorNote>{sendErr}</ErrorNote>}
 
       <div className="card stack">
-        <div className="ck-video-wrap" style={camOn ? undefined : { aspectRatio: '16 / 7' }}>
+        <div className={`wo-scan ${camOn ? 'live' : 'idle'}`}>
           <video ref={video} playsInline muted style={camOn ? undefined : { display: 'none' }} />
-          {camOn && <div className="ck-frame" aria-hidden="true" />}
-          {!camOn && <div>Point the camera at the QR code on the ticket</div>}
+          {camOn && <div className="wo-frame" aria-hidden="true" />}
+          {!camOn && <div className="wo-scan-hint"><Icon name="checkin" size={40} />Point the camera at the QR code on the ticket</div>}
         </div>
         <canvas ref={canvas} hidden />
-        <div className="row">{camOn ? <Button kind="ghost" onClick={stop}>Stop scanning</Button> : <Button onClick={start}>Start scanning</Button>}</div>
+        {camOn ? <Button kind="ghost" onClick={stop}>Stop scanning</Button> : <Button onClick={start}>Start scanning</Button>}
         {camMsg && <ErrorNote>{camMsg}</ErrorNote>}
         <div className="tiny">On a phone the camera works when the page is opened with https or on localhost; otherwise type the code.</div>
       </div>
 
       <form className="card stack" onSubmit={(e) => { e.preventDefault(); const c = typed; setTyped(''); last.current = { code: '', at: 0 }; send(c); }}>
         <Field label="Type the code"><input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="GALA01-0001" autoCapitalize="characters" autoCorrect="off" spellCheck={false} /></Field>
-        <div className="row"><Button type="submit" disabled={!typed.trim()}>Check in</Button></div>
+        <Button type="submit" disabled={!typed.trim()}>Check in</Button>
       </form>
 
       <div className="card stack">
         <h3 style={{ margin: 0 }}>Recent check-ins</h3>
         {st && st.recent.length > 0 ? (
-          <div className="ck-recent">
+          <div className="ck-recent wo-rows">
             {st.recent.map((r: any, i: number) => <div key={i}><span><b>{r.holder}</b> <span className="tiny">{r.type}</span></span><span className="tiny">{time(r.at)}</span></div>)}
           </div>
         ) : <div className="tiny">No one has been checked in yet.</div>}
@@ -193,17 +195,17 @@ export function Checkin() {
   const chosen = events.find((e) => e.id === pick) ?? events[0];
   return (
     <div>
-      <PageHead title="Check-in" sub="Scan tickets at the door." />
-      <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-        {list.data && (events.length === 0 ? <Empty>No ticketed event is happening around now.</Empty> : (
+      <PageHeader title="Event check-in" subtitle="Scan tickets at the door." />
+      {list.error && !list.data ? <ErrorNote>{friendly(list.error)}</ErrorNote> : list.loading && !list.data ? <div className="wo-task"><Skeleton rows={3} height={90} /></div> : (
+        <>{list.data && (events.length === 0 ? <Card><EmptyState icon="checkin" title="No ticketed event right now" text="Check-in appears here when a ticketed event is about to start or under way." /></Card> : (
           <div className="stack">
             {events.length > 1 && (
-              <div className="ck"><Field label="Event"><select value={chosen.id} onChange={(e) => setPick(e.target.value)}>{events.map((e) => <option key={e.id} value={e.id}>{e.title} ({time(e.startsAt)})</option>)}</select></Field></div>
+              <div className="wo-task"><Field label="Event"><select value={chosen.id} onChange={(e) => setPick(e.target.value)}>{events.map((e) => <option key={e.id} value={e.id}>{e.title} ({time(e.startsAt)})</option>)}</select></Field></div>
             )}
             <Door key={chosen.id} event={chosen} />
           </div>
-        ))}
-      </Load>
+        ))}</>
+      )}
     </div>
   );
 }

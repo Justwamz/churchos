@@ -1,9 +1,15 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
 import { Modal } from './MemberForm';
+import { Card, EmptyState, PageHeader, Section, Skeleton, StatusChip } from './ui';
 import './lectionary.css';
+
+function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
+  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (loading && !hasData) return <Skeleton rows={3} height={72} />;
+  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+}
 
 const DOT: Record<string, string> = { white: '#f4f1e8', red: '#c0392b', green: '#2e8b57', purple: '#6b3fa0', rose: '#e58fa6', blue: '#2f5fb3', gold: '#c9a227', black: '#222' };
 const dateText = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-KE', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -84,7 +90,8 @@ function Paste({ onDone }: { onDone: () => void }) {
     setBusy(false);
   };
   return (
-    <Card title="Paste a season">
+    <Section title="Paste a season" hint="Add many days at once.">
+    <Card>
       <div className="stack">
         <p style={{ margin: 0 }}>One day per line: <b>date | name of the day | A, B or C (optional) | references separated by semicolons</b>. Lines that start with # are ignored.</p>
         <code className="lc-example">{FORMAT_EXAMPLE}</code>
@@ -103,6 +110,7 @@ function Paste({ onDone }: { onDone: () => void }) {
         )}
       </div>
     </Card>
+    </Section>
   );
 }
 
@@ -125,13 +133,14 @@ export function Lectionary() {
   };
   return (
     <>
-      <PageHead title="Lectionary" sub="The readings for each Sunday and feast day." action={canManage ? <Button onClick={() => setModal({})}>Add a day</Button> : undefined} />
-      <div className="stack">
+      <PageHeader title="Lectionary" subtitle="The readings for each Sunday and feast day." actions={canManage ? <Button onClick={() => setModal({})}>Add a day</Button> : undefined} />
+      <div>
         <Note tone="info">ChurchOS does not supply the lectionary or the readings. Enter the references from your own lectionary (the Revised Common Lectionary). Members see them after they check in.</Note>
         <Load loading={d.loading} error={d.error} hasData={!!data}>
           {data && (
-            <Card title={earlier ? 'All days' : 'From today'}>
-              {data.days.length === 0 ? <Empty>No days yet. Add one, or paste a whole season below.</Empty> : (
+            <Section title={earlier ? 'All days' : 'From today'} action={<Button small kind="ghost" onClick={() => setEarlier(!earlier)}>{earlier ? 'Show from today only' : 'Show earlier'}</Button>}>
+            <Card pad={false}>
+              {data.days.length === 0 ? <EmptyState icon="book" title="No days yet" text="Add one, or paste a whole season below." action={canManage ? <Button onClick={() => setModal({})}>Add a day</Button> : undefined} /> : (
                 <div className="lc-list">
                   {data.days.map((x: any) => (
                     <div className="lc-row" key={x.id}>
@@ -140,8 +149,8 @@ export function Lectionary() {
                         <div className="lc-name">
                           {x.colour && <i className="lc-dot" title={x.colour} style={{ background: DOT[x.colour] ?? '#999' }} />}
                           <b>{x.title}</b>
-                          {x.season && <Badge tone="info">{x.season}</Badge>}
-                          {x.cycle && <Badge tone="muted">{`Year ${x.cycle}`}</Badge>}
+                          {x.season && <StatusChip tone="info">{x.season}</StatusChip>}
+                          {x.cycle && <StatusChip tone="off">{`Year ${x.cycle}`}</StatusChip>}
                         </div>
                         <div className="chips">{x.readings.map((r: any, i: number) => <span className="chip lc-chip" key={i}>{r.label ? `${r.label}: ` : ''}{r.ref}</span>)}</div>
                         {x.note && <div className="tiny">{x.note}</div>}
@@ -156,8 +165,8 @@ export function Lectionary() {
                   ))}
                 </div>
               )}
-              <div style={{ marginTop: 12 }}><Button small kind="ghost" onClick={() => setEarlier(!earlier)}>{earlier ? 'Show from today only' : 'Show earlier'}</Button></div>
             </Card>
+            </Section>
           )}
         </Load>
         {canManage && <Paste onDone={d.reload} />}

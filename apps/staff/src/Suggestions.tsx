@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
-import { API_URL, Badge, Button, Card, Empty, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { API_URL, Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
-import { Modal } from './MemberForm';
+import { Gate } from './MemberForm';
+import { Card, EmptyState, PageHeader, SidePanel, Stat, StatTiles, StatusChip, Toolbar } from './ui';
 import './pastoral.css';
+import './people.css';
 
-const STATUSES: { key: string; label: string; tone: 'info' | 'warn' | 'good' | 'muted' }[] = [
-  { key: 'new', label: 'New', tone: 'info' }, { key: 'under_review', label: 'Under review', tone: 'warn' },
-  { key: 'done', label: 'Done', tone: 'good' }, { key: 'not_possible', label: 'Not possible', tone: 'muted' },
+const STATUSES: { key: string; label: string; tone: 'info' | 'wait' | 'done' | 'off' }[] = [
+  { key: 'new', label: 'New', tone: 'info' }, { key: 'under_review', label: 'Under review', tone: 'wait' },
+  { key: 'done', label: 'Done', tone: 'done' }, { key: 'not_possible', label: 'Not possible', tone: 'off' },
+];
+const TABS: { id: string; label: string; status: string }[] = [
+  { id: 'new', label: 'New', status: 'new' }, { id: 'progress', label: 'In progress', status: 'under_review' },
+  { id: 'done', label: 'Done', status: 'done' }, { id: 'shared', label: 'You said, we did', status: '' }, { id: 'all', label: 'All', status: '' },
 ];
 const when = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', year: 'numeric' });
 const Lock = () => (
@@ -35,31 +40,32 @@ function Editor({ s, onClose, onSaved }: { s: any; onClose: () => void; onSaved:
     }
   };
   return (
-    <Modal title="Reply to suggestion" onClose={onClose}>
-      <div className="stack">
-        <div className="pa-card">
-          <div className="pa-body">{s.body}</div>
-          <div className="pa-meta"><Badge tone="info">{s.categoryLabel}</Badge><span>{s.author}</span><span>{when(s.createdAt)}</span></div>
+    <SidePanel title="Reply to suggestion" subtitle={`${s.categoryLabel} · ${when(s.createdAt)}`} onClose={onClose}
+      footer={<><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save reply'}</Button><Button kind="ghost" onClick={onClose}>Back</Button></>}>
+      <div className="pp-stack">
+        <div className="pp-reply" style={{ background: 'var(--off-tint)' }}>
+          <small>{s.author}</small>
+          <div className="pp-req-body" style={{ fontSize: 15 }}>{s.body}</div>
         </div>
         {s.anonymous && <Note>Anonymous suggestions cannot be traced. Your reply still reaches the person who sent it.</Note>}
         <Field label="Status">
           <select value={status} onChange={(e) => setStatus(e.target.value)}>{STATUSES.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}</select>
         </Field>
         <Field label="Your reply" hint={`${response.length}/500${needsReply ? '. Needed for this status.' : ''}`}>
-          <textarea rows={4} maxLength={500} value={response} onChange={(e) => setResponse(e.target.value)} />
+          <textarea rows={5} maxLength={500} value={response} onChange={(e) => setResponse(e.target.value)} />
         </Field>
-        <label className="pa-switch"><input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} /><span>Share this answer with the church as "You said, we did"<span className="tiny" style={{ display: 'block' }}>Needs a reply. The sender's name is not shown.</span></span></label>
+        <label className="pp-switch"><input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} /><span>Share this answer with the church as "You said, we did"<span className="pp-tiny">Needs a reply. The sender's name is not shown.</span></span></label>
         {err && <ErrorNote>{err}</ErrorNote>}
-        <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save'}</Button><Button kind="ghost" onClick={onClose}>Back</Button></div>
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
 
 export function Suggestions() {
   const sess = useSession();
   const toast = useToast();
-  const [status, setStatus] = useState('');
+  const [tab, setTab] = useState('new');
+  const status = TABS.find((x) => x.id === tab)?.status ?? '';
   const [category, setCategory] = useState('');
   const [branch, setBranch] = useState('');
   const [search, setSearch] = useState('');
@@ -98,58 +104,45 @@ export function Suggestions() {
     setBusy(false);
   };
 
+  const shown = tab === 'shared' ? rows.filter((r) => r.published) : rows;
   return (
     <div>
-      <PageHead title="Suggestions" sub="Ideas and concerns from members. Reply, and share what you did about it." action={<Button kind="ghost" onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>} />
+      <PageHeader title="Suggestions" subtitle="Ideas and concerns from members. Reply, and share what you did about it."
+        actions={<Button kind="ghost" onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>}
+        tabs={TABS.map((x) => ({ id: x.id, label: x.label, badge: x.status && sum ? sum[x.status] || undefined : undefined }))} tab={tab} onTab={setTab} />
       {err && <Note tone="bad">{err}</Note>}
-      <div className="pa-strip">
-        {STATUSES.map((x) => (
-          <button type="button" key={x.key} className={`pa-sum ${status === x.key ? 'on' : ''}`} aria-pressed={status === x.key} onClick={() => setStatus(status === x.key ? '' : x.key)}>
-            <b>{sum ? sum[x.key] ?? 0 : '-'}</b><span>{x.label}</span>
-          </button>
-        ))}
-      </div>
-      <Card>
-        <div className="pa-filters">
-          <Field label="Status">
-            <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All</option>{STATUSES.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}</select>
-          </Field>
-          <Field label="Topic">
-            <select value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All topics</option>{(d.data?.categories ?? []).map((c: any) => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
-          </Field>
-          {sess.branches.length > 1 && (
-            <Field label="Branch">
-              <select value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">{sess.scope === 'all' ? 'All branches' : 'Selected branch'}</option>{sess.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-            </Field>
-          )}
-          <Field label="Search"><input type="search" placeholder="Words in the suggestion" value={search} onChange={(e) => setSearch(e.target.value)} /></Field>
-        </div>
-      </Card>
-      <div style={{ height: 14 }} />
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        {rows.length === 0 ? <Empty>No suggestions match these choices.</Empty> : (
-          <div className="pa-list">
-            {rows.map((r) => {
+      <StatTiles>
+        {STATUSES.map((x) => <Stat key={x.key} label={x.label} value={sum ? sum[x.key] ?? 0 : '-'} onClick={() => setTab(TABS.find((t) => t.status === x.key)?.id ?? 'all')} />)}
+      </StatTiles>
+      <div style={{ height: 24 }} />
+      <Toolbar>
+        <input type="search" aria-label="Search suggestions" placeholder="Search the words in a suggestion" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select aria-label="Topic" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All topics</option>{(d.data?.categories ?? []).map((c: any) => <option key={c.key} value={c.key}>{c.label}</option>)}</select>
+        {sess.branches.length > 1 && <select aria-label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)}><option value="">{sess.scope === 'all' ? 'All branches' : 'Selected branch'}</option>{sess.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>}
+      </Toolbar>
+      <Gate loading={d.loading} error={d.error} hasData={!!d.data}>
+        {shown.length === 0 ? <EmptyState icon="message" title="Nothing here" text={tab === 'new' ? 'New suggestions will show up here.' : 'No suggestions match these choices.'} /> : (
+          <div className="pp-cards">
+            {shown.map((r) => {
               const st = STATUSES.find((x) => x.key === r.status);
               return (
-                <article className="pa-card" key={r.id}>
-                  <div className="pa-meta">
-                    <Badge tone="info">{r.categoryLabel}</Badge>
-                    <Badge tone={st?.tone ?? 'muted'}>{r.statusLabel}</Badge>
-                    {r.published && <Badge tone="good">Shared: You said, we did</Badge>}
-                    <span className={r.anonymous ? 'pa-lock pa-muted' : ''}>{r.anonymous && <Lock />}{r.author}</span>
-                    {r.branch && <span>{r.branch}</span>}
-                    <span>{when(r.createdAt)}</span>
+                <Card key={r.id}>
+                  <div className="pp-req">
+                    <div className="pp-req-head">
+                      <div className="pp-row-flex"><StatusChip tone="info">{r.categoryLabel}</StatusChip><StatusChip tone={st?.tone ?? 'off'}>{r.statusLabel}</StatusChip>{r.published && <StatusChip tone="done">Shared: You said, we did</StatusChip>}</div>
+                      <span className="pp-tiny">{when(r.createdAt)}</span>
+                    </div>
+                    <div className="pp-req-body">{r.body}</div>
+                    <div className="pp-req-meta"><span className={r.anonymous ? 'pp-lock' : ''}>{r.anonymous && <Lock />}{r.author}</span>{r.branch && <span>{r.branch}</span>}</div>
+                    {r.response && <div className="pp-reply"><small>Your reply</small>{r.response}</div>}
+                    <div className="pp-row-flex"><Button kind={r.response ? 'ghost' : 'primary'} onClick={() => setEdit(r)}>{r.response ? 'Edit reply' : 'Reply'}</Button></div>
                   </div>
-                  <div className="pa-body">{r.body}</div>
-                  {r.response && <div className="pa-reply"><span className="tiny">Your reply</span><br />{r.response}</div>}
-                  <div className="row"><Button small kind={r.response ? 'ghost' : 'primary'} onClick={() => setEdit(r)}>{r.response ? 'Edit reply' : 'Reply'}</Button></div>
-                </article>
+                </Card>
               );
             })}
           </div>
         )}
-      </Load>
+      </Gate>
       {edit && <Editor s={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); toast.show('Saved'); d.reload(); }} />}
       {toast.node}
     </div>

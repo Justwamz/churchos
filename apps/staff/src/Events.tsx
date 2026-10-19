@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, Table, useAsync, useToast } from '@churchos/ui';
-import { api, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Button, ErrorNote, Field, Note, Table, useAsync, useToast } from '@churchos/ui';
+import { api, friendly, useSession } from './session';
+import { Card, EmptyState, PageHeader, Section, Skeleton, StatusChip } from './ui';
+
+function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
+  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (loading && !hasData) return <Skeleton rows={3} height={96} />;
+  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+}
 import { Modal } from './MemberForm';
 import { AudiencePicker, audienceValue, explainCommunity as explain, initialAudience, toIso, toLocal, type AudState } from './communityBits';
 import { TicketsEditor, blankType, explainTickets, rowFromType, typesPayload, type Poster, type RefundPolicy, type TypeRow } from './TicketsEditor';
@@ -9,6 +15,7 @@ import { PostponeDialog } from './Postpone';
 import { TicketPanel } from './TicketPanel';
 import './community.css';
 import './tickets.css';
+import './worship.css';
 
 const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', ...o });
 const whenText = (e: any) => `${fmt(e.startsAt, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}${e.endsAt ? ` to ${fmt(e.endsAt, { hour: 'numeric', minute: '2-digit' })}` : ''}`;
@@ -77,21 +84,21 @@ function EventForm({ event, seed, onClose, onSaved, onCopy }: { event?: any; see
   };
 
   return (
-    <div className="stack">
-      <div className="row between"><h2 style={{ margin: 0 }}>{event ? 'Edit event' : seed ? 'New event (copy)' : 'New event'}</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
-      <Card title="1. About the event">
+    <div className="wo-form">
+      <PageHeader title={event ? 'Edit event' : seed ? 'New event (copy)' : 'New event'} subtitle="Fill in the three steps, then save." actions={<Button kind="ghost" onClick={onClose}>Cancel</Button>} />
+      <Section title="1. About the event"><Card>
         <div className="stack">
           <Field label="Name" hint={`${title.length} of 80 characters`}><input maxLength={80} value={title} onChange={(e) => setTitle(e.target.value)} /></Field>
           <Field label="Details" hint={`Optional. ${desc.length} of 1000 characters`}><textarea rows={4} maxLength={1000} value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
           <Field label="Place" hint="Optional"><input maxLength={120} value={place} onChange={(e) => setPlace(e.target.value)} /></Field>
-          <div className="grid cols-2">
+          <div className="wo-grid">
             <Field label="Starts" hint="East Africa Time"><input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
             <Field label="Ends" hint="Optional. East Africa Time"><input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
           </div>
         </div>
-      </Card>
-      <Card title="2. Who is it for?"><AudiencePicker name="evaud" value={aud} onChange={setAud} /></Card>
-      <Card title="3. Tickets or replies">
+      </Card></Section>
+      <Section title="2. Who is it for?"><Card><AudiencePicker name="evaud" value={aud} onChange={setAud} /></Card></Section>
+      <Section title="3. Tickets or replies"><Card>
         <div className="stack">
           <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="evtk" checked={!ticketed} onChange={() => setTicketed(false)} /> <b>Free event, people reply</b></label>
           <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="evtk" checked={ticketed} onChange={() => setTicketed(true)} /> <b>Tickets</b></label>
@@ -112,10 +119,10 @@ function EventForm({ event, seed, onClose, onSaved, onCopy }: { event?: any; see
             </>
           )}
         </div>
-      </Card>
+      </Card></Section>
       {err && <ErrorNote>{err}</ErrorNote>}
       {(freeBlocked || /cannot become free/i.test(err)) && event && onCopy && <div className="row"><Button kind="ghost" onClick={() => onCopy(event)}>Copy as a new event</Button><span className="tiny">Opens a new form with the same details and tickets switched off.</span></div>}
-      <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : event ? 'Save changes' : 'Create event'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
+      <div className="wo-actions"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : event ? 'Save changes' : 'Create event'}</Button><Button kind="ghost" disabled={busy} onClick={onClose}>Cancel</Button></div>
     </div>
   );
 }
@@ -157,7 +164,7 @@ function Replies({ event, onClose }: { event: any; onClose: () => void }) {
           {d.data && (
             <>
               <div><b>{d.data.totals.people}</b> {d.data.totals.people === 1 ? 'person' : 'people'} coming: {d.data.totals.going} {d.data.totals.going === 1 ? 'member' : 'members'} and {d.data.totals.people - d.data.totals.going} {d.data.totals.people - d.data.totals.going === 1 ? 'guest' : 'guests'}. {d.data.totals.declined} said they cannot come.</div>
-              {d.data.going.length === 0 ? <Empty>No one has said they are going yet.</Empty> : (
+              {d.data.going.length === 0 ? <EmptyState icon="people" title="No one has said they are going yet" /> : (
                 <Table head={['Name', 'Guests they bring', 'People']}>
                   {d.data.going.map((g: any, i: number) => <tr key={i}><td>{g.name}</td><td>{g.guests > 0 ? g.guests : 'None'}</td><td><b>{1 + g.guests}</b></td></tr>)}
                 </Table>
@@ -177,7 +184,7 @@ function RefundBadge({ id }: { id: string }) {
   const s = useSession();
   const d = useAsync<any>(() => api.get(`/events/${id}/tickets` + s.qs({ branch: undefined })), [id]);
   const n = d.data?.pendingRefunds ?? 0;
-  return n > 0 ? <Badge tone="bad">{n} refund {n === 1 ? 'request' : 'requests'}</Badge> : null;
+  return n > 0 ? <StatusChip tone="bad">{n} refund {n === 1 ? 'request' : 'requests'}</StatusChip> : null;
 }
 
 function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets, onPostpone }: { e: any; canManage: boolean; onEdit: () => void; onCancel: () => void; onReplies: () => void; onTickets: () => void; onPostpone: () => void }) {
@@ -185,28 +192,28 @@ function EventCard({ e, canManage, onEdit, onCancel, onReplies, onTickets, onPos
   const postponed = e.status === 'postponed';
   const pct = e.capacity ? Math.min(100, Math.round((e.peopleComing / e.capacity) * 100)) : 0;
   return (
-    <section className="card ev-item">
+    <section className="u-card ev-item">
       <div className="ev-date" aria-hidden="true"><b>{fmt(e.startsAt, { day: 'numeric' })}</b><span>{fmt(e.startsAt, { month: 'short' })}</span></div>
       <div className="stack" style={{ gap: 8, minWidth: 0 }}>
         <div className="row between" style={{ alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}><b style={{ overflowWrap: 'anywhere' }}>{e.title}</b>{e.description && <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{e.description}</div>}</div>
-          {cancelled && <Badge tone="bad">Cancelled</Badge>}
-          {postponed && <Badge tone="warn">Postponed</Badge>}
+          {cancelled && <StatusChip tone="bad">Cancelled</StatusChip>}
+          {postponed && <StatusChip tone="wait">Postponed</StatusChip>}
         </div>
         {postponed && <Note tone="warn">{e.postponedFrom ? `Moved from ${fmt(e.postponedFrom, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}.` : 'Date to be confirmed. Buyers keep their tickets.'}</Note>}
         <div className="tiny">{postponed ? `Was ${whenText(e)}` : whenText(e)}{e.location ? `. ${e.location}` : ''}. For: {e.audienceLabel}.</div>
         {cancelled && e.cancelReason && <Note tone="warn">Cancelled: {e.cancelReason}</Note>}
         {e.rsvp && (
           <div className="stack" style={{ gap: 4 }}>
-            <div className="row"><Badge tone="info">Asks for replies</Badge><span className="tiny"><b>{e.peopleComing}</b> {e.peopleComing === 1 ? 'person' : 'people'} coming{e.capacity ? ` of ${e.capacity}` : ''}. {e.notComing} cannot come.{e.spotsLeft != null ? ` ${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left.` : ''}</span></div>
+            <div className="row"><StatusChip tone="info">Asks for replies</StatusChip><span className="tiny"><b>{e.peopleComing}</b> {e.peopleComing === 1 ? 'person' : 'people'} coming{e.capacity ? ` of ${e.capacity}` : ''}. {e.notComing} cannot come.{e.spotsLeft != null ? ` ${e.spotsLeft} ${e.spotsLeft === 1 ? 'spot' : 'spots'} left.` : ''}</span></div>
             {e.capacity ? <div className="progress" aria-label={`${pct}% full`}><i style={{ width: `${Math.max(pct, 2)}%` }} /></div> : null}
           </div>
         )}
         {e.ticketed && (
-          <div className="row"><Badge tone="info">Tickets</Badge><span className="tiny"><b>{e.ticketsSold}</b> sold. Code <b>{e.code}</b></span><RefundBadge id={e.id} /></div>
+          <div className="row"><StatusChip tone="info">Tickets</StatusChip><span className="tiny"><b>{e.ticketsSold}</b> sold. Code <b>{e.code}</b></span><RefundBadge id={e.id} /></div>
         )}
         {canManage && (
-          <div className="row">
+          <div className="wo-actions">
             {e.ticketed && <Button small onClick={onTickets}>Tickets and sales</Button>}
             {e.rsvp && <Button small kind="ghost" onClick={onReplies}>Who is coming</Button>}
             {!cancelled && <Button small kind="ghost" onClick={onEdit}>Edit</Button>}
@@ -236,7 +243,6 @@ export function Events() {
   if (mode === 'form') {
     return (
       <div>
-        <PageHead title="Events" />
         <EventForm key={seed?.id ?? editing?.id ?? "new"} event={editing} seed={seed} onCopy={(ev) => { setSeed(ev); setEditing(null); }} onClose={() => setMode('list')} onSaved={(m) => { setMode('list'); toast.show(m); list.reload(); }} />
         {toast.node}
       </div>
@@ -244,15 +250,12 @@ export function Events() {
   }
   return (
     <div>
-      <PageHead title="Events" sub="Things happening at your church. Members see them in the member app." action={canManage ? <Button onClick={() => { setEditing(null); setSeed(null); setMode('form'); }}>New event</Button> : undefined} />
-      <div className="stack">
-        <div className="chips" role="tablist">
-          <button type="button" className={`chip ${tab === 'up' ? 'on' : ''}`} onClick={() => setTab('up')}>Upcoming</button>
-          <button type="button" className={`chip ${tab === 'past' ? 'on' : ''}`} onClick={() => setTab('past')}>Past</button>
-        </div>
+      <PageHeader title="Events" subtitle="Things happening at your church. Members see them in the member app." actions={canManage ? <Button onClick={() => { setEditing(null); setSeed(null); setMode('form'); }}>New event</Button> : undefined}
+        tabs={[{ id: 'up', label: 'Upcoming' }, { id: 'past', label: 'Past' }]} tab={tab} onTab={(t) => setTab(t as 'up' | 'past')} />
+      <div>
         <Load loading={list.loading} error={list.error} hasData={!!list.data}>
           {list.data && (list.data.length === 0
-            ? <Empty>{tab === 'past' ? 'No past events.' : `No upcoming events.${canManage ? ' Create your first one.' : ''}`}</Empty>
+            ? <Card><EmptyState icon="today" title={tab === 'past' ? 'No past events' : 'No upcoming events'} text={tab === 'past' ? undefined : canManage ? 'Create your first one and members will see it in their app.' : undefined} action={tab === 'up' && canManage ? <Button onClick={() => { setEditing(null); setSeed(null); setMode('form'); }}>New event</Button> : undefined} /></Card>
             : <div>{list.data.map((e) => <EventCard key={e.id} e={e} canManage={canManage} onEdit={() => { setEditing(e); setSeed(null); setMode('form'); }} onPostpone={() => setPostponing(e)} onCancel={() => setCancelling(e)} onReplies={() => setReplies(e)} onTickets={() => setTickets(e)} />)}</div>)}
         </Load>
       </div>

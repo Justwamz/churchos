@@ -243,3 +243,11 @@ needs a float policy for this.
 - **Today.** The first screen on a phone lists what is waiting for the person, only for rights they hold: expenses to approve, claims to pay, ticket refund requests, cash to sign off, booking requests, new suggestions, visitors to follow up, services happening today and open children's classes.
 
 Going live with real SMS (Onfon) and email (Resend): see [docs/going-live-messaging.md](docs/going-live-messaging.md). Settings are in `.env.example`.
+
+## The new staff app (Slice 25)
+
+- **Six areas instead of a long menu:** Today, People, Worship & events, Money, Communicate, Church setup. A slim icon rail with a panel for the area on desktop, an area launcher and bottom tabs on a phone. People only see areas and pages their rights cover.
+- **Search and jump (Ctrl+K, or the search box at the top):** pages, quick actions (record an expense, add a member, make a booking, send a message) and members.
+- **Wording:** Church setup > Wording. The owner chooses what the church calls its gatherings (Service, Mass, Gathering, Meeting, Celebration or its own word). The staff app, the member app and the public check-in pages use it. Try it as Daniel: set "Mass" and look at the menu, Today and the member app.
+- **Font:** Manrope in every app (printed certificates keep their serif).
+- **Look:** every page now uses the same header, tabs, tiles, side panels, chips and empty states; dark mode follows the phone or computer setting. The style guide for developers is `apps/staff/src/ui/README.md`.

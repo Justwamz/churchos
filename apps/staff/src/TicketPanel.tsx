@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load } from './bits';
 import { Modal } from './MemberForm';
 import { CreditOrder, RefundRequests, RefundsToArrange } from './Refunds';
+import { EmptyState, SidePanel, Skeleton, Stat, StatTiles, StatusChip } from './ui';
 import './tickets.css';
+import './worship.css';
 
-const STATUS: Record<string, { text: string; tone: 'good' | 'bad' | 'info' }> = { valid: { text: 'Valid', tone: 'info' }, used: { text: 'Checked in', tone: 'good' }, cancelled: { text: 'Cancelled', tone: 'bad' } };
+function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
+  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (loading && !hasData) return <Skeleton rows={3} height={72} />;
+  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+}
+
+const STATUS: Record<string, { text: string; tone: 'done' | 'bad' | 'info' }> = { valid: { text: 'Valid', tone: 'info' }, used: { text: 'Checked in', tone: 'done' }, cancelled: { text: 'Cancelled', tone: 'bad' } };
 const when = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 
 function CancelTicket({ t, onClose, onDone }: { t: any; onClose: () => void; onDone: (m: string) => void }) {
@@ -58,7 +65,7 @@ function Attendees({ event, types, toast, canCredit, onChanged }: { event: any; 
   const csv = () => window.open(api.url(`/events/${event.id}/attendees?format=csv`), '_blank');
   return (
     <div className="stack">
-      <div className="row between"><h3 style={{ margin: 0 }}>Attendees</h3><Button small kind="ghost" onClick={csv}>Download CSV</Button></div>
+      <div className="row between" style={{ marginTop: 8 }}><h3 style={{ margin: 0 }}>Attendees</h3><Button small kind="ghost" onClick={csv}>Download CSV</Button></div>
       <input aria-label="Search attendees" placeholder="Search by name, ticket number or order" value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="chips">
         {([['', 'All'], ['valid', 'Valid'], ['used', 'Checked in'], ['cancelled', 'Cancelled']] as const).map(([k, t]) => (
@@ -72,7 +79,7 @@ function Attendees({ event, types, toast, canCredit, onChanged }: { event: any; 
         </select>
       )}
       <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-        {list.data && (list.data.length === 0 ? <Empty>No tickets match.</Empty> : (
+        {list.data && (list.data.length === 0 ? <EmptyState icon="receipt" title="No tickets match" /> : (
           <div className="tk-scroll">
             <Table className="tk-att" head={['Ticket', 'Name', 'Type', 'Status', 'Order', '']}>
               {list.data.map((t) => {
@@ -83,7 +90,7 @@ function Attendees({ event, types, toast, canCredit, onChanged }: { event: any; 
                     <td>{t.holder}<div className="tiny">{t.email}</div></td>
                     <td>{t.type}</td>
                     <td>
-                      <Badge tone={st.tone}>{st.text}</Badge>
+                      <StatusChip tone={st.tone}>{st.text}</StatusChip>
                       {t.checkedInAt && <div className="tiny">{when(t.checkedInAt)}{t.checkedInBy ? ` by ${t.checkedInBy}` : ''}</div>}
                       {t.cancelReason && <div className="tiny">{t.cancelReason}</div>}
                     </td>
@@ -121,7 +128,7 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
   const t = d.data;
   const ci = cr.data?.issued, cp = cr.data?.paidWithCredit;
   return (
-    <Modal title={`Tickets and sales: ${event.title}`} onClose={onClose}>
+    <SidePanel title={event.title} subtitle="Tickets and sales" onClose={onClose} width={720}>
       <div className="stack">
         <Load loading={d.loading} error={d.error} hasData={!!t}>
           {t && (
@@ -144,14 +151,12 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
                 </div>
               )}
               {t.ticketed && t.status !== 'cancelled' && <div className="tiny">{t.refundDaysBefore != null ? `Buyers can ask for a refund until ${t.refundDaysBefore} ${t.refundDaysBefore === 1 ? 'day' : 'days'} before.` : 'No refunds before the event.'}</div>}
-              <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
-                {t.hasPoster && <div className="tk-thumb" style={{ backgroundImage: `url("${api.url(t.posterUrl)}")` }} role="img" aria-label="Poster" />}
-                <div className="stack" style={{ gap: 4 }}>
-                  <div><b>{t.totals.sold}</b> sold{t.totals.held > 0 ? `, ${t.totals.held} held while people pay` : ''}</div>
-                  <div>Takings: <b>{kes(t.totals.takings)}</b> <span className="tiny">from {t.totals.orders} {t.totals.orders === 1 ? 'order' : 'orders'}. Service fees paid by buyers are not included.</span></div>
-                  <div>Checked in {t.totals.checkedIn} of {t.totals.sold}</div>
-                </div>
-              </div>
+              {t.hasPoster && <div className="tk-thumb" style={{ backgroundImage: `url("${api.url(t.posterUrl)}")` }} role="img" aria-label="Poster" />}
+              <StatTiles>
+                <Stat label="Sold" value={t.totals.sold} hint={t.totals.held > 0 ? `${t.totals.held} held while people pay` : undefined} />
+                <Stat label="Takings" value={kes(t.totals.takings)} hint={`From ${t.totals.orders} ${t.totals.orders === 1 ? 'order' : 'orders'}. Service fees paid by buyers are not included.`} />
+                <Stat label="Checked in" value={`${t.totals.checkedIn} of ${t.totals.sold}`} />
+              </StatTiles>
               {t.shareUrl && t.status !== 'cancelled' && (
                 <div className="stack" style={{ gap: 6 }}>
                   <div className="tiny">Share this link to sell tickets to anyone, or use it in an advert. Code: <b>{t.code}</b></div>
@@ -165,7 +170,7 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
                     <div className="tk-type" key={x.id}>
                       <div className="row between">
                         <b>{x.name} <span className="tiny">{x.price > 0 ? kes(x.price) : 'Free'}</span></b>
-                        <span className="row" style={{ gap: 6 }}>{!x.active && <Badge tone="muted">Off</Badge>}{x.active && !x.onSale && <Badge tone="warn">Not on sale now</Badge>}</span>
+                        <span className="row" style={{ gap: 6 }}>{!x.active && <StatusChip tone="off">Off</StatusChip>}{x.active && !x.onSale && <StatusChip tone="wait">Not on sale now</StatusChip>}</span>
                       </div>
                       <div className="progress" aria-label={`${pct}% taken`}><i style={{ width: `${Math.max(pct, 2)}%` }} /></div>
                       <div className="tiny">{x.sold} sold{x.held > 0 ? `, ${x.held} held` : ''} of {x.quantity}. {x.left} left. Takings {kes(x.takings)}. Checked in {x.checkedIn} of {x.sold}.</div>
@@ -179,6 +184,6 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
         </Load>
       </div>
       {toast.node}
-    </Modal>
+    </SidePanel>
   );
 }

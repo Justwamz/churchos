@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Empty, ErrorNote, Spinner } from '@churchos/ui';
 import { api, friendly } from './session';
+import { Icon } from './icons';
 
 function ago(iso: string): string {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -20,7 +21,7 @@ const CSS = `
 .bell-count { position: absolute; top: -6px; right: -6px; background: var(--bad); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 700; padding: 1px 6px; min-width: 18px; }
 .bell-panel { position: absolute; right: 0; top: 48px; width: 380px; max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); z-index: 60; padding: 12px; }
 .bell-item { padding: 10px 12px; border-radius: 10px; border: 1px solid transparent; margin-bottom: 6px; }
-.bell-item.unread { background: var(--brand-tint); border-color: var(--line); }
+.bell-item.unread { background: var(--accent-tint); border-color: var(--line); }
 @media (max-width: 640px) { .bell-panel { position: fixed; left: 0; right: 0; top: 0; bottom: auto; width: auto; max-height: 85vh; border-radius: 0 0 16px 16px; } }
 `;
 
@@ -60,7 +61,7 @@ export function Notifications() {
     <div className="bell-wrap" ref={box}>
       <style>{CSS}</style>
       <button type="button" className="bell-btn" aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} aria-expanded={open} onClick={() => { setOpen((v) => !v); load(); }}>
-        <span aria-hidden>🔔</span>
+        <Icon name="bell" size={20} />
         {unread > 0 && <span className="bell-count">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (

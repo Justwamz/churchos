@@ -1,7 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Badge, Button, ErrorNote, Field, Note, Spinner, phonePretty, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, phonePretty, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { maskedPretty, useReveal } from './Reveal';
+import { Skeleton, StatusChip } from './ui';
+import './people.css';
+
+/** Loading and error wrapper for the People pages: a shimmer while the first data loads, a clear error if it fails. */
+export function Gate({ loading, error, hasData, children, rows = 4 }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode; rows?: number }) {
+  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (loading && !hasData) return <Skeleton rows={rows} height={64} />;
+  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+}
+
+export const initials = (name: string) => name.split(' ').filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('');
 
 export function useDebounced<T>(value: T, ms = 300): T {
   const [v, setV] = useState(value);
@@ -61,7 +72,7 @@ function GuardianPicker({ value, onChange, excludeId }: { value: Guardian[]; onC
       {shown.length > 0 && (
         <div className="stack" style={{ gap: 4 }}>
           {shown.map((m) => (
-            <button type="button" key={m.id} className="btn ghost small" style={{ justifyContent: 'flex-start', textAlign: 'left' }} onClick={() => { onChange([...value, { id: m.id, full_name: m.full_name, member_number: m.member_number, phone: m.phone }]); setQ(''); }}>
+            <button type="button" key={m.id} className="pp-pick" onClick={() => { onChange([...value, { id: m.id, full_name: m.full_name, member_number: m.member_number, phone: m.phone }]); setQ(''); }}>
               {m.full_name} · {m.member_number}{m.phone ? ` · ${phonePretty(m.phone)}` : ''}
             </button>
           ))}
@@ -90,11 +101,11 @@ function HouseholdPicker({ value, onChange }: { value: { id: string; label: stri
       {value && <div className="chips"><button type="button" className="chip on" onClick={() => onChange(null)} aria-label="Clear household">{value.label} ×</button></div>}
       <input placeholder="Search households by a member's name, number or phone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search households" />
       {err && <ErrorNote>{err}</ErrorNote>}
-      {!res && !err && <Spinner />}
+      {!res && !err && <Skeleton lines={2} />}
       {res && res.households.length === 0 && <div className="tiny">No households found.</div>}
       {res && res.households.slice(0, 8).map((h: any) => (
-        <button type="button" key={h.id} className="btn ghost small" style={{ justifyContent: 'flex-start', textAlign: 'left', whiteSpace: 'normal' }} onClick={() => onChange({ id: h.id, label: h.label })}>
-          <b>{h.label}</b>&nbsp;· {h.members.map((m: any) => m.full_name).join(', ')}
+        <button type="button" key={h.id} className="pp-pick" onClick={() => onChange({ id: h.id, label: h.label })}>
+          <b>{h.label}</b><span className="pp-tiny">{h.members.map((m: any) => m.full_name).join(', ')}</span>
         </button>
       ))}
     </div>
@@ -167,7 +178,7 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
             <button type="button" role="radio" aria-checked={child} className={`chip ${child ? 'on' : ''}`} onClick={() => setCategory('child')}>Child</button>
           </div>
         )}
-        {editing && <div><Badge tone={child ? 'info' : 'muted'}>{child ? 'Child' : 'Adult'}</Badge></div>}
+        {editing && <div><StatusChip tone={child ? 'info' : 'off'}>{child ? 'Child' : 'Adult'}</StatusChip></div>}
         <Field label="Full name"><input value={fullName} onChange={(e) => setFullName(e.target.value)} autoFocus /></Field>
         {!editing && (
           <Field label="Branch">
@@ -208,32 +219,32 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
           </div>
         )}
         {!editing && (
-          <fieldset style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
-            <legend className="field-label">Household</legend>
-            <div className="stack" style={{ gap: 8 }}>
+          <div className="pp-group">
+            <h3>Household</h3>
+            <div className="pp-choices">
               {([
                 ['default', child ? "Join the guardian's household (default for a child)" : 'No household for now (default)'],
                 ['new', 'Start a new household'],
                 ['existing', 'Join an existing household'],
                 ['none', 'No household'],
               ] as const).filter(([k]) => child || k !== 'none').map(([k, l]) => (
-                <label key={k} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+                <label key={k} className={`pp-choice ${hhMode === k ? 'on' : ''}`}>
                   <input type="radio" name="hh" checked={hhMode === k} onChange={() => setHhMode(k)} /> <span>{l}</span>
                 </label>
               ))}
               {hhMode === 'existing' && <HouseholdPicker value={hh} onChange={setHh} />}
               {child && hhMode === 'none' && <div className="tiny">The child will not be placed in a household.</div>}
             </div>
-          </fieldset>
+          </div>
         )}
         {!editing && (
-          <label className="row" style={{ gap: 8, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 4 }} />
+          <label className="pp-switch pp-group">
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
             <span>{child ? 'A guardian agreed to the church keeping these details' : 'The member agreed to the church keeping these details'}</span>
           </label>
         )}
         {error && <ErrorNote>{error}</ErrorNote>}
-        <div className="row"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Add member'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
+        <div className="pp-form-foot"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Add member'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </form>
       {reveal.dialog}
       {toast.node}
@@ -275,11 +286,11 @@ export function HouseholdModal({ member, onClose, onDone }: { member: any; onClo
         </div>
       ) : (
         <form className="stack" onSubmit={(e) => { e.preventDefault(); run(); }}>
-          <div className="stack" style={{ gap: 8 }}>
+          <div className="pp-choices">
             {([['move', 'Move to another household'], ['new', 'Start a new household'], ['remove', 'Remove from household']] as const)
               .filter(([k]) => member.household_id || k !== 'remove')
               .map(([k, l]) => (
-                <label key={k} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}><input type="radio" name="hhact" checked={mode === k} onChange={() => setMode(k)} /> <span>{l}</span></label>
+                <label key={k} className={`pp-choice ${mode === k ? 'on' : ''}`}><input type="radio" name="hhact" checked={mode === k} onChange={() => setMode(k)} /> <span>{l}</span></label>
               ))}
           </div>
           {mode === 'move' && <HouseholdPicker value={hh} onChange={setHh} />}

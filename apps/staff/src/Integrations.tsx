@@ -1,7 +1,9 @@
 import { useState } from 'react';
-import { Badge, Button, Card, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Hist, Load, PageHead } from './bits';
+import { Hist, Load } from './bits';
+import { PageHeader, Skeleton, StatusChip } from './ui';
+import './comm.css';
 import { orgQs } from './Wallets';
 
 const ERR: Record<string, string> = {
@@ -26,18 +28,17 @@ function Status({ active, req }: { active: string | null | undefined; req: any }
   return (
     <div style={{ marginBottom: 6, fontSize: 13 }}>
       <span className="muted">Active: <b>{active || 'None yet'}</b></span>
-      {req?.status === 'pending' && <> <Badge tone="warn">Waiting for approval: {req.value}</Badge></>}
-      {req?.status === 'rejected' && <> <Badge tone="bad">Not approved: {req.value}</Badge>{req.reason && <div className="tiny" style={{ color: 'var(--bad)' }}>Reason: {req.reason}</div>}</>}
+      {req?.status === 'pending' && <> <StatusChip tone="wait">Waiting for approval: {req.value}</StatusChip></>}
+      {req?.status === 'rejected' && <> <StatusChip tone="bad">Not approved: {req.value}</StatusChip>{req.reason && <div className="tiny" style={{ color: 'var(--bad)' }}>Reason: {req.reason}</div>}</>}
     </div>
   );
 }
 
 function Choice({ on, onClick, title, text, disabled }: { on: boolean; onClick: () => void; title: string; text: string; disabled?: boolean }) {
   return (
-    <button type="button" disabled={disabled} aria-pressed={on} onClick={onClick}
-      style={{ textAlign: 'left', padding: 16, borderRadius: 12, border: `2px solid ${on ? 'var(--brand)' : 'var(--line)'}`, background: on ? 'var(--brand-tint)' : 'var(--surface)', color: 'var(--ink)', font: 'inherit', cursor: disabled ? 'default' : 'pointer' }}>
-      <b style={{ fontSize: 16 }}>{on ? '● ' : '○ '}{title}</b>
-      <div className="muted" style={{ fontSize: 14, marginTop: 4 }}>{text}</div>
+    <button type="button" disabled={disabled} aria-pressed={on} onClick={onClick} className={`comm-choice ${on ? 'on' : ''}`}>
+      <b>{on ? '● ' : '○ '}{title}</b>
+      <div className="muted">{text}</div>
     </button>
   );
 }
@@ -200,8 +201,9 @@ export function Integrations() {
   const { data, error, loading, reload } = useAsync<any>(() => api.get('/integrations' + orgQs(s)), [s.grant.org.id]);
   return (
     <div>
-      <PageHead title="Messaging settings" sub="Who pays for messages, your sender name and WhatsApp number, and who gets alerts." />
-      <Load loading={loading} error={error} hasData={!!data}>
+      <PageHeader title="Messaging settings" subtitle="Who pays for messages, your sender name and WhatsApp number, and who gets alerts." />
+      {loading && !data && <Skeleton rows={3} height={140} />}
+      <Load loading={false} error={error} hasData={!!data}>
         {data && <Editor data={data} reload={reload} />}
       </Load>
     </div>

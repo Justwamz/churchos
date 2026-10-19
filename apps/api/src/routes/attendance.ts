@@ -8,6 +8,7 @@ import { sendEmail } from '../wallets';
 import { csv } from './helpers';
 import { MAX_ACCURACY_M, metresBetween, parseGeo } from './kids';
 import { qrSvg } from './tickets';
+import { wordsFor } from './words';
 
 /** Attendance (L204 to L216): the weekly schedule, check-ins, visitors, the live link and the Monday report. */
 
@@ -649,7 +650,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function publicService(s: any, extra: Record<string, unknown> = {}) {
     const st = state(s);
-    return { name: s.name, church: s.church, branch: s.branch_name, startsAt: s.starts_at, state: st, opensAt: s.opens_at, closesAt: s.closes_at, hasStream: !!s.stream_url, reading: readingOf(s, false), ...extra };
+    return { words: await wordsFor(ctx, s.org_id), name: s.name, church: s.church, branch: s.branch_name, startsAt: s.starts_at, state: st, opensAt: s.opens_at, closesAt: s.closes_at, hasStream: !!s.stream_url, reading: readingOf(s, false), ...extra };
   }
 
   app.get('/public/here/:token', async (req) => {

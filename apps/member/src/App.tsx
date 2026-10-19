@@ -19,6 +19,7 @@ import { HomeServices, ServicesPage } from './Services';
 import { HomePrayer, PrayerPage } from './Prayer';
 import { HomeSaid, SuggestionsPage } from './Suggestions';
 import { ClaimsPage, useClaimSetup } from './Claims';
+import { WordsProvider, useWords } from './Words';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
@@ -70,7 +71,7 @@ const initials = (n: string) => (n.split(/\s+/).filter(Boolean).slice(0, 2).map(
 export function App() {
   return (
     <LoginGate api={api} title="ChurchOS Member" subtitle="Give, follow your giving and stay connected to your church. Sign in with your phone number.">
-      {({ user, signOut }) => <UserCtx.Provider value={user}><Shell user={user} signOut={signOut} /></UserCtx.Provider>}
+      {({ user, signOut }) => <UserCtx.Provider value={user}><WordsProvider><Shell user={user} signOut={signOut} /></WordsProvider></UserCtx.Provider>}
     </LoginGate>
   );
 }
@@ -84,6 +85,7 @@ function parseHash(): Nav {
 }
 
 function Shell({ user, signOut }: { user: any; signOut: () => void }) {
+  const words = useWords();
   const [nav, setNav] = useState<Nav>(parseHash);
   const tab = nav.tab;
   const [homeSub, setHomeSub] = useState<HomeSub | null>(() => { try { return localStorage.getItem(TICKET_PENDING_KEY) ? 'tickets' : localStorage.getItem('churchos:shop-pending') ? 'shop' : null; } catch { return null; } });
@@ -148,7 +150,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
       <header className="appbar">
         {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
         <div className="appbar-title">
-          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : homeSub === 'claims' ? 'Claim expenses' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{TITLES[tab]}</strong>}
+          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : homeSub === 'claims' ? 'Claim expenses' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
@@ -182,7 +184,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
             <span className="tab-ico"><Icon name={t.ico} filled={tab === t.key} />
               {t.key === 'inbox' && unread > 0 && <span className="tab-badge" aria-label={`${unread} unread`}>{unread > 9 ? '9+' : unread}</span>}
             </span>
-            <span className="tab-label">{t.label}</span>
+            <span className="tab-label">{t.key === 'services' ? words.many : t.label}</span>
           </button>
         ))}
       </nav>

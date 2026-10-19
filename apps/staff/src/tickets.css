@@ -53,3 +53,9 @@
 .tk-count { background: var(--bad); color: #fff; border-radius: 999px; min-width: 24px; padding: 2px 8px; text-align: center; font-weight: 700; font-size: 13px; }
 .modal .tk-grid input { min-width: 0; max-width: 100%; box-sizing: border-box; width: 100%; }
 @media (max-width: 600px) { .modal .tk-grid { grid-template-columns: 1fr; } }
+/* worship pass: panels, refunds */
+.u-sp .modal-scrim { z-index: 90; }
+.tk-refunds { border-color: color-mix(in srgb, var(--bad) 35%, transparent); border-radius: var(--r-card); padding: 16px; }
+.tk-req { border-color: var(--line-soft); border-radius: 12px; padding: 14px; }
+.tk-count { font-size: 12.5px; }
+.ev-item { display: grid; }

@@ -38,3 +38,28 @@
 /* Bookings list filters */
 .bk-filters { display: grid; gap: 14px; }
 .bk-filter-row { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+
+/* worship pass */
+.bk-filters { padding: 20px; }
+.bk-list { display: grid; }
+.bk-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px auto; gap: 8px 16px; align-items: start; padding: 16px 20px; border-bottom: 1px solid var(--line-soft); }
+.bk-row:last-child { border-bottom: 0; }
+.bk-price { text-align: right; font-weight: 650; }
+.bk-go { justify-content: flex-end; }
+.bk-card { border: 0; padding: 0; background: transparent; box-shadow: none; margin: 0; }
+.bk-item { border-color: var(--line-soft); }
+@media (max-width: 900px) { .bk-row { grid-template-columns: minmax(0, 1fr) auto; } .bk-what { grid-column: 1 / -1; order: 3; } .bk-go { grid-column: 1 / -1; order: 4; justify-content: flex-start; } }
+@media (max-width: 600px) { .bk-row { padding: 14px 16px; } .bk-go .btn { flex: 1 1 auto; } }
+/* calendar uses tokens so dark mode works */
+.cal-it.booking { background: var(--info-tint); color: var(--info); }
+.cal-it.event { background: var(--good-tint); color: var(--good); }
+.cal-it.pay { background: repeating-linear-gradient(45deg, var(--info-tint), var(--info-tint) 4px, var(--surface) 4px, var(--surface) 8px); color: var(--info); border: 1px dashed var(--info); }
+.cal-day { border-color: var(--line-soft); border-radius: 12px; }
+.cal-day.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-day:hover { background: var(--off-tint); }
+.bk-res { padding: 20px; }
+.bk-day { border-bottom-color: var(--line-soft); }
+.cal-row { border-bottom-color: var(--line-soft); padding: 14px 20px; }
+.cal-head select { width: auto; min-width: 180px; }
+@media (max-width: 600px) { .cal-row { padding: 12px 16px; } .cal-title { min-width: 0; flex: 1; } }
+.bk-more > summary { cursor: pointer; font-weight: 700; min-height: 40px; display: flex; align-items: center; }

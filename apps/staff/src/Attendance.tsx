@@ -1,8 +1,16 @@
 import { useState } from 'react';
-import { API_URL, Badge, Button, Card, Empty, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { API_URL, Button, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { useWords } from './words';
+import { Card, EmptyState, PageHeader, Section, Skeleton, Stat, StatTiles, StatusChip, Toolbar } from './ui';
 import './attendance.css';
+
+/** Loading / error wrapper that shows a skeleton instead of a spinner. */
+function Load({ loading, error, hasData, children, rows = 3 }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode; rows?: number }) {
+  if (error && !hasData) return <Note tone="bad">{friendly(error)}</Note>;
+  if (loading && !hasData) return <Skeleton rows={rows} height={64} />;
+  return <>{error && <Note tone="bad">{friendly(error)}</Note>}{children}</>;
+}
 
 const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short' }) : '-');
 const dayTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
@@ -17,18 +25,12 @@ function Tile({ label, k, t, prev, avg, good }: { label: string; k: 'members' | 
   const diff = prev ? v - prev[k] : 0;
   const usual = avg ? Math.round(avg[k]) : null;
   const text = !prev ? '' : diff === 0 ? 'Same as the week before' : `${diff > 0 ? 'Up' : 'Down'} ${Math.abs(diff)} from the week before`;
-  return (
-    <div className={'at-tile' + (good ? ' good' : '')}>
-      <div className="l">{label}</div>
-      <div className="v">{v}</div>
-      {text && <div className={'d ' + (diff > 0 ? 'at-up' : 'at-down')}>{diff > 0 ? '↑ ' : diff < 0 ? '↓ ' : ''}{text}</div>}
-      {usual !== null && <div className="u">usual: {usual}</div>}
-      {good && diff > 0 && <div className="at-happy">More new faces, thank God.</div>}
-    </div>
-  );
+  const hint = [text && `${diff > 0 ? '↑ ' : diff < 0 ? '↓ ' : ''}${text}`, usual !== null && `Usual: ${usual}`, good && diff > 0 && 'More new faces, thank God.'].filter(Boolean).join('. ');
+  return <Stat label={label} value={v} hint={hint || undefined} tone={good && diff > 0 ? 'good' : undefined} />;
 }
 
 function Chart({ weeks, lastWeekStart }: { weeks: any[]; lastWeekStart?: string }) {
+  const wd = useWords();
   const [sel, setSel] = useState<number>(Math.max(0, weeks.findIndex((x) => x.weekStart === lastWeekStart) < 0 ? weeks.length - 1 : weeks.findIndex((x) => x.weekStart === lastWeekStart)));
   const max = Math.max(1, ...weeks.map((w) => Math.max(w.members + w.returningVisitors + w.firstVisitors, w.online)));
   const H = 150;
@@ -66,10 +68,10 @@ function Chart({ weeks, lastWeekStart }: { weeks: any[]; lastWeekStart?: string 
       {w && (
         <div className="at-detail">
           <b>Week of {wk(w.weekStart)}{w.weekStart > (lastWeekStart ?? '') ? ' (this week so far)' : ''}</b>: {w.members} members, {w.returningVisitors} returning visitors, {w.firstVisitors} first-time visitors, {w.online} online
-          {w.headcount != null ? `, headcount ${w.headcount}` : ''}. {plural(w.services, 'service', 'services')}.
+          {w.headcount != null ? `, headcount ${w.headcount}` : ''}. {plural(w.services, wd.oneLower, wd.manyLower)}.
         </div>
       )}
-      <h4 style={{ margin: '18px 0 6px' }}>Visitors over time</h4>
+      <h3 style={{ margin: '24px 0 4px' }}>Visitors over time</h3>
       <p className="tiny" style={{ margin: '0 0 6px' }}>First-time visitors each week. Going up is good news.</p>
       <svg className="at-spark" viewBox="0 0 100 90" preserveAspectRatio="none" role="img" aria-label="First-time visitors per week">
         <polyline fill="none" stroke="var(--good)" strokeWidth="2" vectorEffect="non-scaling-stroke" points={pts.map((p) => p.join(',')).join(' ')} />
@@ -82,12 +84,13 @@ function Chart({ weeks, lastWeekStart }: { weeks: any[]; lastWeekStart?: string 
 }
 
 const TABS: [string, string][] = [['new', 'To follow up'], ['contacted', 'Contacted'], ['returning', 'Returning'], ['member', 'Members'], ['not_interested', 'Not interested'], ['', 'All']];
-const WELCOME: Record<string, { t: string; tone: 'good' | 'warn' | 'muted' }> = {
-  sent: { t: 'Welcome SMS sent', tone: 'good' }, not_sent: { t: 'Not sent: check the SMS balance', tone: 'warn' }, off: { t: 'Welcome SMS off', tone: 'muted' },
+const WELCOME: Record<string, { t: string; tone: 'done' | 'wait' | 'off' }> = {
+  sent: { t: 'Welcome SMS sent', tone: 'done' }, not_sent: { t: 'Not sent: check the SMS balance', tone: 'wait' }, off: { t: 'Welcome SMS off', tone: 'off' },
 };
 const STATUS_TEXT: Record<string, string> = { new: 'New', contacted: 'Contacted', returning: 'Returning', member: 'Joined as a member', not_interested: 'Not interested' };
 
 function VisitorRow({ v, onDone, toast }: { v: any; onDone: () => void; toast: Toast }) {
+  const w = useWords();
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState(v.note ?? '');
   const [busy, setBusy] = useState(false);
@@ -101,18 +104,18 @@ function VisitorRow({ v, onDone, toast }: { v: any; onDone: () => void; toast: T
     } catch (e: any) { toast(friendly(e?.message ?? 'Could not save. Try again.'), 'bad'); }
     setBusy(false);
   };
-  const w = WELCOME[v.welcome] ?? WELCOME.off;
+  const wl = WELCOME[v.welcome] ?? WELCOME.off;
   return (
     <div className="at-vis">
       <div className="at-vis-top">
         <div>
           <div className="at-vis-name">{v.name}</div>
-          <div className="tiny">Came to {v.firstService || 'a service'} on {day(v.firstSeenAt)}{v.branch ? ` (${v.branch})` : ''}{v.visits > 1 ? `. ${v.visits} visits, last on ${day(v.lastSeenAt)}` : ''}</div>
+          <div className="tiny">Came to {v.firstService || `a ${w.oneLower}`} on {day(v.firstSeenAt)}{v.branch ? ` (${v.branch})` : ''}{v.visits > 1 ? `. ${v.visits} visits, last on ${day(v.lastSeenAt)}` : ''}</div>
           {v.invitedBy && <div className="tiny">Invited by {v.invitedBy}</div>}
         </div>
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <Badge tone={v.status === 'new' ? 'good' : v.status === 'not_interested' ? 'muted' : 'info'}>{STATUS_TEXT[v.status] ?? v.status}</Badge>
-          <Badge tone={w.tone}>{w.t}</Badge>
+        <div className="at-chips">
+          <StatusChip tone={v.status === 'new' ? 'done' : v.status === 'not_interested' ? 'off' : 'info'}>{STATUS_TEXT[v.status] ?? v.status}</StatusChip>
+          <StatusChip tone={wl.tone}>{wl.t}</StatusChip>
         </div>
       </div>
       {v.contactedBy && <div className="tiny">Contacted by {v.contactedBy}{v.contactedAt ? ` on ${dayTime(v.contactedAt)}` : ''}</div>}
@@ -167,18 +170,20 @@ function Visitors({ branchId, toast }: { branchId: string; toast: Toast }) {
     setBusy(false);
   };
   return (
-    <Card title="First-time visitors to follow up" action={<Button small kind="ghost" onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>}>
-      <div className="chips" style={{ marginBottom: 12 }}>
+    <>
+      <Toolbar end={<Button small kind="ghost" onClick={csv} disabled={busy}>{busy ? 'Preparing...' : 'Download CSV'}</Button>}>
+        <input type="search" aria-label="Search visitors" placeholder="Search by name or phone" value={q} onChange={(e) => setQ(e.target.value)} />
+      </Toolbar>
+      <div className="chips" style={{ marginBottom: 16 }}>
         {TABS.map(([k, t]) => <button key={k || 'all'} type="button" className={'chip' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{t}{count(k)}</button>)}
       </div>
-      <Field label="Search"><input type="search" placeholder="Name or phone" value={q} onChange={(e) => setQ(e.target.value)} /></Field>
       {err && <Note tone="bad">{err}</Note>}
       <Load loading={d.loading} error={d.error} hasData={!!d.data}>
         {list.length === 0
-          ? <Empty>{tab === 'new' ? 'No one is waiting for a follow-up. New visitors will appear here.' : 'No visitors here.'}</Empty>
-          : <div>{list.map((v) => <VisitorRow key={v.id + v.status + (v.note ?? '')} v={v} toast={toast} onDone={d.reload} />)}</div>}
+          ? <Card><EmptyState icon="people" title={tab === 'new' ? 'No one is waiting for a follow-up' : 'No visitors here'} text={tab === 'new' ? 'New visitors will appear here.' : undefined} /></Card>
+          : <Card pad={false}><div className="at-list">{list.map((v) => <VisitorRow key={v.id + v.status + (v.note ?? '')} v={v} toast={toast} onDone={d.reload} />)}</div></Card>}
       </Load>
-    </Card>
+    </>
   );
 }
 
@@ -186,20 +191,26 @@ function Care({ branchId }: { branchId: string }) {
   const d = useAsync<any>(() => api.get('/attendance/care' + (branchId ? `?branchId=${branchId}` : '')), [branchId]);
   const list: any[] = d.data?.members ?? [];
   return (
-    <Card title="Regular members who have stopped coming">
-      <p className="tiny" style={{ marginTop: 0 }}>Members who came in at least 3 of 6 weeks and not in the last 3. It is based on check-ins, so it is only as complete as your check-in coverage. Find them under Members to get in touch.</p>
+    <>
+      <p className="at-line" style={{ marginTop: 0, marginBottom: 16 }}>Members who came in at least 3 of 6 weeks and not in the last 3. It is based on check-ins, so it is only as complete as your check-in coverage. Find them under Members to get in touch.</p>
       <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        {list.length === 0 ? <Empty>No regular members have gone quiet. Good news.</Empty> : list.map((m) => (
-          <div className="at-care" key={m.id}>
-            <div><b>{m.name}</b> <span className="tiny">{m.memberNumber}</span><span className="at-sub">{m.branch}</span></div>
-            <div style={{ textAlign: 'right' }}>
-              <div>Last seen {day(m.lastSeen)}</div>
-              <span className="at-sub">Came in {m.weeksBefore} of the 6 weeks before</span>
+        {list.length === 0 ? <Card><EmptyState icon="heart" title="No regular members have gone quiet" text="Good news." /></Card> : (
+          <Card pad={false}>
+            <div className="at-list">
+              {list.map((m) => (
+                <div className="at-care" key={m.id}>
+                  <div><b>{m.name}</b> <span className="tiny">{m.memberNumber}</span><span className="at-sub">{m.branch}</span></div>
+                  <div className="at-care-r">
+                    <div>Last seen {day(m.lastSeen)}</div>
+                    <span className="at-sub">Came in {m.weeksBefore} of the 6 weeks before</span>
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
-        ))}
+          </Card>
+        )}
       </Load>
-    </Card>
+    </>
   );
 }
 
@@ -218,16 +229,20 @@ function Email({ toast }: { toast: Toast }) {
     setBusy(false);
   };
   return (
-    <Card title="Monday email">
-      <label className="at-switch"><input type="checkbox" checked={on} disabled={!p.data} onChange={(e) => flip(e.target.checked)} /> Email me this report every Monday at 7:00 am</label>
-      <div style={{ marginTop: 12 }}><Button kind="ghost" onClick={send} disabled={busy}>{busy ? 'Sending...' : "Send me last week's report now"}</Button></div>
-    </Card>
+    <Section title="Monday email" hint="The same numbers, in your inbox.">
+      <Card>
+        <label className="at-switch"><input type="checkbox" checked={on} disabled={!p.data} onChange={(e) => flip(e.target.checked)} /> Email me this report every Monday at 7:00 am</label>
+        <div style={{ marginTop: 14 }}><Button kind="ghost" onClick={send} disabled={busy}>{busy ? 'Sending...' : "Send me last week's report now"}</Button></div>
+      </Card>
+    </Section>
   );
 }
 
 export function Attendance() {
   const s = useSession();
+  const w = useWords();
   const toast = useToast();
+  const [tab, setTab] = useState('overview');
   const [branch, setBranch] = useState('');
   const branchId = branch || (s.scope !== 'all' ? s.scope : '');
   const d = useAsync<any>(() => api.get(`/attendance/summary?weeks=8${branchId ? `&branchId=${branchId}` : ''}`), [branchId]);
@@ -236,96 +251,104 @@ export function Attendance() {
   const t: Totals | undefined = r?.totals;
   return (
     <>
-      <PageHead title="Attendance" sub="How church attendance is trending, who to follow up and who has gone quiet." />
+      <PageHeader title="Attendance" subtitle="How attendance is trending, who to follow up and who has gone quiet."
+        tabs={[{ id: 'overview', label: 'Last week' }, { id: 'visitors', label: 'Visitors' }, { id: 'quiet', label: 'Stopped coming' }, { id: 'report', label: 'Report' }]} tab={tab} onTab={setTab} />
       {s.branches.length > 1 && (
+        <Toolbar>
+          <select aria-label="Branch" value={branch} onChange={(e) => setBranch(e.target.value)}>
+            <option value="">{s.scope === 'all' ? 'All branches' : 'Selected branch'}</option>
+            {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </Toolbar>
+      )}
+
+      {tab === 'overview' && (
+        <Load loading={d.loading} error={d.error} hasData={!!d.data} rows={4}>
+          {d.data && r && t && (
+            <>
+              <Section title={`Last week (${wk(r.weekStart)} to ${wk(r.weekEnd)})`}>
+                {t.services === 0 ? <Card><EmptyState icon="people" title={`No ${w.manyLower} were held last week`} /></Card> : (
+                  <>
+                    <StatTiles>
+                      <Tile label="Members" k="members" t={t} prev={r.previous} avg={r.average4} />
+                      <Tile label="First-time visitors" k="firstVisitors" t={t} prev={r.previous} avg={r.average4} good />
+                      <Tile label="Returning visitors" k="returningVisitors" t={t} prev={r.previous} avg={r.average4} />
+                      <Tile label="Online" k="online" t={t} prev={r.previous} avg={r.average4} />
+                    </StatTiles>
+                    <p className="at-line">
+                      {t.headcount != null ? <>Headcount counted by ushers: <b>{t.headcount}</b> across {plural(t.services, w.oneLower, w.manyLower)}.</> : <>{plural(t.services, w.oneLower, w.manyLower)} held. No headcount was entered.</>}
+                      {r.coverage != null && <> Check-ins cover {r.coverage}% of the headcount, so the member and visitor numbers are a sample.</>}
+                    </p>
+                  </>
+                )}
+              </Section>
+              <Section title="Last 8 weeks">
+                <Card>{weeks.length === 0 ? <EmptyState icon="list" title="No attendance has been recorded yet" /> : <Chart weeks={weeks} lastWeekStart={r.weekStart} />}</Card>
+              </Section>
+              <Section title={`Last week's ${w.manyLower}`}>
+                {r.services.length === 0 ? <Card><EmptyState icon="worship" title={`No ${w.manyLower} were held last week`} /></Card> : (
+                  <Card pad={false}>
+                    <table className="at-table">
+                      <thead><tr><th>{w.one}</th><th>Branch</th><th>Date</th><th className="num">Members</th><th className="num">First-time</th><th className="num">Returning</th><th className="num">Online (peak)</th><th className="num">Headcount</th><th className="num">Checked in</th></tr></thead>
+                      <tbody>
+                        {r.services.map((x: any) => (
+                          <tr key={x.id}>
+                            <td data-l={w.one}><b>{x.name}</b></td>
+                            <td data-l="Branch">{x.branch}</td>
+                            <td data-l="Date">{dayTime(x.startsAt)}</td>
+                            <td data-l="Members" className="num">{x.members}</td>
+                            <td data-l="First-time" className="num">{x.firstVisitors}</td>
+                            <td data-l="Returning" className="num">{x.returningVisitors}</td>
+                            <td data-l="Online (peak)" className="num">{x.online} ({x.onlinePeak})</td>
+                            <td data-l="Headcount" className="num">{x.headcount ?? '-'}</td>
+                            <td data-l="Checked in" className="num">{x.coverage != null ? `${x.coverage}%` : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Card>
+                )}
+              </Section>
+            </>
+          )}
+        </Load>
+      )}
+
+      {tab === 'visitors' && <Visitors branchId={branchId} toast={toast.show} />}
+      {tab === 'quiet' && <Care branchId={branchId} />}
+
+      {tab === 'report' && (
         <>
-          <Card>
-            <div className="at-filters">
-              <Field label="Branch">
-                <select value={branch} onChange={(e) => setBranch(e.target.value)}>
-                  <option value="">{s.scope === 'all' ? 'All branches' : 'Selected branch'}</option>
-                  {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </Field>
-            </div>
-          </Card>
-          <div style={{ height: 16 }} />
+          <Load loading={d.loading} error={d.error} hasData={!!d.data}>
+            {r && (r.events?.length > 0 || r.kids?.length > 0) ? (
+              <Section title="Last week at church">
+                <Card>
+                  <div className="at-two">
+                    {r.events?.length > 0 && (
+                      <div>
+                        <h4 style={{ marginTop: 0 }}>Events</h4>
+                        {r.events.map((e: any, i: number) => (
+                          <div className="at-care" key={i}>
+                            <div><b>{e.title}</b><span className="at-sub">{dayTime(e.startsAt)}</span></div>
+                            <div className="at-care-r">{e.kind === 'tickets' ? `${e.sold} sold, ${e.scanned} scanned` : `${e.going} replied going`}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {r.kids?.length > 0 && (
+                      <div>
+                        <h4 style={{ marginTop: 0 }}>Children in class</h4>
+                        {r.kids.map((k: any, i: number) => <div className="at-care" key={i}><b>{k.className}</b><span>{k.count}</span></div>)}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              </Section>
+            ) : r ? <Section title="Last week at church"><Card><EmptyState icon="today" title="No events or children's classes last week" /></Card></Section> : null}
+          </Load>
+          <Email toast={toast.show} />
         </>
       )}
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        {d.data && r && t && (
-          <div className="stack">
-            <Card title={`Last week (${wk(r.weekStart)} to ${wk(r.weekEnd)})`}>
-              {t.services === 0 ? <Empty>No services were held last week.</Empty> : (
-                <>
-                  <div className="at-tiles">
-                    <Tile label="Members" k="members" t={t} prev={r.previous} avg={r.average4} />
-                    <Tile label="First-time visitors" k="firstVisitors" t={t} prev={r.previous} avg={r.average4} good />
-                    <Tile label="Returning visitors" k="returningVisitors" t={t} prev={r.previous} avg={r.average4} />
-                    <Tile label="Online" k="online" t={t} prev={r.previous} avg={r.average4} />
-                  </div>
-                  <p className="at-line">
-                    {t.headcount != null ? <>Headcount counted by ushers: <b>{t.headcount}</b> across {plural(t.services, 'service', 'services')}.</> : <>{plural(t.services, 'service', 'services')} held. No headcount was entered.</>}
-                    {r.coverage != null && <> Check-ins cover {r.coverage}% of the headcount, so the member and visitor numbers are a sample.</>}
-                  </p>
-                </>
-              )}
-            </Card>
-            <Card title="Last 8 weeks">{weeks.length === 0 ? <Empty>No attendance has been recorded yet.</Empty> : <Chart weeks={weeks} lastWeekStart={r.weekStart} />}</Card>
-            <Card title="Last week's services">
-              {r.services.length === 0 ? <Empty>No services were held last week.</Empty> : (
-                <table className="at-table">
-                  <thead><tr><th>Service</th><th>Branch</th><th>Date</th><th className="num">Members</th><th className="num">First-time</th><th className="num">Returning</th><th className="num">Online (peak)</th><th className="num">Headcount</th><th className="num">Checked in</th></tr></thead>
-                  <tbody>
-                    {r.services.map((x: any) => (
-                      <tr key={x.id}>
-                        <td data-l="Service"><b>{x.name}</b></td>
-                        <td data-l="Branch">{x.branch}</td>
-                        <td data-l="Date">{dayTime(x.startsAt)}</td>
-                        <td data-l="Members" className="num">{x.members}</td>
-                        <td data-l="First-time" className="num">{x.firstVisitors}</td>
-                        <td data-l="Returning" className="num">{x.returningVisitors}</td>
-                        <td data-l="Online (peak)" className="num">{x.online} ({x.onlinePeak})</td>
-                        <td data-l="Headcount" className="num">{x.headcount ?? '-'}</td>
-                        <td data-l="Checked in" className="num">{x.coverage != null ? `${x.coverage}%` : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </Card>
-          </div>
-        )}
-      </Load>
-      <div style={{ height: 16 }} />
-      <div className="stack">
-        <Visitors branchId={branchId} toast={toast.show} />
-        <Care branchId={branchId} />
-        {r && (r.events?.length > 0 || r.kids?.length > 0) && (
-          <Card title="Last week at church">
-            <div className="at-two">
-              {r.events?.length > 0 && (
-                <div>
-                  <h4 style={{ marginTop: 0 }}>Events</h4>
-                  {r.events.map((e: any, i: number) => (
-                    <div className="at-care" key={i}>
-                      <div><b>{e.title}</b><span className="at-sub">{dayTime(e.startsAt)}</span></div>
-                      <div style={{ textAlign: 'right' }}>{e.kind === 'tickets' ? `${e.sold} sold, ${e.scanned} scanned` : `${e.going} replied going`}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {r.kids?.length > 0 && (
-                <div>
-                  <h4 style={{ marginTop: 0 }}>Children in class</h4>
-                  {r.kids.map((k: any, i: number) => <div className="at-care" key={i}><b>{k.className}</b><span>{k.count}</span></div>)}
-                </div>
-              )}
-            </div>
-          </Card>
-        )}
-        <Email toast={toast.show} />
-      </div>
       {toast.node}
     </>
   );

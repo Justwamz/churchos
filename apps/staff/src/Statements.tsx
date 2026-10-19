@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { API_URL, Button, Card, ErrorNote, Field, Note, kes, shortDate, useToast } from '@churchos/ui';
+import { API_URL, Button, ErrorNote, Field, Note, kes, shortDate, useToast } from '@churchos/ui';
+import { Card, Skeleton } from './ui';
 import { api, friendly } from './session';
 import './statements.css';
+import './money.css';
 
 /** Fetches a statement PDF with the token and opens it in a new tab. Returns a blob URL if the popup was blocked. */
 async function openPdf(id: string): Promise<string | null> {
@@ -46,7 +48,7 @@ export function StatementCard({ member, years, reason, note, reasonOk }: { membe
   };
   return (
     <div className="st-card">
-      <h4 style={{ margin: 0 }}>Giving statement</h4>
+      <h4 style={{ margin: 0, fontSize: 16 }}>Giving statement</h4>
       <div className="st-make">
         <Field label="Year"><select aria-label="Statement year" value={year} onChange={(e) => setYear(e.target.value)}>{options.map((y) => <option key={y}>{y}</option>)}</select></Field>
         <Button disabled={busy} onClick={make}>{busy ? 'Making...' : 'Make statement (PDF)'}</Button>
@@ -55,7 +57,7 @@ export function StatementCard({ member, years, reason, note, reasonOk }: { membe
       {err && <ErrorNote>{err}</ErrorNote>}
       {link && <div className="tiny">Your browser blocked the new tab. <a href={link} target="_blank" rel="noreferrer">Open the PDF</a></div>}
       <h4 style={{ margin: '8px 0 0' }}>Statements for this member</h4>
-      {list === null ? <div className="tiny">Loading...</div> : list.length === 0 ? <div className="muted">No statements made yet.</div> : (
+      {list === null ? <Skeleton lines={2} /> : list.length === 0 ? <div className="muted">No statements made yet.</div> : (
         <div className="st-list">
           {list.map((s) => (
             <div className="st-row" key={s.id}>
@@ -86,8 +88,9 @@ export function StatementSettings() {
     setBusy(false);
   };
   return (
-    <Card title="What appears on statements">
-      {!f ? (err ? <ErrorNote>{err}</ErrorNote> : <div className="tiny">Loading...</div>) : (
+    <Card>
+      <div className="mn-cardhead"><h3>What appears on statements</h3></div>
+      {!f ? (err ? <ErrorNote>{err}</ErrorNote> : <Skeleton lines={3} />) : (
         <form className="stack" onSubmit={(e) => { e.preventDefault(); save(); }}>
           <div className="st-two">
             <Field label="Registration number"><input value={f.registrationNo} maxLength={60} onChange={(e) => set('registrationNo', e.target.value)} /></Field>

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Card, ErrorNote, Field, Note, useAsync, useToast, type CertificatePayload } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, useAsync, useToast, type CertificatePayload } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Hist, Load, PageHead } from './bits';
+import { Hist } from './bits';
+import { Gate } from './MemberForm';
+import { Card, PageHeader, Section } from './ui';
+import './people.css';
 import { ScaledCard } from './Records';
 
 const MAX_LOGO = 500 * 1024;
@@ -111,90 +114,98 @@ function TemplateEditor({ data, reload }: { data: any; reload: () => void }) {
   const ro = !canEdit;
   return (
     <>
-      <div className="stack">
-        {ro && <Note tone="info">You can see the certificate design, but only people who manage templates can change it.</Note>}
-        <div className="grid cols-2" style={{ alignItems: 'start' }}>
-          <div className="stack">
-            <Card title="Wording and style">
-              <div className="stack">
-                <Field label="Church name"><input disabled={ro} value={cfg.churchName} onChange={(e) => set('churchName', e.target.value)} /></Field>
-                <Field label="Tagline (optional)"><input disabled={ro} value={cfg.tagline} onChange={(e) => set('tagline', e.target.value)} /></Field>
-                <Field label="Certificate title"><input disabled={ro} value={cfg.baptismTitle} onChange={(e) => set('baptismTitle', e.target.value)} /></Field>
-                <Field label="Wording" hint="Tap a word below to place it where your cursor is. When a card is made, each one is replaced with the real details.">
-                  <textarea ref={bodyRef} disabled={ro} rows={5} value={cfg.baptismBody} onChange={(e) => set('baptismBody', e.target.value)} />
-                </Field>
-                {!ro && <div className="chips">{CHIPS.map((k) => <button type="button" key={k} className="chip" onClick={() => insert(k)}>{`{${k}}`}</button>)}</div>}
-                <div className="tiny">{'{name}'} is the person baptised, {'{date}'} and {'{place}'} the baptism, {'{officiant}'} the minister, {'{church}'} your church name, {'{parents}'} the father and mother, and {'{sponsors}'} the sponsors.</div>
-                <Field label="Footer note (optional)"><input disabled={ro} value={cfg.footer} onChange={(e) => set('footer', e.target.value)} /></Field>
-                <Field label="Accent colour"><input type="color" disabled={ro} value={cfg.accent} onChange={(e) => set('accent', e.target.value)} style={{ width: 64, height: 40, padding: 2 }} /></Field>
-                <label className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
-                  <input type="checkbox" disabled={ro} checked={cfg.showQr} onChange={(e) => set('showQr', e.target.checked)} /> Show a QR code to verify the card
-                </label>
-              </div>
-            </Card>
-            <Card title="Signatories">
-              <div className="stack">
-                {cfg.signatories.length === 0 && <div className="tiny">No signatories. The card will have no signature lines.</div>}
-                {cfg.signatories.map((s, i) => (
-                  <div key={i} className="grid cols-2" style={{ alignItems: 'end' }}>
-                    <Field label="Name"><input disabled={ro} value={s.name} onChange={(e) => set('signatories', cfg.signatories.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} /></Field>
-                    <Field label="Title"><input disabled={ro} value={s.title} onChange={(e) => set('signatories', cfg.signatories.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} /></Field>
-                    {!ro && <div><Button small kind="ghost" onClick={() => set('signatories', cfg.signatories.filter((_, j) => j !== i))}>Remove</Button></div>}
-                  </div>
-                ))}
-                {!ro && cfg.signatories.length < 3 && <div><Button small kind="ghost" onClick={() => set('signatories', [...cfg.signatories, { name: '', title: '' }])}>Add a signatory</Button></div>}
-              </div>
-            </Card>
-            <Card title="Logo and price">
-              <div className="stack">
-                <div className="row">
-                  {shownLogo ? <img src={shownLogo} alt="Current logo" style={{ maxHeight: 64, maxWidth: 160 }} /> : <span className="tiny">No logo yet.</span>}
-                  {!ro && (
-                    <>
-                      <input ref={logoInput} type="file" accept=".png,.jpg,.jpeg,.svg" style={{ display: 'none' }} onChange={(e) => pickLogo(e.target.files?.[0])} />
-                      <Button small kind="ghost" onClick={() => logoInput.current?.click()}>{shownLogo ? 'Replace logo' : 'Upload logo'}</Button>
-                      {shownLogo && <Button small kind="ghost" onClick={() => setLogo(null)}>Remove</Button>}
-                    </>
-                  )}
-                </div>
-                <div className="tiny">PNG, JPG or SVG, up to 500 KB.</div>
-                <Field label="Price of a copy (KES)" hint="The first card is always free. Enter 0 to keep copies free, or an amount from KES 10 to KES 5,000.">
-                  <input type="number" min={0} max={5000} step={1} inputMode="numeric" disabled={ro} value={cfg.price} onChange={(e) => set('price', e.target.value)} />
-                </Field>
-              </div>
-            </Card>
-            {error && <ErrorNote>{error}</ErrorNote>}
-            {!ro && <div><Button disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save certificate design'}</Button></div>}
-          </div>
-          <div className="stack" style={{ minWidth: 0 }}>
-            <Card title="Live preview">
+      {ro && <><Note tone="info">You can see the certificate design, but only people who manage templates can change it.</Note><div style={{ height: 16 }} /></>}
+      <div className="pp-two-col">
+        <div className="pp-sticky pp-stack pp-col2">
+          <Section title="Preview" hint="This is a sample. Real cards use each person's own details.">
+            <Card>
               {branches.length > 1 && (
                 <Field label="Show details for branch"><select value={sel} onChange={(e) => setSel(e.target.value)}>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
               )}
-              <div style={{ marginTop: 8 }}><ScaledCard c={payload} /></div>
-              <div className="tiny" style={{ marginTop: 6 }}>This is a sample. Real cards use each person's own details.</div>
+              <div className="pp-preview"><ScaledCard c={payload} /></div>
             </Card>
-          </div>
+          </Section>
         </div>
-        <Card title="Branch details on the card">
-          <p className="muted" style={{ marginTop: 0 }}>Each card shows the address and contact details of the branch that issued it.</p>
-          <div className="stack">
-            {branches.map((b) => (
-              <div key={b.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 12 }}>
-                <div className="row between"><b>{b.name}</b><Hist entity="branch_profile" entityId={b.id} title={`${b.name} address`} label="Address history" /></div>
-                <div className="grid cols-2" style={{ marginTop: 8 }}>
-                  <Field label="Address"><input disabled={ro} value={b.address} onChange={(e) => setBranch(b.id, 'address', e.target.value)} /></Field>
-                  <Field label="Town"><input disabled={ro} value={b.town} onChange={(e) => setBranch(b.id, 'town', e.target.value)} /></Field>
-                  <Field label="Phone"><input disabled={ro} value={b.phone} onChange={(e) => setBranch(b.id, 'phone', e.target.value)} /></Field>
-                  <Field label="Email"><input disabled={ro} type="email" value={b.email} onChange={(e) => setBranch(b.id, 'email', e.target.value)} /></Field>
-                </div>
-                {!ro && <div style={{ marginTop: 8 }}><Button small disabled={bBusy === b.id} onClick={() => saveBranch(b)}>{bBusy === b.id ? 'Saving…' : 'Save branch details'}</Button></div>}
+        <div className="pp-stack pp-col1">
+          <Section title="1. Wording" hint="What the card says.">
+            <Card>
+              <Field label="Church name"><input disabled={ro} value={cfg.churchName} onChange={(e) => set('churchName', e.target.value)} /></Field>
+              <Field label="Tagline (optional)"><input disabled={ro} value={cfg.tagline} onChange={(e) => set('tagline', e.target.value)} /></Field>
+              <Field label="Certificate title"><input disabled={ro} value={cfg.baptismTitle} onChange={(e) => set('baptismTitle', e.target.value)} /></Field>
+              <Field label="Wording" hint="Tap a word below to place it where your cursor is. When a card is made, each one is replaced with the real details.">
+                <textarea ref={bodyRef} disabled={ro} rows={5} value={cfg.baptismBody} onChange={(e) => set('baptismBody', e.target.value)} />
+              </Field>
+              {!ro && <div className="chips" style={{ marginBottom: 12 }}>{CHIPS.map((k) => <button type="button" key={k} className="chip" onClick={() => insert(k)}>{`{${k}}`}</button>)}</div>}
+              <p className="pp-note" style={{ marginBottom: 16 }}>{'{name}'} is the person baptised, {'{date}'} and {'{place}'} the baptism, {'{officiant}'} the minister, {'{church}'} your church name, {'{parents}'} the father and mother, and {'{sponsors}'} the sponsors.</p>
+              <Field label="Footer note (optional)"><input disabled={ro} value={cfg.footer} onChange={(e) => set('footer', e.target.value)} /></Field>
+            </Card>
+          </Section>
+          <Section title="2. Look" hint="Colour, logo and the verification code.">
+            <Card>
+              <Field label="Accent colour"><input className="pp-swatch" type="color" disabled={ro} value={cfg.accent} onChange={(e) => set('accent', e.target.value)} /></Field>
+              <div className="pp-row-flex" style={{ marginBottom: 6 }}>
+                {shownLogo ? <img src={shownLogo} alt="Current logo" style={{ maxHeight: 64, maxWidth: 160 }} /> : <span className="pp-tiny">No logo yet.</span>}
+                {!ro && (
+                  <>
+                    <input ref={logoInput} type="file" accept=".png,.jpg,.jpeg,.svg" style={{ display: 'none' }} onChange={(e) => pickLogo(e.target.files?.[0])} />
+                    <Button small kind="ghost" onClick={() => logoInput.current?.click()}>{shownLogo ? 'Replace logo' : 'Upload logo'}</Button>
+                    {shownLogo && <Button small kind="ghost" onClick={() => setLogo(null)}>Remove</Button>}
+                  </>
+                )}
               </div>
-            ))}
-            {bError && <ErrorNote>{bError}</ErrorNote>}
-          </div>
-        </Card>
+              <p className="pp-note" style={{ marginBottom: 16 }}>PNG, JPG or SVG, up to 500 KB.</p>
+              <label className={`pp-choice ${cfg.showQr ? 'on' : ''}`}>
+                <input type="checkbox" disabled={ro} checked={cfg.showQr} onChange={(e) => set('showQr', e.target.checked)} /> <span>Show a QR code to verify the card</span>
+              </label>
+            </Card>
+          </Section>
+          <Section title="3. Signatures" hint="Up to three people who sign the card.">
+            <Card>
+              {cfg.signatories.length === 0 && <p className="pp-note">No signatories. The card will have no signature lines.</p>}
+              {cfg.signatories.map((s, i) => (
+                <div key={i} className="grid cols-2" style={{ alignItems: 'end' }}>
+                  <Field label="Name"><input disabled={ro} value={s.name} onChange={(e) => set('signatories', cfg.signatories.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} /></Field>
+                  <Field label="Title"><input disabled={ro} value={s.title} onChange={(e) => set('signatories', cfg.signatories.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} /></Field>
+                  {!ro && <div style={{ marginBottom: 16 }}><Button small kind="ghost" onClick={() => set('signatories', cfg.signatories.filter((_, j) => j !== i))}>Remove</Button></div>}
+                </div>
+              ))}
+              {!ro && cfg.signatories.length < 3 && <div><Button small kind="ghost" onClick={() => set('signatories', [...cfg.signatories, { name: '', title: '' }])}>Add a signatory</Button></div>}
+            </Card>
+          </Section>
+          <Section title="4. Price of a copy">
+            <Card>
+              <Field label="Price of a copy (KES)" hint="The first card is always free. Enter 0 to keep copies free, or an amount from KES 10 to KES 5,000.">
+                <input type="number" min={0} max={5000} step={1} inputMode="numeric" disabled={ro} value={cfg.price} onChange={(e) => set('price', e.target.value)} />
+              </Field>
+            </Card>
+          </Section>
+        </div>
       </div>
+      {error && <><div style={{ height: 16 }} /><ErrorNote>{error}</ErrorNote></>}
+      {!ro && (
+        <div className="pp-bar">
+          <span className="pp-note">Wording, look, signatures and price are saved together.</span>
+          <Button disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save certificate design'}</Button>
+        </div>
+      )}
+      <details className="pp-disc" style={{ marginTop: 24 }}>
+        <summary><span>Branch details on the card<small>Each card shows the address and contact details of the branch that issued it.</small></span></summary>
+        <div className="pp-disc-body">
+          {branches.map((b) => (
+            <div key={b.id} className="pp-psec" style={{ borderBottom: 0, padding: 0 }}>
+              <div className="pp-hist"><b>{b.name}</b><Hist entity="branch_profile" entityId={b.id} title={`${b.name} address`} label="Address history" /></div>
+              <div className="grid cols-2">
+                <Field label="Address"><input disabled={ro} value={b.address} onChange={(e) => setBranch(b.id, 'address', e.target.value)} /></Field>
+                <Field label="Town"><input disabled={ro} value={b.town} onChange={(e) => setBranch(b.id, 'town', e.target.value)} /></Field>
+                <Field label="Phone"><input disabled={ro} value={b.phone} onChange={(e) => setBranch(b.id, 'phone', e.target.value)} /></Field>
+                <Field label="Email"><input disabled={ro} type="email" value={b.email} onChange={(e) => setBranch(b.id, 'email', e.target.value)} /></Field>
+              </div>
+              {!ro && <div><Button small disabled={bBusy === b.id} onClick={() => saveBranch(b)}>{bBusy === b.id ? 'Saving…' : 'Save branch details'}</Button></div>}
+            </div>
+          ))}
+          {bError && <ErrorNote>{bError}</ErrorNote>}
+        </div>
+      </details>
       {toast.node}
     </>
   );
@@ -207,10 +218,10 @@ export function Template() {
   useEffect(() => { setV((x) => x + 1); }, [d.data]);
   return (
     <>
-      <PageHead title="Certificate design" sub="How your baptism cards look." action={<Hist entity="template" entityId={s.grant.org.id} title="Certificate design" label="Design history" />} />
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
+      <PageHeader title="Certificate design" subtitle="How your baptism cards look. Change the words and watch the card update." actions={<Hist entity="template" entityId={s.grant.org.id} title="Certificate design" label="Design history" />} />
+      <Gate loading={d.loading} error={d.error} hasData={!!d.data}>
         {d.data && <TemplateEditor key={v} data={d.data} reload={d.reload} />}
-      </Load>
+      </Gate>
     </>
   );
 }

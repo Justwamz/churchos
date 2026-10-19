@@ -141,7 +141,6 @@ export function ComposeMessage({ onClose, onSent }: { onClose: () => void; onSen
 
   return (
     <div className="stack">
-      <div className="row between"><h2 style={{ margin: 0 }}>New message</h2><Button kind="ghost" small onClick={onClose}>Cancel</Button></div>
       <Note tone="info">Choose who it is for and ChurchOS delivers it. You never need phone numbers.</Note>
 
       <Card title="1. Who is it for?">

@@ -9,3 +9,8 @@
 .ev-date span { font-size: 12px; text-transform: uppercase; color: var(--ink-2); }
 .cm-split { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
 @media (max-width: 800px) { .cm-split { grid-template-columns: 1fr; } }
+/* worship pass: events */
+.ev-item { grid-template-columns: 64px minmax(0, 1fr); gap: 16px; margin-bottom: 14px; padding: 20px; }
+.ev-date { background: var(--accent-tint); border-color: transparent; }
+.ev-date b { color: var(--accent); }
+@media (max-width: 600px) { .ev-item { grid-template-columns: 52px minmax(0, 1fr); gap: 12px; padding: 16px; } .ev-date { width: 52px; } .wo-actions .btn { flex: 1 1 auto; } }

@@ -934,3 +934,7 @@ h3 { font-size: 17px; }
 .rdg-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 52px; padding: 10px 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .rdg-row-main { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .rdg-open { padding: 0 0 12px; }
+
+/* ---- Manrope: aligned figures stay tidy, big headings a little tighter ---- */
+.amt, .amount-input, .hero-total strong, .bk-price strong, .shop-price, .tk-sum-row.grand strong, .stat-value, .big-amount, .thanks-amt { font-variant-numeric: tabular-nums; }
+.appbar-title strong, .hero-total strong, .thanks-amt, .shop-price.big, .amount-input { letter-spacing: -0.02em; }

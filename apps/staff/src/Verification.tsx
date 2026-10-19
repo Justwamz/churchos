@@ -1,15 +1,17 @@
 import { useRef, useState } from 'react';
-import { Badge, Button, Card, Note, Table, dateOnly, useAsync, useToast } from '@churchos/ui';
+import { Button, Note, dateOnly, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './bits';
+import { Card, PageHeader, Section, Skeleton, StatusChip } from './ui';
+import './setup.css';
 
 const MAX_BYTES = 3 * 1024 * 1024;
 
 function DocStatus({ doc }: { doc: any }) {
-  if (!doc) return <Badge tone="muted">Not uploaded</Badge>;
-  if (doc.status === 'approved') return <Badge tone="good">Approved</Badge>;
-  if (doc.status === 'rejected') return <Badge tone="bad">Needs a new upload</Badge>;
-  return <Badge tone="info">Waiting for review</Badge>;
+  if (!doc) return <StatusChip tone="off">Not uploaded</StatusChip>;
+  if (doc.status === 'approved') return <StatusChip tone="done">Approved</StatusChip>;
+  if (doc.status === 'rejected') return <StatusChip tone="bad">Needs a new upload</StatusChip>;
+  return <StatusChip tone="info">Waiting for review</StatusChip>;
 }
 
 function readAsBase64(file: File): Promise<string> {
@@ -21,7 +23,7 @@ function readAsBase64(file: File): Promise<string> {
   });
 }
 
-function DocRow({ title, type, branchId, doc, onDone }: { title: string; type: string; branchId?: string; doc: any; onDone: () => void }) {
+function DocRow({ n, title, type, branchId, doc, onDone }: { n: number; title: string; type: string; branchId?: string; doc: any; onDone: () => void }) {
   const toast = useToast();
   const s = useSession();
   const input = useRef<HTMLInputElement>(null);
@@ -43,20 +45,22 @@ function DocRow({ title, type, branchId, doc, onDone }: { title: string; type: s
     reset();
   };
 
+  const tone = doc?.status === 'approved' ? 'done' : doc?.status === 'rejected' ? 'bad' : '';
   return (
-    <tr>
-      <td><b>{title}</b></td>
-      <td>
+    <div className={`setup-step ${tone}`}>
+      <span className="setup-num">{doc?.status === 'approved' ? '✓' : n}</span>
+      <div className="setup-step-main">
+        <b>{title}</b>
+        {doc ? <span className="tiny">{doc.filename} · {dateOnly(doc.created_at)}</span> : <span className="tiny">Nothing uploaded yet</span>}
+        {doc?.status === 'rejected' && <span className="tiny" style={{ color: 'var(--bad)' }}>Reason: {doc.reason || 'Please upload a clearer copy.'}</span>}
+      </div>
+      <div className="setup-step-side">
         <DocStatus doc={doc} />
-        {doc?.status === 'rejected' && <div className="tiny" style={{ marginTop: 4 }}>Reason: {doc.reason || 'Please upload a clearer copy.'}</div>}
-      </td>
-      <td>{doc ? <>{doc.filename}<div className="tiny">{dateOnly(doc.created_at)}</div></> : <span className="tiny">Nothing yet</span>}</td>
-      <td>
-        <input ref={input} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} onChange={(e) => pick(e.target.files?.[0])} />
+        <input ref={input} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: 'none' }} aria-label={`Choose a file for ${title}`} onChange={(e) => pick(e.target.files?.[0])} />
         <Button small kind={doc ? 'ghost' : 'primary'} disabled={busy} onClick={() => input.current?.click()}>{busy ? 'Uploading…' : doc ? 'Replace' : 'Upload'}</Button>
         {toast.node}
-      </td>
-    </tr>
+      </div>
+    </div>
   );
 }
 
@@ -68,31 +72,36 @@ export function Verification() {
 
   return (
     <>
-      <PageHead title="Verification" sub="Confirm your church so payouts can be released." />
-      <Load loading={d.loading} error={d.error} hasData={!!data}>
+      <PageHeader title="Verification" subtitle="Confirm your church so payouts can be released." />
+      {!data && !d.error && <Skeleton rows={4} height={72} />}
+      <Load loading={false} error={d.error} hasData={!!data}>
         {data && (
-          <div className="stack">
+          <>
             <Note tone={allOk ? 'good' : 'warn'}>
-              {allOk ? 'Your church can be paid out.' : 'Not verified yet: you can collect, and money is held safely until you are approved.'}
+              {allOk ? 'Your church is verified and can be paid out.' : 'Not verified yet. You can keep collecting, and the money is held safely until you are approved.'}
             </Note>
-            <Card title="What we need">
-              <p className="muted" style={{ marginTop: 0 }}>
-                The registration certificate proves your church is a registered body. The KRA PIN certificate is your tax registration. The signatory ID is the ID of a person authorised to receive money for the church. The payout proof, one per branch, is a bank statement, cheque leaf or mobile money statement showing the account that will be paid. Files may be PDF, JPG or PNG up to 3 MB. If you upload a document again, the newest upload of that type is the one we review.
-              </p>
-            </Card>
-            <Card title="Church documents">
-              <Table head={['Document', 'Status', 'File', '']}>
-                {data.required.map((r: any) => <DocRow key={r.type} title={r.label} type={r.type} doc={r.latest} onDone={d.reload} />)}
-              </Table>
-            </Card>
-            <Card title="Payout account proof, per branch">
-              <Table head={['Branch', 'Status', 'File', '']}>
-                {data.branches.map((b: any) => (
-                  <DocRow key={b.id} title={`${b.name}${b.verified ? ' (verified)' : ''}`} type="payout_proof" branchId={b.id} doc={b.payoutProof.latest} onDone={d.reload} />
-                ))}
-              </Table>
-            </Card>
-          </div>
+            <Section title="Step 1: Church documents" hint="PDF, JPG or PNG, up to 3 MB. If you upload again, we review the newest file of that type.">
+              <Card pad={false}>
+                <div className="setup-steps">
+                  {data.required.map((r: any, i: number) => <DocRow key={r.type} n={i + 1} title={r.label} type={r.type} doc={r.latest} onDone={d.reload} />)}
+                </div>
+              </Card>
+            </Section>
+            <Section title="Step 2: Proof of payout account, one per branch" hint="A bank statement, cheque leaf or mobile money statement showing the account that will be paid.">
+              <Card pad={false}>
+                <div className="setup-steps">
+                  {data.branches.map((b: any, i: number) => (
+                    <DocRow key={b.id} n={i + 1} title={`${b.name}${b.verified ? ' (verified)' : ''}`} type="payout_proof" branchId={b.id} doc={b.payoutProof.latest} onDone={d.reload} />
+                  ))}
+                </div>
+              </Card>
+            </Section>
+            <Section title="What each document is for">
+              <Card>
+                <p className="muted" style={{ margin: 0 }}>The registration certificate shows your church is a registered body. The KRA PIN certificate is your tax registration. The signatory ID belongs to a person who may receive money for the church.</p>
+              </Card>
+            </Section>
+          </>
         )}
       </Load>
     </>

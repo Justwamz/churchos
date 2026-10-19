@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { Button, Empty, ErrorNote, Field, useAsync } from '@churchos/ui';
+import { Button, ErrorNote, Field, useAsync } from '@churchos/ui';
 import { api, friendly } from './session';
-import { Load, PageHead } from './bits';
+import { Icon } from './icons';
+import { useWords } from './words';
+import { EmptyState, PageHeader, Skeleton, StatusChip } from './ui';
+import './worship.css';
 import './usher.css';
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
@@ -233,18 +236,18 @@ function Working({ svc, reloadSvc }: { svc: any; reloadSvc: () => void }) {
   const recent: any[] = (live.data?.recent ?? []).slice(0, 12);
 
   return (
-    <div className="us">
+    <div className="wo-task">
       {banner && (
         <div className={`us-result ${banner.tone}`} role="status" aria-live="assertive" onClick={() => setBanner(null)}>
           <div className="t">{banner.title}</div>
           {banner.line && <div>{banner.line}</div>}
         </div>
       )}
-      <div className="card" style={{ textAlign: 'center' }}>
-        <div className="tiny">{svc.church} · {svc.branch}</div>
-        <b>{svc.name}</b> <span className="tiny">{when(svc.startsAt)}</span>
+      <div className="wo-banner">
+        <div><b>{svc.name}</b><div className="tiny">{svc.church} · {svc.branch}</div></div>
+        <span className="tiny">{when(svc.startsAt)}</span>
       </div>
-      <div className="us-counters" aria-live="polite">
+      <div className="wo-big" aria-live="polite">
         <div><b>{cn.members}</b><span>Members</span></div>
         <div><b>{cn.visitors}</b><span>Visitors</span></div>
         <div><b>{cn.online}</b><span>Online</span></div>
@@ -252,7 +255,7 @@ function Working({ svc, reloadSvc }: { svc: any; reloadSvc: () => void }) {
       </div>
       {err && <ErrorNote>{err}</ErrorNote>}
 
-      <div className="us-tabs" role="tablist">
+      <div className="wo-modes" role="tablist">
         <button role="tab" aria-selected={tab === 'scan'} className={tab === 'scan' ? 'on' : ''} onClick={() => setTab('scan')}>Scan a member</button>
         <button role="tab" aria-selected={tab === 'find'} className={tab === 'find' ? 'on' : ''} onClick={() => setTab('find')}>Find a member</button>
         <button role="tab" aria-selected={tab === 'visitor'} className={tab === 'visitor' ? 'on' : ''} onClick={() => setTab('visitor')}>Add a visitor</button>
@@ -260,31 +263,31 @@ function Working({ svc, reloadSvc }: { svc: any; reloadSvc: () => void }) {
 
       {tab === 'scan' && (
         <div className="card stack">
-          <div className="us-video" style={camOn ? undefined : { aspectRatio: '16 / 7' }}>
+          <div className={`wo-scan ${camOn ? 'live' : 'idle'}`}>
             <video ref={video} playsInline muted style={camOn ? undefined : { display: 'none' }} />
-            {camOn && <div className="fr" aria-hidden="true" />}
-            {!camOn && <div>Point the camera at the code in the member's app</div>}
+            {camOn && <div className="wo-frame" aria-hidden="true" />}
+            {!camOn && <div className="wo-scan-hint"><Icon name="checkin" size={40} />Point the camera at the code in the member's app</div>}
           </div>
           <canvas ref={canvas} hidden />
-          <div className="row">{camOn ? <Button kind="ghost" onClick={stop}>Stop scanning</Button> : <Button onClick={start}>Start scanning</Button>}</div>
+          {camOn ? <Button kind="ghost" onClick={stop}>Stop scanning</Button> : <Button onClick={start}>Start scanning</Button>}
           {camMsg && <ErrorNote>{camMsg}</ErrorNote>}
           <form className="stack" onSubmit={(e) => { e.preventDefault(); const t = typed; setTyped(''); last.current = { code: '', at: 0 }; send(t); }}>
             <Field label="Or type or paste the code"><input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="A1...." autoCapitalize="off" autoCorrect="off" spellCheck={false} /></Field>
-            <div className="row"><Button type="submit" disabled={!typed.trim()}>Count this member</Button></div>
+            <Button type="submit" disabled={!typed.trim()}>Count this member</Button>
           </form>
         </div>
       )}
 
       {tab === 'find' && (
-        <div className="card stack">
-          <Field label="Name or member number"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type at least 2 letters" autoCorrect="off" /></Field>
+        <div className="card stack wo-find">
+          <Field label="Name or member number"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type at least 2 letters" autoCorrect="off" autoFocus /></Field>
           {found && found.length === 0 && <div className="tiny">No member found. You can add them as a visitor.</div>}
           {found && found.length > 0 && (
-            <div className="us-rows">
+            <div className="wo-rows">
               {found.map((m) => (
                 <div key={m.id}>
                   <span className="nm"><b>{m.name}</b> <span className="tiny">{m.memberNumber}</span></span>
-                  {m.here ? <span className="us-chip good">Here</span> : <Button small onClick={() => mark(m)}>Mark present</Button>}
+                  {m.here ? <StatusChip tone="done">Here</StatusChip> : <Button onClick={() => mark(m)}>Mark present</Button>}
                 </div>
               ))}
             </div>
@@ -296,67 +299,77 @@ function Working({ svc, reloadSvc }: { svc: any; reloadSvc: () => void }) {
         <form className="card stack" onSubmit={(e) => { e.preventDefault(); if (!vBusy) addVisitor(); }}>
           <Field label="Name"><input value={vName} onChange={(e) => setVName(e.target.value)} autoComplete="off" /></Field>
           <Field label="Phone number" hint="A phone number that belongs to a member counts as that member."><input value={vPhone} onChange={(e) => setVPhone(e.target.value)} inputMode="tel" placeholder="0712 345 678" autoComplete="off" /></Field>
-          <div className="row"><Button type="submit" disabled={vBusy || !vName.trim() || !vPhone.trim()}>Add visitor</Button></div>
+          <Button type="submit" disabled={vBusy || !vName.trim() || !vPhone.trim()}>Add visitor</Button>
         </form>
       )}
 
       <div className="card stack">
-        <h3 style={{ margin: 0 }}>Headcount</h3>
-        <div className="tiny">Count the people in the room{hc ? `. Last saved total: ${hc.total}.` : '.'}</div>
-        <Stepper label="Adults" value={a} set={setA} />
-        <Stepper label="Children" value={c} set={setC} />
-        <Stepper label="Visitors" value={v} set={setV} />
-        <div className="row"><Button onClick={saveHc}>Save headcount</Button></div>
-        {hcMsg && <div className="tiny" role="status">{hcMsg}</div>}
-        <hr style={{ border: 0, borderTop: '1px solid var(--line)', width: '100%' }} />
-        <Field label="Online peak (from YouTube)"><input inputMode="numeric" value={peak} onChange={(e) => setPeak(e.target.value.replace(/\D/g, '').slice(0, 6))} /></Field>
-        <div className="row"><Button onClick={savePeak}>Save online peak</Button></div>
-        {pkMsg && <div className="tiny" role="status">{pkMsg}</div>}
-      </div>
-
-      <div className="card stack">
-        <h3 style={{ margin: 0 }}>Door screen</h3>
-        <div className="tiny">A big code visitors scan with their phone camera.</div>
-        <div className="row"><Button kind="ghost" onClick={() => setDoorOpen(true)}>Show door screen</Button></div>
-      </div>
-      {doorOpen && <DoorScreen id={id} onClose={closeDoor} />}
-
-      <div className="card stack">
         <h3 style={{ margin: 0 }}>Just now</h3>
         {recent.length ? (
-          <div className="us-rows">
+          <div className="wo-rows">
             {recent.map((r, i) => (
               <div key={i}>
-                <span className="nm"><b>{r.name}</b><br /><span className={`us-chip ${r.kind === 'member' ? 'good' : 'info'}`}>{r.kind}</span>{r.mode === 'online' && <span className="us-chip">online</span>}<span className="tiny">{VIA[r.via] ?? r.via}</span></span>
+                <span className="nm"><b>{r.name}</b><br /><StatusChip tone={r.kind === 'member' ? 'done' : 'info'}>{r.kind}</StatusChip>{r.mode === 'online' && <> <StatusChip tone="off">online</StatusChip></>} <span className="tiny">{VIA[r.via] ?? r.via}</span></span>
                 <span className="tiny">{clock(r.at)}</span>
               </div>
             ))}
           </div>
         ) : <div className="tiny">No one has been counted yet.</div>}
       </div>
+
+      <details className="wo-more">
+        <summary>Headcount and door screen</summary>
+        <div>
+          <div>
+            <h3 style={{ margin: 0 }}>Headcount</h3>
+            <div className="tiny">Count the people in the room{hc ? `. Last saved total: ${hc.total}.` : '.'}</div>
+          </div>
+          <Stepper label="Adults" value={a} set={setA} />
+          <Stepper label="Children" value={c} set={setC} />
+          <Stepper label="Visitors" value={v} set={setV} />
+          <Button onClick={saveHc}>Save headcount</Button>
+          {hcMsg && <div className="tiny" role="status">{hcMsg}</div>}
+          <hr style={{ border: 0, borderTop: '1px solid var(--line)', width: '100%' }} />
+          <Field label="Online peak (from YouTube)"><input inputMode="numeric" value={peak} onChange={(e) => setPeak(e.target.value.replace(/\D/g, '').slice(0, 6))} /></Field>
+          <Button onClick={savePeak}>Save online peak</Button>
+          {pkMsg && <div className="tiny" role="status">{pkMsg}</div>}
+          <hr style={{ border: 0, borderTop: '1px solid var(--line)', width: '100%' }} />
+          <div>
+            <h3 style={{ margin: 0 }}>Door screen</h3>
+            <div className="tiny">A big code visitors scan with their phone camera.</div>
+          </div>
+          <Button kind="ghost" onClick={() => setDoorOpen(true)}>Show door screen</Button>
+        </div>
+      </details>
+      {doorOpen && <DoorScreen id={id} onClose={closeDoor} />}
     </div>
   );
 }
 
 function Coming() {
+  const w = useWords();
   const today = new Date();
   const iso = (d: Date) => d.toISOString().slice(0, 10);
   const to = new Date(today.getTime() + 3 * 86400000);
   const r = useAsync<any>(() => api.get(`/attendance/services?from=${iso(today)}&to=${iso(to)}`), []);
+  if (r.error && !r.data) return <ErrorNote>{friendly(r.error)}</ErrorNote>;
+  if (r.loading && !r.data) return <Skeleton rows={2} height={48} />;
   return (
-    <Load loading={r.loading} error={r.error} hasData={!!r.data}>
-      {r.data && (r.data.services.length === 0 ? <div className="tiny">No services in the next 3 days.</div> : (
-        <div className="us-rows">
+    <>
+      {r.error && <ErrorNote>{friendly(r.error)}</ErrorNote>}
+      {r.data && (r.data.services.length === 0 ? <div className="tiny">No {w.manyLower} in the next 3 days.</div> : (
+        <div className="wo-rows">
           {r.data.services.map((s: any) => (
             <div key={s.id}><span className="nm"><b>{s.name}</b> <span className="tiny">{s.branch}</span></span><span className="tiny">{when(s.startsAt)}</span></div>
           ))}
         </div>
       ))}
-    </Load>
+    </>
   );
 }
 
 export function Usher() {
+  const w = useWords();
   const list = useAsync<any>(() => api.get('/attendance/open'), []);
   const reload = list.reload;
   const [pick, setPick] = useState('');
@@ -367,23 +380,23 @@ export function Usher() {
   const chosen = services.find((s) => s.id === pick) ?? services[0];
   return (
     <div>
-      <PageHead title="Usher" sub="Record who came to the service." />
-      <Load loading={list.loading && !list.data} error={list.error} hasData={!!list.data}>
-        {list.data && (!chosen ? (
-          <div className="us">
-            <Empty>No service is open for check-in right now. It opens 20 minutes before the start. A manager sets the schedule under Services.</Empty>
-            {showComing ? <div className="card stack"><h3 style={{ margin: 0 }}>Coming services</h3><Coming /></div>
-              : <div className="row" style={{ justifyContent: 'center' }}><Button kind="ghost" onClick={() => setShowComing(true)}>Show coming services</Button></div>}
+      <PageHeader title="Usher" subtitle={`Record who came to the ${w.oneLower}.`} />
+      {list.error && !list.data ? <ErrorNote>{friendly(list.error)}</ErrorNote>
+        : list.loading && !list.data ? <div className="wo-task"><Skeleton rows={3} height={90} /></div>
+        : list.data && (!chosen ? (
+          <div className="wo-task">
+            <div className="card"><EmptyState icon="checkin" title={`No ${w.oneLower} is open for check-in`} text={`It opens 20 minutes before the start. A manager sets the schedule under ${w.many}.`} /></div>
+            {showComing ? <div className="card stack"><h3 style={{ margin: 0 }}>Coming {w.manyLower}</h3><Coming /></div>
+              : <Button kind="ghost" onClick={() => setShowComing(true)}>Show coming {w.manyLower}</Button>}
           </div>
         ) : (
           <div className="stack">
             {services.length > 1 && (
-              <div className="us"><Field label="Service"><select value={chosen.id} onChange={(e) => setPick(e.target.value)}>{services.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch} ({clock(s.startsAt)})</option>)}</select></Field></div>
+              <div className="wo-task"><Field label={w.one}><select value={chosen.id} onChange={(e) => setPick(e.target.value)}>{services.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.branch} ({clock(s.startsAt)})</option>)}</select></Field></div>
             )}
             <Working key={chosen.id} svc={chosen} reloadSvc={reload} />
           </div>
         ))}
-      </Load>
     </div>
   );
 }

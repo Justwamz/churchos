@@ -1,8 +1,16 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly } from './session';
-import { Load, PageHead } from './bits';
+import { useWords } from './words';
+import { Card, EmptyState, PageHeader, Section, Skeleton, Stat, StatTiles, StatusChip } from './ui';
 import './attendance.css';
+import './worship.css';
+
+function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
+  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (loading && !hasData) return <Skeleton rows={3} height={72} />;
+  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+}
 
 const dayTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
 const metres = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
@@ -79,62 +87,64 @@ function BranchCard({ b, canManage, onChanged, say }: { b: any; canManage: boole
     ['Stopped by the boundary', st.blocked, 'Members who tried to check in from too far away, or whose phone could not say where it was.'],
   ];
   return (
-    <Card title={b.name}>
+    <Section title={b.name}>
+    <Card>
       <div className="stack">
-        <div>{b.location ? <Badge tone="good">{`Location set, ${b.location.radiusM} m`}</Badge> : <Badge tone="warn">No location set. Anyone can check in from anywhere.</Badge>}</div>
+        <div>{b.location ? <StatusChip tone="done">{`Location set, ${b.location.radiusM} m`}</StatusChip> : <StatusChip tone="wait">No location set. Anyone can check in from anywhere.</StatusChip>}</div>
         {canManage ? (
           <>
             <PlaceFields lat={lat} lng={lng} radius={radius} setLat={setLat} setLng={setLng} setRadius={setRadius} min={30} max={2000} />
             <p className="tiny" style={{ margin: 0 }}>Members must be inside this distance to check in at the church. If your sanctuary is large or the signal is poor, use 150 to 300 m.</p>
             {err && <ErrorNote>{err}</ErrorNote>}
-            <div className="row" style={{ gap: 8 }}>
+            <div className="wo-actions">
               <Button disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save'}</Button>
               {b.location && <Button kind="danger" disabled={busy} onClick={clear}>Remove location</Button>}
             </div>
           </>
         ) : b.location && <div className="tiny">{b.location.lat}, {b.location.lng}</div>}
         <h4 style={{ margin: '8px 0 0' }}>Last 8 weeks</h4>
-        <div className="at-tiles">
-          {tiles.map(([l, v, d]) => (
-            <div className="at-tile" key={l}><div className="l">{l}</div><div className="v">{v}</div><div className="tiny">{d}</div></div>
-          ))}
-        </div>
+        <StatTiles>
+          {tiles.map(([l, v, d]) => <Stat key={l} label={l} value={v} hint={d} />)}
+        </StatTiles>
       </div>
     </Card>
+    </Section>
   );
 }
 
 export function Boundaries() {
+  const w = useWords();
   const toast = useToast();
   const d = useAsync<any>(() => api.get('/attendance/boundaries'), []);
   const data = d.data;
   return (
     <>
-      <PageHead title="Check-in boundary" sub="Where members must be to check in at church." />
+      <PageHeader title="Check-in boundary" subtitle="Where members must be to check in at church." />
       <Load loading={d.loading} error={d.error} hasData={!!data}>
         {data && (
-          <div className="stack">
-            <Note tone="info">Set the place of each branch. A member's phone must be inside the distance you choose. A single service, such as a crusade ground, can have its own place: see Services, Coming services, Edit.</Note>
-            {data.branches.length === 0 && <Empty>No branches.</Empty>}
+          <div>
+            <Note tone="info">{`Set the place of each branch. A member's phone must be inside the distance you choose. A single ${w.oneLower}, such as a crusade ground, can have its own place: see ${w.many}, Upcoming, Manage.`}</Note>
+            {data.branches.length === 0 && <Card><EmptyState icon="building" title="No branches" /></Card>}
             {data.branches.map((b: any) => <BranchCard key={b.id} b={b} canManage={!!data.canManage} onChanged={d.reload} say={toast.show} />)}
-            <Card title="Check-ins that were stopped">
-              {data.blocked.length === 0 ? <Empty>No check-ins were stopped recently.</Empty> : (
+            <Section title="Check-ins that were stopped" hint="If many members are stopped when they are really at church, make the distance bigger.">
+            <Card pad={false}>
+              {data.blocked.length === 0 ? <EmptyState icon="shield" title="No check-ins were stopped recently" /> : (
                 <table className="at-table">
-                  <thead><tr><th>Time</th><th>Name</th><th>What happened</th><th>Service</th></tr></thead>
+                  <thead><tr><th>Time</th><th>Name</th><th>What happened</th><th>{w.one}</th></tr></thead>
                   <tbody>
                     {data.blocked.map((x: any, i: number) => (
                       <tr key={i}>
                         <td data-l="Time">{dayTime(x.at)}</td>
                         <td data-l="Name"><b>{x.name}</b></td>
                         <td data-l="What happened">{x.status === 'away' ? `Too far (${metres(x.distanceM ?? 0)})` : 'Phone could not say where it was'}</td>
-                        <td data-l="Service">{x.service}{x.branch ? <div className="tiny">{x.branch}</div> : null}</td>
+                        <td data-l={w.one}>{x.service}{x.branch ? <div className="tiny">{x.branch}</div> : null}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
-              <p className="tiny" style={{ marginBottom: 0 }}>If many members are stopped when they are really at church, make the distance bigger.</p>
             </Card>
+            </Section>
           </div>
         )}
       </Load>

@@ -4,3 +4,5 @@
 .st-row { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: grid; gap: 4px; }
 .st-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 600px) { .st-two { grid-template-columns: 1fr; } }
+.st-card h4 { font-size: 16px; }
+.st-row { border-color: var(--line-soft); background: var(--paper); border-radius: 12px; padding: 12px 14px; }

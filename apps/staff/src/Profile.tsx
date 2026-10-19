@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Card, ErrorNote, Field, Note, phonePretty, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, ErrorNote, Field, Note, phonePretty, useAsync, useToast } from '@churchos/ui';
 import { api, friendly } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './bits';
+import { PageHeader, StatusChip } from './ui';
+import './setup.css';
 
 function Toggle({ on, onChange, title, text, disabled }: { on: boolean; onChange: (v: boolean) => void; title: string; text: string; disabled?: boolean }) {
   return (
-    <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 0', borderTop: '1px solid var(--line)', cursor: 'pointer' }}>
-      <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: 3, flex: 'none' }} />
+    <label className="setup-toggle">
+      <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span><b>{title}</b><br /><span className="muted" style={{ fontSize: 14 }}>{text}</span></span>
     </label>
   );
@@ -55,7 +57,7 @@ export function Profile() {
 
   return (
     <div>
-      <PageHead title="My profile" sub="Your details and how your church may message you." />
+      <PageHeader title="My profile" subtitle="Your details and how your church may message you." />
       <div className="stack">
         <Card title="About you">
           <Load loading={prof.loading} error={prof.error} hasData={!!prof.data}>
@@ -69,12 +71,12 @@ export function Profile() {
                   <input type="email" inputMode="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </Field>
                 {prof.data.email && email === prof.data.email && (
-                  <p>{prof.data.emailVerified ? <Badge tone="good">Confirmed</Badge> : <Badge tone="warn">Not confirmed yet</Badge>}</p>
+                  <p>{prof.data.emailVerified ? <StatusChip tone="done">Confirmed</StatusChip> : <StatusChip tone="wait">Not confirmed yet</StatusChip>}</p>
                 )}
                 {prof.data.email && !prof.data.emailVerified && email === prof.data.email && (
                   <div className="stack">
                     <Field label="6-digit code" hint={<>We sent a code to {prof.data.email}.</>}>
-                      <input inputMode="numeric" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/D/g, ''))} />
+                      <input inputMode="numeric" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
                     </Field>
                     {devCode && <div className="tiny">Development only: your code is <b>{devCode}</b></div>}
                     {info && <Note tone="good">{info}</Note>}

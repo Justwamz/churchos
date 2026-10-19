@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
+import { Load } from './worship-bits';
+import { Card, EmptyState, PageHeader, SidePanel, StatusChip } from './ui';
 import { Modal } from './MemberForm';
 import { eat } from './Resources';
 import './bookings.css';
 import './pastoral.css';
+import './worship.css';
 
-const ITEM: Record<string, { text: string; tone: 'warn' | 'good' | 'bad' }> = { requested: { text: 'Waiting', tone: 'warn' }, approved: { text: 'Approved', tone: 'good' }, declined: { text: 'Declined', tone: 'bad' } };
-const STATUS: Record<string, { text: string; tone: 'warn' | 'good' | 'bad' | 'info' | 'muted' }> = {
-  requested: { text: 'Waiting for an answer', tone: 'warn' }, awaiting_payment: { text: 'Waiting for payment', tone: 'info' }, confirmed: { text: 'Confirmed', tone: 'good' },
-  declined: { text: 'Declined', tone: 'bad' }, cancelled: { text: 'Cancelled', tone: 'muted' }, completed: { text: 'Done', tone: 'good' }, no_show: { text: 'No show', tone: 'bad' }, lapsed: { text: 'Not paid in time', tone: 'muted' },
+type Tone = 'wait' | 'done' | 'bad' | 'info' | 'off';
+const ITEM: Record<string, { text: string; tone: Tone }> = { requested: { text: 'Waiting', tone: 'wait' }, approved: { text: 'Approved', tone: 'done' }, declined: { text: 'Declined', tone: 'bad' } };
+const STATUS: Record<string, { text: string; tone: Tone }> = {
+  requested: { text: 'Waiting for an answer', tone: 'wait' }, awaiting_payment: { text: 'Waiting for payment', tone: 'info' }, confirmed: { text: 'Confirmed', tone: 'done' },
+  declined: { text: 'Declined', tone: 'bad' }, cancelled: { text: 'Cancelled', tone: 'off' }, completed: { text: 'Done', tone: 'done' }, no_show: { text: 'No show', tone: 'bad' }, lapsed: { text: 'Not paid in time', tone: 'off' },
 };
 
 const explain = (e: any) => {
@@ -85,16 +88,16 @@ function MeetingLink({ b, onChanged }: { b: any; onChanged: () => void }) {
 }
 
 function BookingCard({ b, canManage, onChanged, onApprove, onDecline, onCancel, onComplete }: { b: any; canManage: boolean; onChanged: () => void; onApprove: (it: any) => void; onDecline: (it: any) => void; onCancel: () => void; onComplete: (o: 'completed' | 'no_show') => void }) {
-  const st = STATUS[b.status] ?? { text: b.status, tone: 'muted' as const };
+  const st = STATUS[b.status] ?? { text: b.status, tone: 'off' as Tone };
   const started = Date.parse(b.startsAt) <= Date.now();
   const open = ['requested', 'awaiting_payment', 'confirmed'].includes(b.status);
   const canComplete = canManage && b.status === 'confirmed' && started;
   const canCancel = !!b.canCancel && open;
   return (
-    <section className="card bk-card">
+    <section className="bk-card">
       <div className="row between" style={{ alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0 }}><b>{b.title}</b><div className="tiny">{whenText(b)}</div></div>
-        <Badge tone={st.tone}>{st.text}</Badge>
+        <StatusChip tone={st.tone}>{st.text}</StatusChip>
       </div>
       <div className="tiny">Asked by {b.requester}{b.attendees ? `. ${b.attendees} ${b.attendees === 1 ? 'person' : 'people'}` : ''}. Code {b.code}.</div>
       <div className="bk-items">
@@ -102,9 +105,9 @@ function BookingCard({ b, canManage, onChanged, onApprove, onDecline, onCancel, 
           const s = ITEM[it.status] ?? ITEM.requested;
           return (
             <div className="bk-item" key={it.resourceId}>
-              <div style={{ minWidth: 0 }}><b>{it.name}</b> <Badge tone={s.tone}>{s.text}</Badge>{it.status === 'declined' && it.reason && <div className="tiny">{it.reason}</div>}</div>
+              <div style={{ minWidth: 0 }}><b>{it.name}</b> <StatusChip tone={s.tone}>{s.text}</StatusChip>{it.status === 'declined' && it.reason && <div className="tiny">{it.reason}</div>}</div>
               {it.mine && it.status === 'requested' && b.status === 'requested' && (
-                <div className="row"><Button small onClick={() => onApprove(it)}>Approve</Button><Button small kind="ghost" onClick={() => onDecline(it)}>Decline</Button></div>
+                <div className="wo-actions"><Button small onClick={() => onApprove(it)}>Approve</Button><Button small kind="ghost" onClick={() => onDecline(it)}>Decline</Button></div>
               )}
             </div>
           );
@@ -119,7 +122,7 @@ function BookingCard({ b, canManage, onChanged, onApprove, onDecline, onCancel, 
       {['declined', 'cancelled'].includes(b.status) && b.reason && <Note tone="warn">{b.status === 'declined' ? 'Declined' : 'Cancelled'}: {b.reason}</Note>}
       <MeetingLink b={b} onChanged={onChanged} />
       {(canComplete || canCancel) && (
-        <div className="row">
+        <div className="wo-actions">
           {canComplete && <><Button small onClick={() => onComplete('completed')}>Mark as done</Button><Button small kind="ghost" onClick={() => onComplete('no_show')}>No show</Button></>}
           {canCancel && <Button small kind="ghost" onClick={onCancel}>Cancel booking</Button>}
         </div>
@@ -167,6 +170,7 @@ export function Bookings() {
   const [term, setTerm] = useState(''); // the search as sent, a moment after typing stops
   useEffect(() => { const t = setTimeout(() => setTerm(search.trim()), 300); return () => clearTimeout(t); }, [search]);
   const [open, setOpen] = useState<any>(null);
+  const [moreOpen, setMoreOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth > 700);
   const [deciding, setDeciding] = useState<{ b: any; it: any } | null>(null);
   const [cancelling, setCancelling] = useState<any>(null);
   const canManage = s.can('bookings.manage');
@@ -187,9 +191,9 @@ export function Bookings() {
 
   return (
     <div>
-      <PageHead title="Bookings" sub="Requests to use a place, a person's time or something your church owns." />
-      <div className="stack">
-        <section className="card bk-filters">
+      <PageHeader title="Bookings" subtitle="Requests to use a place, a person's time or something your church owns." />
+      <div>
+        <section className="u-card bk-filters">
           <label className="field" style={{ margin: 0 }}>
             <span className="field-label">Search</span>
             <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Booking code, member name or reason" maxLength={60} autoComplete="off" />
@@ -215,6 +219,9 @@ export function Bookings() {
               </div>
             )}
           </div>
+          <details className="bk-more" open={moreOpen} onToggle={(e) => setMoreOpen((e.target as HTMLDetailsElement).open)}>
+            <summary>More filters{picked.length || resource ? ' (on)' : ''}</summary>
+            <div className="stack" style={{ marginTop: 12 }}>
           <div>
             <div className="field-label" id="bk-st">Status</div>
             <div className="chips" role="group" aria-labelledby="bk-st">
@@ -231,46 +238,56 @@ export function Bookings() {
               </select>
             </label>
           )}
+            </div>
+          </details>
         </section>
-        <div className="tiny">Notes are private. Only people who answer a request can read them.</div>
+        <div className="tiny" style={{ margin: '12px 0' }}>Notes are private. Only people who answer a request can read them.</div>
         <Load loading={list.loading} error={list.error} hasData={!!list.data}>
           {list.data && (rows.length === 0
-            ? <Empty>{term ? `No bookings match "${term}" with these choices. Try All dates and All statuses.` : 'No bookings match these choices.'}</Empty>
+            ? <Card><EmptyState icon="today" title="No bookings here" text={term ? `Nothing matches "${term}" with these choices. Try All dates and All statuses.` : 'No bookings match these choices.'} /></Card>
             : (
               <>
                 <div className="tiny">{rows.length} {rows.length === 1 ? 'booking' : 'bookings'}{waiting ? `. ${waiting} for you to answer.` : ''}</div>
-                <Table head={['When', 'Booking', 'Asked by', 'What', 'Status', 'Price', '']}>
+                <Card pad={false}>
+                  <div className="bk-list">
                   {rows.map((b) => {
-                    const st = STATUS[b.status] ?? { text: b.status, tone: 'muted' as const };
+                    const st = STATUS[b.status] ?? { text: b.status, tone: 'off' as Tone };
                     const mine = b.status === 'requested' ? b.items.filter((i: any) => i.mine && i.status === 'requested') : [];
                     return (
-                      <tr key={b.id}>
-                        <td style={{ whiteSpace: 'nowrap' }}><b>{day(b.startsAt)}</b><div className="tiny">{clock(b.startsAt)} to {clock(b.endsAt)}</div></td>
-                        <td style={{ minWidth: 140 }}>{b.title}<div className="tiny">Code {b.code}{b.attendees ? `, ${b.attendees} people` : ''}</div></td>
-                        <td>{b.requester}</td>
-                        <td>{b.items.map((it: any) => <div key={it.resourceId}>{it.name} {b.items.length > 1 && <Badge tone={(ITEM[it.status] ?? ITEM.requested).tone}>{(ITEM[it.status] ?? ITEM.requested).text}</Badge>}</div>)}</td>
-                        <td><Badge tone={st.tone}>{st.text}</Badge>{b.meetingUrl && <div><Badge tone="info">Video link added</Badge></div>}{b.status === 'awaiting_payment' && b.holdUntil && <div className="tiny">until {day(b.holdUntil)}, {clock(b.holdUntil)}</div>}</td>
-                        <td>{b.price == null ? 'Free' : <>{kes(b.price)}<div className="tiny">{b.paid ? 'Paid' : 'Not paid'}</div></>}</td>
-                        <td><div className="row">
+                      <div className="bk-row" key={b.id}>
+                        <div className="bk-when"><b>{day(b.startsAt)}</b><div className="tiny">{clock(b.startsAt)} to {clock(b.endsAt)}</div></div>
+                        <div className="bk-what">
+                          <div><b>{b.title}</b></div>
+                          <div className="tiny">{b.items.map((it: any) => it.name).join(', ')} · Asked by {b.requester} · Code {b.code}{b.attendees ? `, ${b.attendees} people` : ''}</div>
+                          <div className="bk-chips" style={{ marginTop: 6 }}>
+                            <StatusChip tone={st.tone}>{st.text}</StatusChip>
+                            {b.items.length > 1 && b.items.map((it: any) => <StatusChip key={it.resourceId} tone={(ITEM[it.status] ?? ITEM.requested).tone}>{it.name}: {(ITEM[it.status] ?? ITEM.requested).text}</StatusChip>)}
+                            {b.meetingUrl && <StatusChip tone="info">Video link added</StatusChip>}
+                            {b.status === 'awaiting_payment' && b.holdUntil && <span className="tiny">until {day(b.holdUntil)}, {clock(b.holdUntil)}</span>}
+                          </div>
+                        </div>
+                        <div className="bk-price">{b.price == null ? 'Free' : <>{kes(b.price)}<div className="tiny">{b.paid ? 'Paid' : 'Not paid'}</div></>}</div>
+                        <div className="wo-actions bk-go">
                           {mine.length === 1 && <Button small onClick={() => post(`/bookings/${b.id}/items/${mine[0].resourceId}/decide`, { approve: true, reason: '' }, `Approved ${mine[0].name}`)}>Approve</Button>}
                           {mine.length === 1 && <Button small kind="ghost" onClick={() => setDeciding({ b, it: mine[0] })}>Decline</Button>}
                           <Button small kind="ghost" onClick={() => setOpen(b)}>{mine.length > 1 ? 'Answer' : 'Details'}</Button>
-                        </div></td>
-                      </tr>
+                        </div>
+                      </div>
                     );
                   })}
-                </Table>
+                  </div>
+                </Card>
               </>
             ))}
         </Load>
       </div>
       {open && (
-        <Modal title={open.title} onClose={() => setOpen(null)}>
+        <SidePanel title={open.title} subtitle={whenText(open)} onClose={() => setOpen(null)} width={520}>
           <BookingCard b={list.data?.find((x) => x.id === open.id) ?? open} canManage={canManage} onChanged={reload}
             onApprove={(it) => post(`/bookings/${open.id}/items/${it.resourceId}/decide`, { approve: true, reason: '' }, `Approved ${it.name}`)}
             onDecline={(it) => setDeciding({ b: open, it })} onCancel={() => setCancelling(open)}
             onComplete={(o) => post(`/bookings/${open.id}/complete`, { outcome: o }, o === 'completed' ? 'Marked as done' : 'Marked as no show')} />
-        </Modal>
+        </SidePanel>
       )}
       {deciding && (
         <ReasonDialog title={`Decline ${deciding.it.name}?`} label="Why not?" button="Decline" onClose={() => setDeciding(null)}

@@ -28,6 +28,7 @@ import { eventCreditRoutes } from './routes/event-credit';
 import { statementRoutes } from './routes/statements';
 import { lectionaryRoutes } from './routes/lectionary';
 import { staffTodayRoutes } from './routes/staff-today';
+import { wordsRoutes } from './routes/words';
 import { givingPlanRoutes } from './routes/giving-plans';
 import { attendanceRoutes } from './routes/attendance';
 import { givingLedgerRoutes } from './routes/giving-ledger';
@@ -147,6 +148,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   statementRoutes(app, ctx);
   lectionaryRoutes(app, ctx);
   staffTodayRoutes(app, ctx);
+  wordsRoutes(app, ctx);
   givingPlanRoutes(app, ctx);
   attendanceRoutes(app, ctx);
   givingLedgerRoutes(app, ctx);

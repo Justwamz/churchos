@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { networkMismatch, phoneHint } from '@churchos/shared';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, kes, phonePretty, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, methodLabel as baseMethodLabel, useSession } from './session';
 const methodLabel = (m: string) => (m === 'cash' ? 'Cash' : baseMethodLabel(m));
-import { Load, PageHead } from './bits';
+import { Card, EmptyState, PageHeader, StatusChip } from './ui';
+import { Loaded } from './money-bits';
 import { useDebounced } from './MemberForm';
 import { ItemsAndStock, ItemThumb, stockError, useItems } from './ShopItems';
 import { ShopReports, ShopSales } from './ShopSales';
@@ -30,7 +31,7 @@ function Receipt({ sale, onNew }: { sale: any; onNew: () => void }) {
     <Card>
       <div className="sp-receipt">
         <div style={{ textAlign: 'center' }}>
-          <Badge tone="good">Paid</Badge>
+          <StatusChip tone="done">Paid</StatusChip>
           <h2 style={{ margin: '8px 0 0' }}>Receipt {sale.receiptNo}</h2>
           <div className="tiny">{shortDate(sale.completedAt ?? sale.createdAt ?? new Date().toISOString())}</div>
         </div>
@@ -166,7 +167,7 @@ function Till({ branch }: { branch: string }) {
   return (
     <div className="sp-pos">
       <div className="stack">
-        <section className="card stack" style={{ gap: 12 }}>
+        <section className="u-card stack" style={{ gap: 12 }}>
           <input type="search" aria-label="Search items" placeholder="Search by name or code" value={q} onChange={(e) => setQ(e.target.value)} />
           {categories.length > 0 && (
             <div className="chips" role="group" aria-label="Category">
@@ -175,8 +176,8 @@ function Till({ branch }: { branch: string }) {
             </div>
           )}
         </section>
-        <Load loading={items.loading} error={items.error} hasData={!!items.data}>
-          {items.data && (shown.length === 0 ? <Empty>{all.length === 0 ? 'There are no items for sale yet. Add some under Items and stock.' : 'No items match.'}</Empty> : (
+        <Loaded loading={items.loading} error={items.error} hasData={!!items.data}>
+          {items.data && (shown.length === 0 ? <Card><EmptyState icon="money" title={all.length === 0 ? 'Nothing for sale yet' : 'No items match'} text={all.length === 0 ? 'Add some under Items and stock.' : 'Try a different word or category.'} /></Card> : (
             <div className="sp-grid">
               {shown.map((i) => (
                 <button type="button" key={i.id} className="sp-tile" disabled={i.out || (basket[i.id] ?? 0) >= i.stock} onClick={() => add(i)}>
@@ -188,10 +189,11 @@ function Till({ branch }: { branch: string }) {
               ))}
             </div>
           ))}
-        </Load>
+        </Loaded>
       </div>
-      <Card title="Basket" className="sp-basket">
+      <Card className="sp-basket">
         <div className="stack">
+          <div className="mn-cardhead" style={{ margin: 0 }}><h3>Basket</h3></div>
           {lines.length === 0 ? <div className="muted">Tap an item to add it.</div> : (
             <div className="sp-lines">
               {lines.map(({ item, qty }) => (
@@ -262,10 +264,11 @@ function CloseTill({ branch }: { branch: string }) {
   return (
     <div className="stack" style={{ maxWidth: 640 }}>
       <Field label="Day"><input type="date" max={eatToday()} value={day} onChange={(e) => { if (e.target.value) { setDay(e.target.value); setResult(null); setErr(''); } }} style={{ maxWidth: 200 }} /></Field>
-      <Load loading={t.loading} error={t.error} hasData={!!d}>
+      <Loaded loading={t.loading} error={t.error} hasData={!!d}>
         {d && (
-          <Card title={closed || result ? 'Till closed' : 'Count the cash'}>
+          <Card>
             <div className="stack">
+              <div className="mn-cardhead" style={{ margin: 0 }}><h3>{closed || result ? 'Till closed' : 'Count the cash'}</h3></div>
               <div>The sales say there should be <b>{kes(d.expected)}</b> in cash from <b>{d.cashSales}</b> cash {d.cashSales === 1 ? 'sale' : 'sales'}.</div>
               {closed ? (
                 <>
@@ -292,7 +295,7 @@ function CloseTill({ branch }: { branch: string }) {
             </div>
           </Card>
         )}
-      </Load>
+      </Loaded>
     </div>
   );
 }
@@ -319,17 +322,18 @@ export function Shop() {
   if (!branch) return <ErrorNote>You do not have access to a branch yet.</ErrorNote>;
   return (
     <div>
-      <PageHead title="Shop" sub="Sell Bibles, rosaries, books and more, and keep track of stock." />
-      <div className="sp-bar">
-        <div className="chips sp-tabs" role="group" aria-label="Shop sections">
-          {shownSegs.map(([k, l]) => <button type="button" key={k} className={`chip ${cur === k ? 'on' : ''}`} aria-pressed={cur === k} onClick={() => setSeg(k)}>{l}{k === 'orders' && toPrepare > 0 && <span className="sp-badge">{toPrepare}</span>}</button>)}
-        </div>
-        {s.branches.length > 1 && (
+      <PageHeader
+        title="Shop"
+        subtitle="Sell Bibles, rosaries, books and more, and keep track of stock."
+        actions={s.branches.length > 1 ? (
           <select aria-label="Shop branch" style={{ width: 'auto', minWidth: 200 }} value={branch} onChange={(e) => setBranch(e.target.value)}>
             {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-        )}
-      </div>
+        ) : undefined}
+        tabs={shownSegs.map(([k, l]) => ({ id: k, label: l, badge: k === 'orders' && toPrepare > 0 ? toPrepare : undefined }))}
+        tab={cur}
+        onTab={(k) => setSeg(k as Seg)}
+      />
       {cur === 'till' && <Till key={branch} branch={branch} />}
       {cur === 'items' && <ItemsAndStock key={branch} branch={branch} />}
       {cur === 'sales' && <ShopSales key={branch} branch={branch} />}

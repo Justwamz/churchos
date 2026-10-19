@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Badge, Button, Empty, useAsync } from '@churchos/ui';
+import { Button, useAsync } from '@churchos/ui';
 import { api, useSession } from './session';
-import { Load, PageHead } from './bits';
-import { Modal } from './MemberForm';
+import { Load } from './worship-bits';
+import { Card, EmptyState, PageHeader, SidePanel, StatusChip } from './ui';
 import './bookings.css';
+import './worship.css';
 
 const EAT = 3 * 3600_000;
 const DAY = 86400_000;
@@ -19,8 +20,8 @@ const longDay = (k: string) => new Date(`${k}T12:00:00Z`).toLocaleDateString('en
 
 function Item({ it }: { it: any }) {
   return (
-    <div className="stack" style={{ gap: 2, padding: '8px 0', borderBottom: '1px solid var(--line)', minWidth: 0 }}>
-      <div className="row"><b style={{ overflowWrap: 'anywhere' }}>{it.title}</b><Badge tone={it.type === 'event' ? 'good' : 'info'}>{it.type === 'event' ? 'Event' : it.status === 'awaiting_payment' ? 'Booking, awaiting payment' : 'Booking'}</Badge></div>
+    <div className="stack" style={{ gap: 2, padding: '8px 0', borderBottom: '1px solid var(--line-soft)', minWidth: 0 }}>
+      <div className="row"><b style={{ overflowWrap: 'anywhere' }}>{it.title}</b><StatusChip tone={it.type === 'event' ? 'done' : 'info'}>{it.type === 'event' ? 'Event' : it.status === 'awaiting_payment' ? 'Booking, awaiting payment' : 'Booking'}</StatusChip></div>
       <div className="tiny">{timeText(it)}</div>
       {it.resources?.length > 0 && <div className="tiny">{it.type === 'event' ? 'Place' : 'Booked'}: {it.resources.join(', ')}</div>}
       {it.who && <div className="tiny">Asked by {it.who}</div>}
@@ -60,7 +61,8 @@ export function CalendarPage() {
 
   return (
     <div>
-      <PageHead title="Calendar" sub="Confirmed bookings and church events in one place. Times are East Africa Time." />
+      <PageHeader title="Calendar" subtitle="Confirmed bookings and church events in one place. Times are East Africa Time."
+        tabs={[{ id: 'month', label: 'Month' }, { id: 'agenda', label: 'Agenda' }]} tab={view} onTab={(t) => setView(t as 'month' | 'agenda')} />
       <div className="cal-head">
         <Button small kind="ghost" onClick={() => move(-1)}>Previous</Button>
         <span className="cal-title">{MONTHS[ym.m]} {ym.y}</span>
@@ -70,10 +72,6 @@ export function CalendarPage() {
           <option value="">Everything</option>
           {(resources.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
-        <div className="chips" style={{ marginLeft: 'auto' }}>
-          <button type="button" className={`chip ${view === 'month' ? 'on' : ''}`} onClick={() => setView('month')}>Month</button>
-          <button type="button" className={`chip ${view === 'agenda' ? 'on' : ''}`} onClick={() => setView('agenda')}>Agenda</button>
-        </div>
       </div>
       <Load loading={data.loading} error={data.error} hasData={!!data.data}>
         {view === 'month' ? (
@@ -91,15 +89,15 @@ export function CalendarPage() {
             })}
           </div>
         ) : (
-          inMonth.length === 0 ? <Empty>Nothing on the calendar this month.</Empty> : (
-            <div className="cal-agenda">
+          inMonth.length === 0 ? <Card><EmptyState icon="today" title="Nothing on the calendar this month" /></Card> : (
+            <Card pad={false}><div className="cal-agenda">
               {inMonth.map((it) => (
                 <div className="cal-row" key={`${it.type}${it.id}`}>
                   <b>{longDay(key(it.startsAt))}</b>
                   <Item it={it} />
                 </div>
               ))}
-            </div>
+            </div></Card>
           )
         )}
       </Load>
@@ -109,9 +107,9 @@ export function CalendarPage() {
         <span className="cal-it event">Event</span>
       </div>
       {open && (
-        <Modal title={longDay(open)} onClose={() => setOpen(null)}>
-          {(byDay.get(open) ?? []).length === 0 ? <Empty>Nothing on this day.</Empty> : <div>{(byDay.get(open) ?? []).map((it) => <Item key={`${it.type}${it.id}`} it={it} />)}</div>}
-        </Modal>
+        <SidePanel title={longDay(open)} onClose={() => setOpen(null)} width={440}>
+          {(byDay.get(open) ?? []).length === 0 ? <EmptyState icon="today" title="Nothing on this day" /> : <div>{(byDay.get(open) ?? []).map((it) => <Item key={`${it.type}${it.id}`} it={it} />)}</div>}
+        </SidePanel>
       )}
     </div>
   );

@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Badge, Button, ErrorNote, Field, Note, kes, useAsync } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, kes, useAsync } from '@churchos/ui';
 import { api, friendly, methodLabel, useSession } from './session';
-import { Load } from './bits';
 import { Modal } from './MemberForm';
+import { Skeleton, StatusChip } from './ui';
 import './tickets.css';
 
 const when = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 const KIND: Record<string, string> = { buyer: 'Cancelled by buyer', postponed: 'After postponement', church: 'Church refund' };
-const STATE: Record<string, { text: string; tone: 'good' | 'bad' | 'info' | 'warn' }> = {
-  pending: { text: 'Waiting', tone: 'warn' }, approved: { text: 'Approved', tone: 'info' }, refunded: { text: 'Refunded', tone: 'good' }, declined: { text: 'Declined', tone: 'bad' }, failed: { text: 'Failed', tone: 'bad' },
+const STATE: Record<string, { text: string; tone: 'done' | 'bad' | 'info' | 'wait' }> = {
+  pending: { text: 'Waiting', tone: 'wait' }, approved: { text: 'Approved', tone: 'info' }, refunded: { text: 'Refunded', tone: 'done' }, declined: { text: 'Declined', tone: 'bad' }, failed: { text: 'Failed', tone: 'bad' },
 };
 
 function Decide({ r, approve, onClose, onDone }: { r: any; approve: boolean; onClose: () => void; onDone: (m: string) => void }) {
@@ -45,7 +45,7 @@ export function RefundRequests({ event, onChanged, toast }: { event: any; onChan
   const list: any[] = d.data?.requests ?? [];
   const pending = list.filter((r) => r.status === 'pending');
   const earlier = list.filter((r) => r.status !== 'pending');
-  if (!d.data) return <Load loading={d.loading} error={d.error} hasData={false}><span /></Load>;
+  if (!d.data) return d.loading ? <Skeleton height={56} /> : d.error ? <ErrorNote>{friendly(d.error)}</ErrorNote> : null;
   if (list.length === 0) return null;
   const done = (m: string) => { setDec(null); toast(m); d.reload(); onChanged(); };
   return (
@@ -60,7 +60,7 @@ export function RefundRequests({ event, onChanged, toast }: { event: any; onChan
                 <div style={{ minWidth: 0 }}><b style={{ overflowWrap: 'anywhere' }}>{r.buyer}</b> <span className="tiny mono">{r.orderCode}</span></div>
                 <b>{kes(r.total)}</b>
               </div>
-              <div className="row"><Badge tone={r.kind === 'postponed' ? 'warn' : 'info'}>{KIND[r.kind] ?? r.kind}</Badge><span className="tiny">{r.tickets} {r.tickets === 1 ? 'ticket' : 'tickets'}. {methodLabel(r.method)}. Asked {when(r.requestedAt)}</span></div>
+              <div className="row"><StatusChip tone={r.kind === 'postponed' ? 'wait' : 'info'}>{KIND[r.kind] ?? r.kind}</StatusChip><span className="tiny">{r.tickets} {r.tickets === 1 ? 'ticket' : 'tickets'}. {methodLabel(r.method)}. Asked {when(r.requestedAt)}</span></div>
               {r.reason && <div style={{ overflowWrap: 'anywhere' }}>&ldquo;{r.reason}&rdquo;</div>}
               <div className="row"><Button small onClick={() => setDec({ r, approve: true })}>Approve</Button><Button small kind="ghost" onClick={() => setDec({ r, approve: false })}>Decline</Button></div>
             </div>
@@ -76,7 +76,7 @@ export function RefundRequests({ event, onChanged, toast }: { event: any; onChan
               return (
                 <div className="tk-req" key={r.id}>
                   <div className="row between" style={{ alignItems: 'flex-start' }}><div style={{ minWidth: 0 }}><b style={{ overflowWrap: 'anywhere' }}>{r.buyer}</b> <span className="tiny mono">{r.orderCode}</span></div><b>{kes(r.total)}</b></div>
-                  <div className="row"><Badge tone={st.tone}>{st.text}</Badge><Badge tone="muted">{KIND[r.kind] ?? r.kind}</Badge><span className="tiny">{r.decidedAt ? `${r.decidedBy ? `${r.decidedBy}, ` : ''}${when(r.decidedAt)}` : when(r.requestedAt)}</span></div>
+                  <div className="row"><StatusChip tone={st.tone}>{st.text}</StatusChip><StatusChip tone="off">{KIND[r.kind] ?? r.kind}</StatusChip><span className="tiny">{r.decidedAt ? `${r.decidedBy ? `${r.decidedBy}, ` : ''}${when(r.decidedAt)}` : when(r.requestedAt)}</span></div>
                   {r.money && <div className="tiny"><b>{r.money}</b></div>}
                   {r.note && <div className="tiny">Note: {r.note}</div>}
                 </div>

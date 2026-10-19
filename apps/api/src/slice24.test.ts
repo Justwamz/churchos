@@ -70,3 +70,35 @@ describe('Today on the staff phone (Slice 24)', () => {
     expect(usher.services.some((s: any) => s.name === 'Today service' && s.state === 'open')).toBe(true);
   });
 });
+
+describe('what the church calls its gatherings (Slice 25)', () => {
+  const put = (who: string, body: any) => app.inject({ method: 'PUT', url: '/church/words', payload: body, headers: { authorization: `Bearer ${tokens[who] ?? ''}` } });
+
+  it('is Service until the owner changes it, and everyone in the church can read it', async () => {
+    await login(OWNER); await login(ADMIN); await login(JANE);
+    const j = (await call(JANE, 'GET', '/me/words')).json();
+    expect(j).toMatchObject({ one: 'Service', many: 'Services', oneLower: 'service', canChange: false });
+    expect(j.presets.map((p: any) => p.one)).toContain('Mass');
+    expect((await call(OWNER, 'GET', '/me/words')).json().canChange).toBe(true);
+    expect((await call(ADMIN, 'GET', '/me/words')).json().canChange).toBe(false); // a branch admin cannot rename it
+  });
+
+  it('is changed only by the owner, with sensible words', async () => {
+    expect((await put(ADMIN, { one: 'Mass', many: 'Masses' })).statusCode).toBe(403);
+    expect((await put(JANE, { one: 'Mass', many: 'Masses' })).statusCode).toBeGreaterThanOrEqual(403);
+    expect((await put(OWNER, { one: 'M', many: 'Masses' })).json().code).toBe('bad_word');
+    expect((await put(OWNER, { one: 'Mass<b>', many: 'Masses' })).json().code).toBe('bad_word');
+    const ok = await put(OWNER, { one: 'mass', many: 'masses' });
+    expect(ok.json()).toMatchObject({ one: 'Mass', many: 'Masses', manyLower: 'masses' });
+    expect((await call(JANE, 'GET', '/me/words')).json()).toMatchObject({ one: 'Mass', many: 'Masses' });
+    const events = (await call('0700000099', 'GET', '/admin/audit/events?action=church.words')).json().events as any[];
+    expect(events.length).toBe(1);
+  });
+
+  it('reaches the public check-in pages', async () => {
+    const mk = await call(OWNER, 'POST', '/attendance/services', { branchId: 'br_grc001', name: 'Words mass', startsAt: new Date(ctx.clock.now().getTime() + 600_000).toISOString(), durationMin: 60 });
+    const door = (await call(ADMIN, 'GET', `/attendance/services/${mk.json().id}/door`)).json();
+    const pub = (await call(null, 'GET', `/public/here/${door.url.split('/here/')[1]}`)).json();
+    expect(pub.words).toMatchObject({ one: 'Mass', many: 'Masses' });
+  });
+});

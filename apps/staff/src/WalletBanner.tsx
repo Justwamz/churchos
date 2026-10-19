@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react';
-import { Button } from '@churchos/ui';
 import { api, useSession } from './session';
 import { orgQs, type WalletInfo } from './Wallets';
+import { Icon } from './icons';
 
-/** Shown above every page except Wallets when any wallet the person can see is running low or empty. */
-export function WalletBanner({ page }: { page: string }) {
+/**
+ * Messaging credit warning. Two parts:
+ *  - useWalletAlert(): which wallets the person can see are low or empty. The nav shows a small dot on Communicate while this is not empty.
+ *  - WalletNotice: a slim, dismissible line on Today, Messages and Wallets only (never on every page). Dismissal lasts for the session
+ *    and comes back if things get worse (low -> empty).
+ */
+const KEY = 'churchos:wallet-notice-dismissed';
+export const NOTICE_PAGES = ['today', 'messages', 'wallets'];
+
+export function useWalletAlert(page: string) {
   const s = useSession();
   const allowed = s.can('wallets.view');
   const [bad, setBad] = useState<WalletInfo[]>([]);
-
   useEffect(() => {
     if (!allowed) { setBad([]); return; }
     let live = true;
@@ -18,29 +25,34 @@ export function WalletBanner({ page }: { page: string }) {
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowed, s.grant.org.id, page]);
+  return { bad: allowed ? bad : [], anyEmpty: allowed && bad.some((w) => w.state === 'empty') };
+}
 
-  if (!allowed || bad.length === 0 || page === 'wallets') return null;
-  const anyEmpty = bad.some((w) => w.state === 'empty');
+const readDismissed = () => { try { return sessionStorage.getItem(KEY) ?? ''; } catch { return ''; } };
+
+export function WalletNotice({ page, bad, anyEmpty }: { page: string; bad: WalletInfo[]; anyEmpty: boolean }) {
+  const s = useSession();
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const level = anyEmpty ? 'empty' : 'low';
+  if (!NOTICE_PAGES.includes(page) || bad.length === 0) return null;
+  if (dismissed === 'empty' || (dismissed === 'low' && level === 'low')) return null;
+
   const channel = (w: WalletInfo) => (w.channel === 'sms' ? 'SMS' : 'WhatsApp');
   const place = (w: WalletInfo) => w.label.split(' · ')[0];
-  const shown = bad.slice(0, 3);
+  const empty = bad.filter((w) => w.state === 'empty');
+  const first = empty[0] ?? bad[0];
+  const more = bad.length - 1;
+  const text = first.state === 'empty'
+    ? `${channel(first)} credit has run out at ${place(first)}. ${first.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} messages are paused. In-app messages still go out.`
+    : `${channel(first)} credit is running low at ${place(first)}.`;
+  const dismiss = () => { setDismissed(level); try { sessionStorage.setItem(KEY, level); } catch { /* optional */ } };
+
   return (
-    <div className={`banner ${anyEmpty ? 'fix' : 'action'}`} role="region" aria-label="Messaging credit">
-      <div className="banner-icon" aria-hidden>!</div>
-      <div className="banner-main">
-        <div className="banner-title">{anyEmpty ? 'Messaging credit has run out' : 'Messaging credit is running low'}</div>
-        <div className="banner-text" style={{ display: 'grid', gap: 4 }}>
-          {shown.map((w) => (
-            <span key={w.id}>
-              {w.state === 'empty'
-                ? `${channel(w)} credit has run out at ${place(w)}.${w.channel === 'whatsapp' ? ' Messages by WhatsApp are not being sent. In-app messages still go out.' : ' SMS messages are not being sent. In-app messages still go out.'}`
-                : `${channel(w)} credit is running low at ${place(w)}`}
-            </span>
-          ))}
-          {bad.length > shown.length && <span>and {bad.length - shown.length} more</span>}
-        </div>
-      </div>
-      <div className="banner-cta"><Button onClick={() => s.go('wallets')}>Top up now</Button></div>
+    <div className={`wn ${anyEmpty ? "is-empty" : "is-low"}`} role="status" aria-label="Messaging credit">
+      <Icon name="wallet" size={18} />
+      <span className="wn-text">{text}{more > 0 ? ` And ${more} more.` : ''}</span>
+      {page !== 'wallets' && <button type="button" className="wn-go" onClick={() => s.go('wallets')}>Top up</button>}
+      <button type="button" className="wn-x" aria-label="Dismiss this notice" onClick={dismiss}><Icon name="close" size={16} /></button>
     </div>
   );
 }

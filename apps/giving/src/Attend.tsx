@@ -17,7 +17,11 @@ const saveVisitor = (name: string, phone: string) => {
 };
 
 interface Reading { published: boolean; title?: string; ref?: string; body?: string }
+interface W { one: string; many: string; oneLower: string; manyLower: string }
+const DEFAULT_W: W = { one: 'Service', many: 'Services', oneLower: 'service', manyLower: 'services' };
+const wordsOf = (i?: { words?: Partial<W> } | null): W => (i?.words?.one && i.words.oneLower ? { ...DEFAULT_W, ...i.words } as W : DEFAULT_W);
 interface Info {
+  words?: W;
   name: string; church: string; branch?: string; startsAt: string;
   state: 'before' | 'open' | 'closed' | 'cancelled'; opensAt: string; closesAt: string;
   hasStream: boolean; reading: Reading | null; invitedBy?: string | null;
@@ -55,9 +59,9 @@ function Problem({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function ReadingCard({ reading }: { reading: Reading | null | undefined }) {
+function ReadingCard({ reading, w }: { reading: Reading | null | undefined; w: W }) {
   if (!reading) return null;
-  if (!reading.published) return <Note tone="info">The reading and notices will appear here a little before the service.</Note>;
+  if (!reading.published) return <Note tone="info">{`The reading and notices will appear here a little before the ${w.oneLower}.`}</Note>;
   return (
     <Card>
       <div className="stack">
@@ -119,6 +123,7 @@ export function HerePage() {
     );
   }
   if (!info) return <Loading />;
+  const w = wordsOf(info);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -147,8 +152,8 @@ export function HerePage() {
             {done.kind === 'visitor' && done.first && done.status !== 'already' && <p className="muted" style={{ margin: 0 }}>We are so glad you came. A short welcome message is on its way to your phone.</p>}
           </div>
         </Card>
-        {done.streamUrl && <a className="btn primary" href={done.streamUrl} target="_blank" rel="noopener noreferrer">Watch the service</a>}
-        <ReadingCard reading={reading} />
+        {done.streamUrl && <a className="btn primary" href={done.streamUrl} target="_blank" rel="noopener noreferrer">{`Watch the ${w.oneLower}`}</a>}
+        <ReadingCard reading={reading} w={w} />
       </Page>
     );
   }
@@ -156,17 +161,17 @@ export function HerePage() {
   const invited = info.invitedBy ? <div className="at-welcome">{info.invitedBy} invited you. We are so glad you came.</div> : null;
 
   if (info.state === 'cancelled') {
-    return <Page info={info}><Note tone="warn">This service has been cancelled. Please check with your church for the next one. We hope to see you soon.</Note></Page>;
+    return <Page info={info}><Note tone="warn">{`This ${w.oneLower} has been cancelled. Please check with your church for the next one. We hope to see you soon.`}</Note></Page>;
   }
   if (info.state === 'closed') {
-    return <Page info={info}><Note tone="info">Check-in for this service has ended. Thank you for being part of it. We hope to see you next time.</Note><ReadingCard reading={info.reading} /></Page>;
+    return <Page info={info}><Note tone="info">{`Check-in for this ${w.oneLower} has ended. Thank you for being part of it. We hope to see you next time.`}</Note><ReadingCard reading={info.reading} w={w} /></Page>;
   }
   if (info.state === 'before') {
     return (
       <Page info={info}>
         {invited}
         <Note tone="info"><b>Check-in opens at {dayTime(info.opensAt)}.</b> Please come back then, or scan the code at the door.</Note>
-        <ReadingCard reading={info.reading} />
+        <ReadingCard reading={info.reading} w={w} />
       </Page>
     );
   }
@@ -193,7 +198,7 @@ export function HerePage() {
           </div>
         </Card>
       </form>
-      <ReadingCard reading={info.reading} />
+      <ReadingCard reading={info.reading} w={w} />
     </Page>
   );
 }
@@ -211,13 +216,14 @@ export function LivePage() {
 
   if (error) {
     return (
-      <Problem title="We could not find this service">
+      <Problem title="We could not find this gathering">
         <ErrorNote>{error.message}</ErrorNote>
         <p className="muted">Please check the link, or ask the person who shared it with you for a new one.</p>
       </Problem>
     );
   }
   if (!info) return <Loading />;
+  const w = wordsOf(info);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -237,12 +243,12 @@ export function LivePage() {
   const startsIn = mins >= 2880 ? `Starts in ${Math.round(mins / 1440)} days` : mins >= 120 ? `Starts in ${Math.round(mins / 60)} hours` : mins >= 60 ? 'Starts in about an hour' : `Starts in ${Math.max(mins, 1)} minute${mins === 1 ? '' : 's'}`;
   const ended = info.state === 'closed';
   const cancelled = info.state === 'cancelled';
-  const status = cancelled ? 'This service has been cancelled.' : ended ? 'The service has ended. The recording may be on our YouTube channel.' : info.live ? 'Live now' : info.state === 'open' ? 'Starting very soon' : startsIn;
+  const status = cancelled ? `This ${w.oneLower} has been cancelled.` : ended ? `The ${w.oneLower} has ended. The recording may be on our YouTube channel.` : info.live ? 'Live now' : info.state === 'open' ? 'Starting very soon' : startsIn;
 
   return (
     <Page info={info}>
       <div className={`at-status ${info.live && !ended && !cancelled ? 'live' : ''}`} role="status">{status}</div>
-      <ReadingCard reading={info.reading} />
+      <ReadingCard reading={info.reading} w={w} />
       {!ended && !cancelled && (
         <form onSubmit={submit} noValidate>
           <Card>

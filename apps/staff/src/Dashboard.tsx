@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Card, Empty, Stat, StatusBadge, Table, kes, shortDate, useAsync, useToast } from '@churchos/ui';
+import { kes, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, label, methodLabel, useSession } from './session';
-import { Bars, Load, PageHead } from './bits';
+import { Bars } from './bits';
+import { Card, EmptyState, PageHeader, Section, Stat, StatTiles, StatusChip } from './ui';
+import { Loaded, PayChip } from './money-bits';
 
 export function Dashboard() {
   const s = useSession();
@@ -51,75 +53,92 @@ export function Dashboard() {
   const sum = (k: string) => (x ? x.branches.reduce((t: number, b: any) => t + Number(b[k] ?? 0), 0) : 0);
   return (
     <>
-      <PageHead
-        title="Dashboard"
-        sub="Giving as it arrives."
-        action={live
-          ? <Badge tone="good"><span className="live-dot" />Live</Badge>
-          : <Badge tone="warn">Reconnecting…</Badge>}
+      <PageHeader
+        title="Overview"
+        subtitle={<span className="mn-live">Giving as it arrives. {live ? <StatusChip tone="done"><span className="live-dot" style={{ marginRight: 4 }} />Live</StatusChip> : <StatusChip tone="wait">Reconnecting…</StatusChip>}</span>}
       />
-      <Load loading={d.loading} error={d.error} hasData={!!x}>
+      <Loaded loading={d.loading} error={d.error} hasData={!!x} rows={5} height={96}>
         {x && (
-          <div className="stack">
-            <div className="grid cols-4">
+          <>
+            <StatTiles>
               <Stat label="Today's giving" value={kes(x.today.gross)} hint={`Net ${kes(x.today.net)}`} />
               <Stat label="Payments today" value={Number(x.today.n)} />
               <Stat label="Last 7 days" value={kes(x.week.gross)} hint={`${Number(x.week.n)} payments`} />
               <Stat label="Cash recorded today" value={kes(x.cashToday)} hint="Signed off by two people" />
-            </div>
-            <div className="grid cols-3">
-              <Stat label="In 48 hour hold" value={kes(sum('pending'))} tone="warn" />
-              <Stat label="Ready to pay out" value={kes(sum('available'))} tone="good" />
-              <Stat label="Owed" value={kes(sum('receivable'))} hint="Netted from the next payout" />
-            </div>
-            <div className="grid cols-2">
-              <Card title="Today by method">
-                {x.byMethod.length === 0 ? <Empty>No payments yet today.</Empty> :
-                  <Bars rows={x.byMethod.map((r: any) => ({ key: r.method, label: methodLabel(r.method), value: Number(r.gross), hint: `${r.n}` }))} />}
-              </Card>
-              <Card title="Today by purpose">
-                {x.byPurpose.length === 0 ? <Empty>No payments yet today.</Empty> :
-                  <Bars rows={x.byPurpose.map((r: any) => ({ key: r.purpose, label: label(r.purpose), value: Number(r.gross), hint: `${r.n}` }))} />}
-              </Card>
-            </div>
-            <Card title="Recent payments" action={<span className="tiny">Newest first</span>}>
-              {feed.length === 0 ? <Empty>Payments will appear here the moment they arrive.</Empty> : (
-                <Table head={['When', 'Branch', 'Method', 'Purpose', 'Gross', 'Fee', 'Net', 'Status']}>
-                  {feed.map((p) => (
-                    <tr key={p.id} className={flash.has(p.id) ? 'flash' : ''}>
-                      <td>{shortDate(p.received_at)}</td>
-                      <td>{p.branch}</td>
-                      <td>{methodLabel(p.method)}</td>
-                      <td>{label(p.purpose)}</td>
-                      <td className="num">{kes(p.amount_paid)}</td>
-                      <td className="num">{kes(p.fee)}</td>
-                      <td className="num">{kes(p.net)}</td>
-                      <td><StatusBadge status={p.stage} /></td>
-                    </tr>
-                  ))}
-                </Table>
+            </StatTiles>
+            <Section title="Your balance">
+              <StatTiles>
+                <Stat label="In 48 hour hold" value={kes(sum('pending'))} tone="wait" />
+                <Stat label="Ready to pay out" value={kes(sum('available'))} tone="good" />
+                <Stat label="Owed" value={kes(sum('receivable'))} hint="Netted from the next payout" />
+              </StatTiles>
+            </Section>
+            <Section title="Today">
+              <div className="mn-cols two">
+                <Card>
+                  <div className="mn-cardhead"><h3>By method</h3></div>
+                  {x.byMethod.length === 0 ? <p className="mn-flat-note">No payments yet today.</p> :
+                    <Bars rows={x.byMethod.map((r: any) => ({ key: r.method, label: methodLabel(r.method), value: Number(r.gross), hint: `${r.n}` }))} />}
+                </Card>
+                <Card>
+                  <div className="mn-cardhead"><h3>By purpose</h3></div>
+                  {x.byPurpose.length === 0 ? <p className="mn-flat-note">No payments yet today.</p> :
+                    <Bars rows={x.byPurpose.map((r: any) => ({ key: r.purpose, label: label(r.purpose), value: Number(r.gross), hint: `${r.n}` }))} />}
+                </Card>
+              </div>
+            </Section>
+            <Section title="Recent payments" hint="Newest first">
+              {feed.length === 0 ? <Card><EmptyState icon="money" title="Nothing yet" text="Payments will appear here the moment they arrive." /></Card> : (
+                <Card pad={false} className="mn-wrap">
+                  <div className="mn-scroll">
+                    <table className="mn-table">
+                      <thead><tr><th>When</th><th>Branch</th><th>Method</th><th>Purpose</th><th className="num">Gross</th><th className="num">Fee</th><th className="num">Net</th><th>Status</th></tr></thead>
+                      <tbody>
+                        {feed.map((p) => (
+                          <tr key={p.id} className={flash.has(p.id) ? 'flash' : ''}>
+                            <td className="mn-first" data-l="When">{shortDate(p.received_at)}</td>
+                            <td data-l="Branch">{p.branch}</td>
+                            <td data-l="Method">{methodLabel(p.method)}</td>
+                            <td data-l="Purpose">{label(p.purpose)}</td>
+                            <td className="num" data-l="Gross">{kes(p.amount_paid)}</td>
+                            <td className="num" data-l="Fee">{kes(p.fee)}</td>
+                            <td className="num" data-l="Net">{kes(p.net)}</td>
+                            <td data-l="Status"><PayChip status={p.stage} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
               )}
-            </Card>
+            </Section>
             {s.scope === 'all' && x.branches.length > 1 && (
-              <Card title="Branches" action={<span className="tiny">Select a branch to drill in</span>}>
-                <Table head={['Branch', 'Code', 'Today', 'In hold', 'Ready to pay out', 'Owed', '']}>
-                  {x.branches.map((b: any) => (
-                    <tr key={b.id} style={{ cursor: 'pointer' }} onClick={() => s.setScope(b.id)}>
-                      <td><b>{b.name}</b></td>
-                      <td>{b.code}</td>
-                      <td className="num">{kes(b.todayGross)}</td>
-                      <td className="num">{kes(b.pending)}</td>
-                      <td className="num">{kes(b.available)}</td>
-                      <td className="num">{kes(b.receivable)}</td>
-                      <td>{b.payout_paused ? <Badge tone="bad">Payouts paused</Badge> : null}</td>
-                    </tr>
-                  ))}
-                </Table>
-              </Card>
+              <Section title="Branches" hint="Select a branch to look closer">
+                <Card pad={false} className="mn-wrap">
+                  <div className="mn-scroll">
+                    <table className="mn-table">
+                      <thead><tr><th>Branch</th><th>Code</th><th className="num">Today</th><th className="num">In hold</th><th className="num">Ready to pay out</th><th className="num">Owed</th><th /></tr></thead>
+                      <tbody>
+                        {x.branches.map((b: any) => (
+                          <tr key={b.id} className="tap" onClick={() => s.setScope(b.id)}>
+                            <td className="mn-first" data-l="Branch"><b>{b.name}</b></td>
+                            <td data-l="Code">{b.code}</td>
+                            <td className="num" data-l="Today">{kes(b.todayGross)}</td>
+                            <td className="num" data-l="In hold">{kes(b.pending)}</td>
+                            <td className="num" data-l="Ready to pay out">{kes(b.available)}</td>
+                            <td className="num" data-l="Owed">{kes(b.receivable)}</td>
+                            <td className="mn-act">{b.payout_paused ? <StatusChip tone="bad">Payouts paused</StatusChip> : null}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </Section>
             )}
-          </div>
+          </>
         )}
-      </Load>
+      </Loaded>
       {toast.node}
     </>
   );

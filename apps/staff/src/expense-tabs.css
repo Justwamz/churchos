@@ -72,3 +72,14 @@
 .xt-cat label input { width: 18px; height: 18px; }
 .xt-add { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .xt-add input { flex: 1 1 200px; min-width: 0; }
+/* new design overrides */
+.xt-table th { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 650; border-bottom-color: var(--line); }
+.xt-table td { border-bottom-color: var(--line-soft); }
+.xt-table tr:last-child td { border-bottom: 0; }
+.xt-rule { border-color: var(--line-soft); background: var(--paper); border-radius: var(--r-ctl); padding: 16px; }
+.xt-cat { border-bottom-color: var(--line-soft); }
+.xt-bar { background: var(--off-tint); border: 0; }
+@media (max-width: 760px) {
+  .xt-table tr { background: var(--surface); border-color: var(--line-soft); border-radius: var(--r-card); box-shadow: var(--shadow); padding: 8px 16px; }
+  .xt-table td { border: 0; }
+}

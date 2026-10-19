@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { Badge, Button, Empty, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, label, useSession } from './session';
-import { Load, PageHead } from './bits';
-import { Modal } from './MemberForm';
+import { Gate, Modal } from './MemberForm';
+import { Card, EmptyState, PageHeader, Section, Stat, StatTiles, StatusChip } from './ui';
+import { Icon } from './icons';
 import './tickets.css';
 import './children.css';
+import './people.css';
 
 /** A short name for this browser, so the log can say which device did what. */
 export function deviceLabel(): string {
@@ -247,7 +249,7 @@ function GuardianPanel({ sessionId, panel, onClose, onChanged, onTag, onBanner, 
     <Modal title={panel.guardian.name} onClose={onClose}>
       <div className="stack">
         {panel.note && <Note>{panel.note}</Note>}
-        {nothing && <Empty>Nothing to do for this guardian. They have no children to drop off and none in this room.</Empty>}
+        {nothing && <EmptyState icon="child" title={<>Nothing to do for this guardian. They have no children to drop off and none in this room.</>} />}
         {panel.dropOff.length > 0 && (
           <section className="stack kd-sec">
             <h3>Drop off</h3>
@@ -321,7 +323,7 @@ function FindModal({ sessionId, onClose, onFound, onBanner }: { sessionId: strin
       <div className="stack">
         <input autoFocus aria-label="Name or phone" placeholder="Type at least 2 letters or the last digits of a phone" value={q} onChange={(e) => setQ(e.target.value)} />
         {err && <ErrorNote>{err}</ErrorNote>}
-        {res && res.length === 0 && <Empty>No guardian found. Check the spelling, or try the phone number.</Empty>}
+        {res && res.length === 0 && <EmptyState icon="child" title={<>No guardian found. Check the spelling, or try the phone number.</>} />}
         <div className="kd-results">
           {res?.map((g) => (
             <div key={g.id} className="kd-guardian">
@@ -398,8 +400,8 @@ function OtherCollector({ sessionId, row, onClose, onFound }: { sessionId: strin
         {!sentTo && (
           <>
             <p className="muted" style={{ margin: 0 }}>Choose who is collecting. We send a code to their own phone, and they read it out to you.</p>
-            <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-              {list.data && all.length === 0 && <Empty>No one else is set up to collect this child. Ask the guardian to add a pick-up person in the app.</Empty>}
+            <Gate loading={list.loading} error={list.error} hasData={!!list.data}>
+              {list.data && all.length === 0 && <EmptyState icon="child" title={<>No one else is set up to collect this child. Ask the guardian to add a pick-up person in the app.</>} />}
               <div className="kd-results">
                 {all.map((p) => (
                   <div key={`${p.kind}${p.id}`} className="kd-guardian">
@@ -408,7 +410,7 @@ function OtherCollector({ sessionId, row, onClose, onFound }: { sessionId: strin
                   </div>
                 ))}
               </div>
-            </Load>
+            </Gate>
           </>
         )}
         {sentTo && (
@@ -431,10 +433,10 @@ function Contacts({ row, onClose }: { row: any; onClose: () => void }) {
   return (
     <Modal title={`Call the guardians of ${row.name}`} onClose={onClose}>
       <div className="stack">
-        <Load loading={q.loading} error={q.error} hasData={!!q.data}>
+        <Gate loading={q.loading} error={q.error} hasData={!!q.data}>
           {q.data && (
             <>
-              {q.data.guardians?.length === 0 && <Empty>No phone numbers are on file.</Empty>}
+              {q.data.guardians?.length === 0 && <EmptyState icon="child" title={<>No phone numbers are on file.</>} />}
               {q.data.guardians?.map((g: any, i: number) => (
                 <div key={i} className="kd-guardian">
                   <div><b>{g.name}</b><div className="mono">{g.phone}</div></div>
@@ -444,7 +446,7 @@ function Contacts({ row, onClose }: { row: any; onClose: () => void }) {
               <div className="tiny">Showing these numbers is recorded in the log.</div>
             </>
           )}
-        </Load>
+        </Gate>
         <div className="row"><Button kind="ghost" onClick={onClose}>Close</Button></div>
       </div>
     </Modal>
@@ -474,9 +476,9 @@ function Escalate({ row, onClose, onDone }: { row: any; onClose: () => void; onD
 
 // ---------- one room ----------
 
-const STATE_CHIP: Record<string, { text: string; tone: 'warn' | 'bad' }> = {
-  late: { text: 'Late', tone: 'warn' },
-  alerted: { text: 'Guardians alerted', tone: 'warn' },
+const STATE_CHIP: Record<string, { text: string; tone: 'wait' | 'bad' }> = {
+  late: { text: 'Late', tone: 'wait' },
+  alerted: { text: 'Guardians alerted', tone: 'wait' },
   escalated: { text: 'Office alerted', tone: 'bad' },
 };
 
@@ -554,8 +556,8 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
     <div className="kd">
       {toast.node}
       <BannerView b={banner} onClose={() => setBanner(null)} />
-      <div className="row"><Button small kind="ghost" onClick={() => { scan.stop(); onBack(); }}>Back to classes</Button></div>
-      <Load loading={q.loading} error={q.error} hasData={!!d}>
+      <div className="row"><Button small kind="ghost" onClick={() => { scan.stop(); onBack(); }}>Back to today</Button></div>
+      <Gate loading={q.loading} error={q.error} hasData={!!d}>
         {d && (
           <>
             <div className="card kd-top">
@@ -581,18 +583,18 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
 
             {isOpen && (
               <div className="card stack">
-                <h3 style={{ margin: 0 }}>Scan a guardian</h3>
+                <h3 style={{ margin: 0 }}>Drop off or collect: scan a guardian</h3>
                 <div className="ck-video-wrap" style={scan.camOn ? undefined : { aspectRatio: '16 / 7' }}>
                   <video ref={scan.video} playsInline muted style={scan.camOn ? undefined : { display: 'none' }} />
                   {scan.camOn && <div className="ck-frame" aria-hidden="true" />}
                   {!scan.camOn && <div>Point the camera at the code on the guardian's phone</div>}
                 </div>
                 <canvas ref={scan.canvas} hidden />
-                <div className="row">
+                <div className="pp-big">
                   {scan.camOn ? <Button kind="ghost" onClick={scan.stop}>Stop scanning</Button> : <Button onClick={scan.start}>Start scanning</Button>}
                 </div>
                 {scan.camMsg && <ErrorNote>{scan.camMsg}</ErrorNote>}
-                <div className="kd-alt">
+                <div className="pp-big">
                   <Button kind="ghost" onClick={() => setMode('find')}>Find by name or phone</Button>
                   <Button kind="ghost" onClick={() => setMode('code')}>I have a pick-up code</Button>
                 </div>
@@ -601,7 +603,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
 
             <div className="card stack">
               <h3 style={{ margin: 0 }}>In the room ({here.length})</h3>
-              {here.length === 0 ? <Empty>No children are in the room right now.</Empty> : (
+              {here.length === 0 ? <EmptyState icon="child" title={<>No children are in the room right now.</>} /> : (
                 <div className="kd-list">
                   {here.map((c) => {
                     const chip = STATE_CHIP[c.state];
@@ -610,7 +612,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
                       <div key={c.id} className={`kd-child ${late ? 'late' : ''}`}>
                         <div className="kd-tag">{String(c.tag).padStart(2, '0')}</div>
                         <div className="kd-info">
-                          <div className="kd-name">{c.name} {chip && <Badge tone={chip.tone}>{chip.text}</Badge>}</div>
+                          <div className="kd-name">{c.name} {chip && <StatusChip tone={chip.tone}>{chip.text}</StatusChip>}</div>
                           <div className="tiny">Since {hhmm(c.inAt)}{c.dropper || c.inBy ? ` by ${c.dropper ?? c.inBy}` : ''}</div>
                           <div className="kd-actions">
                             <Button small kind="ghost" onClick={() => setOther(c)}>Someone else is collecting</Button>
@@ -646,7 +648,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
             )}
           </>
         )}
-      </Load>
+      </Gate>
 
       {mode === 'find' && <FindModal sessionId={id} onClose={() => setMode('')} onFound={found} onBanner={setBanner} />}
       {mode === 'code' && <CodeModal sessionId={id} onClose={() => setMode('')} onFound={found} />}
@@ -704,7 +706,7 @@ function ClassEditor({ cls, branches, onClose, onDone }: { cls?: any; branches: 
         )}
         <div className="stack" style={{ gap: 8 }}>
           <span className="field-label">Teachers</span>
-          <Load loading={pool.loading} error={pool.error} hasData={!!pool.data}>
+          <Gate loading={pool.loading} error={pool.error} hasData={!!pool.data}>
             {list.length === 0 ? <div className="tiny">No staff can check children in at this branch yet. Give someone the teacher role in Team.</div> : (
               <div className="kd-picks">
                 {list.map((t) => (
@@ -712,7 +714,7 @@ function ClassEditor({ cls, branches, onClose, onDone }: { cls?: any; branches: 
                 ))}
               </div>
             )}
-          </Load>
+          </Gate>
         </div>
         {cls && <label className="kd-pick"><input type="checkbox" checked={!active} onChange={() => setActive(!active)} /><span>Switch this class off (it will not be offered for check-in)</span></label>}
         {err && <ErrorNote>{err}</ErrorNote>}
@@ -833,7 +835,7 @@ function BranchLocation({ branches, onChanged }: { branches: any[]; onChanged: (
   );
 }
 
-function Classes({ onRoom }: { onRoom: (id: string) => void }) {
+function Classes({ onRoom, mode }: { onRoom: (id: string) => void; mode: 'today' | 'classes' }) {
   const q = useAsync<any>(() => api.get('/kids/classes'), []);
   const reload = q.reload;
   const [opening, setOpening] = useState<any>(null);
@@ -841,35 +843,71 @@ function Classes({ onRoom }: { onRoom: (id: string) => void }) {
   const [adding, setAdding] = useState(false);
   useEffect(() => { const t = setInterval(reload, 15_000); return () => clearInterval(t); }, [reload]);
   const d = q.data;
-  const classes: any[] = d?.classes ?? [];
+  const all: any[] = d?.classes ?? [];
+  const classes = mode === 'today' ? all.filter((c) => c.active) : all;
+  const openNow = all.filter((c) => c.session);
+  const inRooms = openNow.reduce((n, c) => n + (c.session?.stillIn ?? 0), 0);
   return (
-    <div className="stack">
-      {d?.canManage && <BranchLocation branches={d.branches ?? []} onChanged={reload} />}
-      {d?.canManage && <div className="row"><Button onClick={() => setAdding(true)}>Add a class</Button></div>}
-      <Load loading={q.loading} error={q.error} hasData={!!d}>
-        {d && (classes.length === 0 ? <Empty>{d.canManage ? 'No classes yet. Add the first one.' : 'No classes are set up for you yet. Ask a church manager to add you to a class.'}</Empty> : (
-          <div className="kd-cards">
+    <div className="pp-stack">
+      {mode === 'classes' && d?.canManage && <div className="pp-row-flex"><Button onClick={() => setAdding(true)}>Add a class</Button></div>}
+      <Gate loading={q.loading} error={q.error} hasData={!!d}>
+        {d && mode === 'today' && classes.length > 0 && (
+          <StatTiles>
+            <Stat label="Rooms open now" value={openNow.length} tone={openNow.length ? 'good' : undefined} />
+            <Stat label="Children in rooms" value={inRooms} />
+          </StatTiles>
+        )}
+        {d && (classes.length === 0 ? <EmptyState icon="child" title={d.canManage ? 'No classes yet' : 'No classes for you yet'} text={d.canManage ? 'Add the first class in the Classes tab.' : 'Ask a church manager to add you to a class.'} /> : (
+          <div className="pp-classes">
             {classes.map((c) => (
-              <div key={c.id} className={`card kd-class ${c.active ? '' : 'off'}`}>
-                <div className="row between">
-                  <h3 style={{ margin: 0 }}>{c.name}</h3>
-                  {!c.active && <Badge tone="muted">Switched off</Badge>}
-                  {c.session && <Badge tone="good">{c.session.stillIn} here</Badge>}
+              <Card key={c.id} className={`pp-class ${c.active ? '' : 'off'}`}>
+                <div className="pp-class-head">
+                  <div>
+                    <h3>{c.name}</h3>
+                    <div className="pp-sub">{c.room ? `${c.room} · ` : ''}{c.branch}</div>
+                  </div>
+                  {!c.active ? <StatusChip tone="off">Switched off</StatusChip> : c.session ? <StatusChip tone="done">{c.session.stillIn} here</StatusChip> : <StatusChip tone="off">Closed</StatusChip>}
                 </div>
-                <div className="tiny">{c.room ? `${c.room} · ` : ''}{c.branch}</div>
-                <div className="tiny">{c.teachers.length ? `Teachers: ${c.teachers.map((t: any) => t.name).join(', ')}` : 'No teachers chosen yet'}</div>
-                {c.session && <div className="tiny">Open until {hhmm(c.session.endsAt)} · {c.session.checkedIn} checked in so far</div>}
-                <div className="row" style={{ marginTop: 4 }}>
+                <div className="pp-sub">{c.teachers.length ? `Teachers: ${c.teachers.map((t: any) => t.name).join(', ')}` : 'No teachers chosen yet'}</div>
+                {c.session && <div className="pp-sub">Open until {hhmm(c.session.endsAt)} · {c.session.checkedIn} checked in so far</div>}
+                <div className={mode === 'today' ? 'pp-big' : 'pp-row-flex'}>
                   {c.session ? <Button onClick={() => onRoom(c.session.id)}>Open room</Button> : c.active ? <Button onClick={() => setOpening(c)}>Open session</Button> : null}
-                  {c.canManage && <Button kind="ghost" onClick={() => setEditing(c)}>Edit</Button>}
+                  {mode === 'classes' && c.canManage && <Button kind="ghost" onClick={() => setEditing(c)}>Edit</Button>}
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         ))}
-      </Load>
+      </Gate>
       {opening && <OpenSession cls={opening} onClose={() => setOpening(null)} onOpened={(id) => { setOpening(null); onRoom(id); }} />}
       {(adding || editing) && <ClassEditor cls={editing ?? undefined} branches={d?.branches ?? []} onClose={() => { setAdding(false); setEditing(null); }} onDone={() => { setAdding(false); setEditing(null); reload(); }} />}
+    </div>
+  );
+}
+
+function Setup() {
+  const q = useAsync<any>(() => api.get('/kids/classes'), []);
+  const d = q.data;
+  const unset = (d?.branches ?? []).some((b: any) => !b.location);
+  return (
+    <div className="pp-stack">
+      <Gate loading={q.loading} error={q.error} hasData={!!d}>
+        {d && (
+          <>
+            <details className="pp-disc" open={unset}>
+              <summary><span>Branch location<small>{unset ? 'Not set for every branch yet' : 'Children can only be checked in near the church'}</small></span></summary>
+              <div className="pp-disc-body"><BranchLocation branches={d.branches ?? []} onChanged={q.reload} /></div>
+            </details>
+            <details className="pp-disc">
+              <summary><span>Late pick-up alerts<small>When guardians and the office are told</small></span></summary>
+              <div className="pp-disc-body">
+                <p className="pp-note">You choose the late-alert times each time a teacher opens a session: guardians are alerted after a set number of minutes late (15 by default) and the office after a longer wait (30 by default).</p>
+                <p className="pp-note">Add, edit or switch off classes and choose their teachers in the Classes tab.</p>
+              </div>
+            </details>
+          </>
+        )}
+      </Gate>
     </div>
   );
 }
@@ -894,7 +932,7 @@ function LogTab() {
   const q = useAsync<any>(() => api.get(`/kids/log?${qs()}`), [from, to, dq, action]);
   const log: any[] = q.data?.log ?? [];
   useEffect(() => { if (q.data) setActions((a) => [...new Set([...a, ...log.map((l) => l.action)])].sort()); }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const res = (r: string) => <Badge tone={r === 'ok' ? 'good' : r === 'refused' || r === 'invalid' ? 'bad' : 'warn'}>{label(r)}</Badge>;
+  const res = (r: string) => <StatusChip tone={r === 'ok' ? 'done' : r === 'refused' || r === 'invalid' ? 'bad' : 'wait'}>{label(r)}</StatusChip>;
   const locCell = (l: any) => !l.locationStatus ? <span className="tiny">-</span> : (
     <div className={`kd-locrow ${l.locationStatus === 'Away from the branch' ? 'away' : l.locationStatus === 'Location not shared' ? 'unknown' : ''}`}>
       <b>{l.locationStatus}</b>{l.distanceM != null && l.distanceM !== '' ? ` · ${l.distanceM} m` : ''}{l.locationSource ? <span className="tiny"> ({l.locationSource})</span> : null}
@@ -912,8 +950,8 @@ function LogTab() {
         <Field label="What happened"><select value={action} onChange={(e) => setAction(e.target.value)}><option value="">Everything</option>{actions.map((a) => <option key={a} value={a}>{label(a)}</option>)}</select></Field>
         <div className="kd-filter-btn"><Button kind="ghost" onClick={() => window.open(api.url(`/kids/log?${qs(true)}`), '_blank')}>Download CSV</Button></div>
       </div>
-      <Load loading={q.loading} error={q.error} hasData={!!q.data}>
-        {q.data && (log.length === 0 ? <Empty>Nothing was logged in these dates.</Empty> : (
+      <Gate loading={q.loading} error={q.error} hasData={!!q.data}>
+        {q.data && (log.length === 0 ? <EmptyState icon="child" title={<>Nothing was logged in these dates.</>} /> : (
           <>
             <div className="table-wrap kd-desktop">
               <table className="table">
@@ -943,7 +981,7 @@ function LogTab() {
             </div>
           </>
         ))}
-      </Load>
+      </Gate>
     </div>
   );
 }
@@ -961,13 +999,13 @@ function ReportTab() {
         <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
         <div className="kd-filter-btn"><Button kind="ghost" onClick={() => window.open(api.url(`/kids/report?from=${from}&to=${to}&csv=1`), '_blank')}>Download CSV</Button></div>
       </div>
-      <Load loading={q.loading} error={q.error} hasData={!!q.data}>
+      <Gate loading={q.loading} error={q.error} hasData={!!q.data}>
         {q.data && (
           <>
             <div className="kd-totals">
               {([['Sessions', t.sessions], ['Children checked in', t.checkedIn], ['Late pick-ups', t.late], ['Office alerts', t.escalated]] as const).map(([k, v]) => <div key={k} className="card"><b>{v}</b><span className="tiny">{k}</span></div>)}
             </div>
-            {rows.length === 0 ? <Empty>No sessions were held in these dates.</Empty> : (
+            {rows.length === 0 ? <EmptyState icon="child" title={<>No sessions were held in these dates.</>} /> : (
               <>
                 <div className="table-wrap kd-desktop">
                   <table className="table">
@@ -988,7 +1026,7 @@ function ReportTab() {
             )}
           </>
         )}
-      </Load>
+      </Gate>
     </div>
   );
 }
@@ -996,22 +1034,14 @@ function ReportTab() {
 export function Children() {
   const s = useSession();
   const can = s.can('kids.manage');
-  const [tab, setTab] = useState<'classes' | 'log' | 'report'>('classes');
+  const [tab, setTab] = useState<'today' | 'classes' | 'setup' | 'log' | 'report'>('today');
   const [room, setRoom] = useState('');
-  if (room) return <div><PageHead title="Children" sub="Check children in and out of class." /><Room id={room} onBack={() => setRoom('')} /></div>;
+  if (room) return <div><PageHeader title="Children" subtitle="Check children in and out of class." /><Room id={room} onBack={() => setRoom('')} /></div>;
+  const tabs = can ? [{ id: 'today', label: 'Today' }, { id: 'classes', label: 'Classes' }, { id: 'setup', label: 'Setup' }, { id: 'log', label: 'Log' }, { id: 'report', label: 'Reports' }] : undefined;
   return (
     <div>
-      <PageHead title="Children" sub="Check children in and out of class." />
-      <div className="stack">
-        {can && (
-          <div className="chips" role="tablist">
-            {([['classes', 'Classes & rooms'], ['log', 'Log'], ['report', 'Reports']] as const).map(([k, t]) => (
-              <button key={k} type="button" role="tab" aria-selected={tab === k} className={`chip ${tab === k ? 'on' : ''}`} onClick={() => setTab(k)}>{t}</button>
-            ))}
-          </div>
-        )}
-        {tab === 'classes' || !can ? <Classes onRoom={setRoom} /> : tab === 'log' ? <LogTab /> : <ReportTab />}
-      </div>
+      <PageHeader title="Children" subtitle="Check children in and out of class." tabs={tabs} tab={tab} onTab={(v) => setTab(v as any)} />
+      {tab === 'today' || !can ? <Classes onRoom={setRoom} mode="today" /> : tab === 'classes' ? <Classes onRoom={setRoom} mode="classes" /> : tab === 'setup' ? <Setup /> : tab === 'log' ? <LogTab /> : <ReportTab />}
     </div>
   );
 }

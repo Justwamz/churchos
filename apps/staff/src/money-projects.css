@@ -1,0 +1,9 @@
+.pj-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.pj-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
+.pj-desc { margin: 0 0 12px; color: var(--ink-2); font-size: 14.5px; }
+.pj-raised { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 8px 0 6px; flex-wrap: wrap; }
+.pj-raised b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.pj-meta { display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; color: var(--ink-3); }
+.pj-bar { height: 6px; background: var(--off-tint); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+.pj-bar i { display: block; height: 100%; }
+.pj-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line-soft); }

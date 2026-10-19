@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Table, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load, PageHead } from './bits';
-import { Modal } from './MemberForm';
+import { Gate, Modal } from './MemberForm';
+import { Icon } from './icons';
+import { EmptyState, PageHeader, StatusChip } from './ui';
 import { GroupDetail } from './GroupDetail';
 
 export function GroupFormModal({ group, onClose, onDone }: { group?: { id: string; name: string; description: string | null; joinPolicy?: string; posting?: string }; onClose: () => void; onDone: (id?: string) => void }) {
@@ -47,7 +48,7 @@ export function GroupFormModal({ group, onClose, onDone }: { group?: { id: strin
           </select>
         </Field>
         {err && <ErrorNote>{err}</ErrorNote>}
-        <div className="row"><Button disabled={busy || name.trim().length < 2} onClick={save}>{busy ? 'Saving...' : 'Save'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
+        <div className="pp-form-foot"><Button disabled={busy || name.trim().length < 2} onClick={save}>{busy ? 'Saving...' : 'Save'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
     </Modal>
   );
@@ -61,30 +62,31 @@ export function Groups() {
   const [creating, setCreating] = useState(false);
   const canManage = s.can('groups.manage');
 
-  if (open) return <><PageHead title="Groups" /><GroupDetail id={open} onBack={() => { setOpen(null); d.reload(); }} /></>;
+  if (open) return <><PageHeader title="Groups" subtitle="People who meet and serve together." /><GroupDetail id={open} onBack={() => { setOpen(null); d.reload(); }} /></>;
 
   return (
     <>
-      <PageHead title="Groups" sub="Group leaders can message their group from the member app." action={canManage && <Button onClick={() => setCreating(true)}>New group</Button>} />
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        {d.data && (
-          <Card>
-            {d.data.length === 0 ? <Empty>No groups yet.{canManage ? ' Create your first one.' : ''}</Empty> : (
-              <Table head={['Group', 'Branch', 'People', 'Leaders', '']}>
-                {d.data.map((g) => (
-                  <tr key={g.id}>
-                    <td><b>{g.name}</b>{g.description && <div className="tiny">{g.description}</div>}<div className="chips" style={{ gap: 4, marginTop: 4 }}><Badge tone="muted">{g.join_policy === 'request' ? 'Members can ask to join' : 'By invitation only'}</Badge><Badge tone="muted">{g.posting === 'leaders' ? 'Only leaders post' : 'Everyone can post'}</Badge></div></td>
-                    <td>{g.branch_name ?? <Badge tone="info">Whole church</Badge>}</td>
-                    <td>{g.member_count}</td>
-                    <td>{g.leaders || <span className="tiny">No leader yet</span>}</td>
-                    <td><Button small kind="ghost" onClick={() => setOpen(g.id)}>Open</Button></td>
-                  </tr>
-                ))}
-              </Table>
-            )}
-          </Card>
-        )}
-      </Load>
+      <PageHeader title="Groups" subtitle="Group leaders can message their group from the member app." actions={canManage && <Button onClick={() => setCreating(true)}>New group</Button>} />
+      <Gate loading={d.loading} error={d.error} hasData={!!d.data}>
+        {d.data && (d.data.length === 0 ? (
+          <EmptyState icon="people" title="No groups yet" text={canManage ? 'Create a group for a ministry, cell or fellowship.' : 'Groups will show up here.'} action={canManage ? <Button onClick={() => setCreating(true)}>New group</Button> : undefined} />
+        ) : (
+          <div className="pp-list">
+            {d.data.map((g) => (
+              <button type="button" key={g.id} className="pp-item" onClick={() => setOpen(g.id)}>
+                <span className="pp-avatar home" aria-hidden="true"><Icon name="people" size={20} /></span>
+                <div>
+                  <div className="pp-name">{g.name}</div>
+                  <div className="pp-sub">{g.member_count} {g.member_count === 1 ? 'person' : 'people'} · {g.branch_name ?? 'Whole church'} · {g.leaders ? 'Led by ' + g.leaders : 'No leader yet'}</div>
+                  {g.description && <div className="pp-sub">{g.description}</div>}
+                </div>
+                <span className="pp-side"><StatusChip tone="off">{g.join_policy === 'request' ? 'Members can ask to join' : 'By invitation only'}</StatusChip><StatusChip tone="off">{g.posting === 'leaders' ? 'Only leaders post' : 'Everyone can post'}</StatusChip></span>
+                <Icon name="chevron" size={18} className="pp-chev" />
+              </button>
+            ))}
+          </div>
+        ))}
+      </Gate>
       {creating && <GroupFormModal onClose={() => setCreating(false)} onDone={(id) => { setCreating(false); toast.show('Group created.'); d.reload(); if (id) setOpen(id); }} />}
       {toast.node}
     </>

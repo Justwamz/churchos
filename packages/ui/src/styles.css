@@ -1,4 +1,5 @@
-/* ChurchOS design tokens and base components. Warm paper, deep teal, a little gold. */
+@import '@fontsource-variable/manrope';
+/* ChurchOS design tokens and base components. Warm paper, deep teal, a little gold. Manrope everywhere. */
 :root {
   --paper: #faf8f3;
   --surface: #ffffff;
@@ -21,8 +22,9 @@
   --info-tint: #e4eef8;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(23, 33, 43, 0.06), 0 6px 20px rgba(23, 33, 43, 0.05);
-  --serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif;
-  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --serif: 'Manrope Variable', 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; /* headings now use Manrope too */
+  --cert-serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, 'Times New Roman', serif; /* printed certificates keep a book face */
+  --sans: 'Manrope Variable', 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -233,7 +235,7 @@ input[type='checkbox'] { width: 18px; min-height: 18px; height: 18px; }
 
 /* Certificate card (L99, L100). Drawn on screen at a fixed A4-landscape ratio, and printed full page. */
 .cert-print { max-width: 100%; overflow-x: auto; }
-.cert { --accent: #0e5a52; width: 1040px; max-width: none; aspect-ratio: 297 / 210; background: #fffdf8; color: #1b2430; padding: 22px; border-radius: 6px; box-shadow: var(--shadow); font-family: var(--serif); }
+.cert { --accent: #0e5a52; width: 1040px; max-width: none; aspect-ratio: 297 / 210; background: #fffdf8; color: #1b2430; padding: 22px; border-radius: 6px; box-shadow: var(--shadow); font-family: var(--cert-serif); }
 .cert-frame { position: relative; height: 100%; border: 3px double var(--accent); padding: 26px 40px 18px; display: flex; flex-direction: column; align-items: center; text-align: center; overflow: hidden; }
 .cert-head { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .cert-logo { height: 70px; width: auto; max-width: 160px; object-fit: contain; margin-bottom: 4px; }

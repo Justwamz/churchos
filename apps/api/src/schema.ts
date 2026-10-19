@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS org_settings (
   member_number_pattern text NOT NULL DEFAULT 'M{SEQ:5}',
   member_number_next int NOT NULL DEFAULT 1
 );
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS gathering_one text;
+ALTER TABLE org_settings ADD COLUMN IF NOT EXISTS gathering_many text;
 
 CREATE TABLE IF NOT EXISTS birthday_wishes (
   membership_id text NOT NULL,

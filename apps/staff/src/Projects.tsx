@@ -1,21 +1,31 @@
 import { useState } from 'react';
-import { Badge, Button, Card, Empty, Field, Table, dateOnly, kes, useAsync, useToast } from '@churchos/ui';
+import { Button, Field, dateOnly, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Hist, Load, PageHead } from './bits';
+import { Hist } from './bits';
+import { Modal } from './MemberForm';
+import { Card, EmptyState, PageHeader, Section, SidePanel, StatusChip } from './ui';
+import { Loaded } from './money-bits';
+import './money.css';
+import './money-projects.css';
 
 function Pledges({ id }: { id: string }) {
   const s = useSession();
   const d = useAsync<any[]>(() => api.get(`/projects/${id}/pledges` + s.qs()), [id]);
   return (
-    <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-      {!d.data || d.data.length === 0 ? <Empty>No pledges yet.</Empty> : (
-        <Table head={['Member', 'Pledged', 'Paid so far']}>
-          {d.data.map((p) => (
-            <tr key={p.id}><td>{p.full_name} <span className="tiny">{p.member_number}</span></td><td className="num">{kes(p.amount)}</td><td className="num">{kes(p.paid)}</td></tr>
-          ))}
-        </Table>
+    <Loaded loading={d.loading} error={d.error} hasData={!!d.data} rows={3}>
+      {!d.data || d.data.length === 0 ? <EmptyState icon="heart" title="No pledges yet" text="Members can pledge to this project in the app." /> : (
+        <div className="mn-scroll">
+          <table className="mn-table">
+            <thead><tr><th>Member</th><th className="num">Pledged</th><th className="num">Paid so far</th></tr></thead>
+            <tbody>
+              {d.data.map((p) => (
+                <tr key={p.id}><td className="mn-first" data-l="Member"><span>{p.full_name}<span className="mn-sub">{p.member_number}</span></span></td><td className="num" data-l="Pledged">{kes(p.amount)}</td><td className="num" data-l="Paid so far">{kes(p.paid)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </Load>
+    </Loaded>
   );
 }
 
@@ -23,12 +33,13 @@ export function Projects() {
   const s = useSession();
   const d = useAsync<any[]>(() => api.get('/projects' + s.qs()), [s.qs()]);
   const toast = useToast();
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<any | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reminding, setReminding] = useState<string | null>(null);
   const [f, setF] = useState({ branchId: '', code: '', name: '', description: '', target: '', deadline: '', restricted: false });
   const branchId = f.branchId || (s.scope !== 'all' ? s.scope : s.branches[0]?.id ?? '');
+  const manage = s.can('projects.manage');
 
   const create = async () => {
     setBusy(true);
@@ -54,11 +65,54 @@ export function Projects() {
 
   return (
     <>
-      <PageHead title="Projects" sub="Building funds and special appeals." action={s.can('projects.manage') && <Button onClick={() => setAdding(!adding)}>{adding ? 'Close' : 'New project'}</Button>} />
-      <div className="stack">
-        {adding && (
-          <Card title="Create a project">
-            <form className="grid cols-3" onSubmit={(e) => { e.preventDefault(); create(); }}>
+      <PageHeader title="Projects" subtitle="Building funds and special appeals." actions={manage ? <Button onClick={() => setAdding(true)}>New project</Button> : undefined} />
+      <Loaded loading={d.loading} error={d.error} hasData={!!d.data} rows={3} height={200}>
+        {!d.data || d.data.length === 0 ? (
+          <Card><EmptyState icon="building" title="No projects yet" text="A project collects gifts for one purpose, like a roof or a new hall." /></Card>
+        ) : (
+          <Section>
+            <div className="mn-cols two">
+              {d.data.map((p) => {
+                const pct = Math.min(100, Math.round((Number(p.raised) / Math.max(1, Number(p.target))) * 100));
+                const bp = p.budget != null ? Math.round((Number(p.spent ?? 0) / Math.max(1, Number(p.budget))) * 100) : 0;
+                const col = bp >= 100 ? 'var(--bad)' : bp >= 80 ? 'var(--gold)' : 'var(--good)';
+                return (
+                  <Card key={p.id}>
+                    <div className="pj-head">
+                      <div><h3>{p.name}</h3><span className="mn-sub">{p.code} · {p.branch_name}{p.deadline ? ` · by ${dateOnly(p.deadline)}` : ''}</span></div>
+                      {p.restricted ? <StatusChip tone="wait">Restricted fund</StatusChip> : null}
+                    </div>
+                    {p.description && <p className="pj-desc">{p.description}</p>}
+                    <div className="pj-raised"><b>{kes(p.raised)}</b><span className="tiny">of {kes(p.target)} ({pct}%)</span></div>
+                    <div className="progress"><i style={{ width: `${pct}%` }} /></div>
+                    <div className="pj-meta">
+                      <span>Pledged {kes(p.pledged)}</span>
+                      {p.budget != null
+                        ? <span>Budget {kes(p.budget)} · spent {kes(p.spent ?? 0)} (<b className={bp >= 100 ? 'mn-bad' : ''}>{bp}%</b>)</span>
+                        : <span>No budget · spent {kes(p.spent ?? 0)}</span>}
+                    </div>
+                    {p.budget != null && <div className="pj-bar"><i style={{ width: `${Math.min(100, bp)}%`, background: col }} /></div>}
+                    <div className="mn-btns pj-actions">
+                      <Button small kind="ghost" onClick={() => setOpen(p)}>Pledges</Button>
+                      {manage && <Button small kind="ghost" disabled={reminding === p.id} onClick={() => remind(p.id)}>{reminding === p.id ? 'Sending…' : 'Send reminders'}</Button>}
+                      <Hist entity="project" entityId={p.id} title={p.name} />
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </Section>
+        )}
+      </Loaded>
+      {open && (
+        <SidePanel title={`Pledges: ${open.name}`} subtitle={`${open.code} · pledged ${kes(open.pledged)}`} onClose={() => setOpen(null)} width={520}>
+          <Pledges id={open.id} />
+        </SidePanel>
+      )}
+      {adding && (
+        <Modal title="New project" onClose={() => setAdding(false)}>
+          <form onSubmit={(e) => { e.preventDefault(); create(); }}>
+            <div className="mn-fields">
               <Field label="Branch">
                 <select value={branchId} onChange={(e) => setF({ ...f, branchId: e.target.value })}>
                   {s.branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -69,52 +123,17 @@ export function Projects() {
               <Field label="Target (KES)"><input inputMode="decimal" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })} /></Field>
               <Field label="Deadline (optional)"><input type="date" value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} /></Field>
               <Field label="Description"><input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></Field>
-              <label className="row" style={{ marginBottom: 12 }}>
-                <input type="checkbox" checked={f.restricted} onChange={(e) => setF({ ...f, restricted: e.target.checked })} /> Restricted fund (money may only be used for this project)
-              </label>
-              <div><Button type="submit" disabled={busy || !f.code.trim() || !f.name.trim() || !f.target || !branchId}>{busy ? 'Saving…' : 'Create project'}</Button></div>
-            </form>
-          </Card>
-        )}
-        <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-          {!d.data || d.data.length === 0 ? <Card><Empty>No projects yet.</Empty></Card> : (
-            <div className="grid cols-2">
-              {d.data.map((p) => {
-                const pct = Math.min(100, Math.round((Number(p.raised) / Math.max(1, Number(p.target))) * 100));
-                return (
-                  <Card key={p.id} title={<>{p.name} <span className="tiny">{p.code}</span></>} action={p.restricted ? <Badge tone="warn">Restricted fund</Badge> : undefined}>
-                    {p.description && <p className="muted" style={{ marginTop: 0 }}>{p.description}</p>}
-                    <div className="row between" style={{ marginBottom: 6 }}><b className="mono">{kes(p.raised)}</b><span className="tiny">of {kes(p.target)} ({pct}%)</span></div>
-                    <div className="progress"><i style={{ width: `${pct}%` }} /></div>
-                    <div style={{ marginTop: 10 }}>
-                      {p.budget != null ? (() => {
-                        const bp = Math.round((Number(p.spent ?? 0) / Math.max(1, Number(p.budget))) * 100);
-                        const col = bp >= 100 ? 'var(--bad)' : bp >= 80 ? 'var(--gold)' : 'var(--good)';
-                        return (
-                          <>
-                            <div className="row between tiny"><span>Budget {kes(p.budget)}</span><span>Spent {kes(p.spent ?? 0)} (<b style={{ color: bp >= 100 ? 'var(--bad)' : undefined }}>{bp}%</b>)</span></div>
-                            <div style={{ height: 5, background: 'var(--paper)', border: '1px solid var(--line)', borderRadius: 999, overflow: 'hidden', marginTop: 4 }}><i style={{ display: 'block', height: '100%', width: `${Math.min(100, bp)}%`, background: col }} /></div>
-                          </>
-                        );
-                      })() : <div className="row between tiny"><span>No budget</span><span>Spent {kes(p.spent ?? 0)}</span></div>}
-                    </div>
-                    <div className="row between tiny" style={{ marginTop: 8 }}>
-                      <span>Pledged {kes(p.pledged)}</span>
-                      <span>{p.branch_name}{p.deadline ? ` · by ${dateOnly(p.deadline)}` : ''}</span>
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <Hist entity="project" entityId={p.id} title={p.name} />{' '}
-                      <Button small kind="ghost" onClick={() => setOpen(open === p.id ? null : p.id)}>{open === p.id ? 'Hide pledges' : 'Show pledges'}</Button>
-                      {s.can('projects.manage') && <> <Button small kind="ghost" disabled={reminding === p.id} onClick={() => remind(p.id)}>{reminding === p.id ? 'Sending…' : 'Send reminders'}</Button></>}
-                    </div>
-                    {open === p.id && <div style={{ marginTop: 8 }}><Pledges id={p.id} /></div>}
-                  </Card>
-                );
-              })}
             </div>
-          )}
-        </Load>
-      </div>
+            <label className="row" style={{ marginBottom: 16, gap: 10 }}>
+              <input type="checkbox" style={{ width: 20, height: 20 }} checked={f.restricted} onChange={(e) => setF({ ...f, restricted: e.target.checked })} /> Restricted fund (money may only be used for this project)
+            </label>
+            <div className="mn-btns end">
+              <Button kind="ghost" onClick={() => setAdding(false)}>Cancel</Button>
+              <Button type="submit" disabled={busy || !f.code.trim() || !f.name.trim() || !f.target || !branchId}>{busy ? 'Saving…' : 'Create project'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
       {toast.node}
     </>
   );
