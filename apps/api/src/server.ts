@@ -105,7 +105,8 @@ export async function buildApp(opts: BuildOptions = {}) {
     const app = req.headers['x-churchos-app'];
     als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: typeof app === 'string' ? app.slice(0, 20) : null, requestId: String(req.id) }, done);
   });
-  await app.register(cors, { origin: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
+  const corsOrigins = (process.env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  await app.register(cors, { origin: corsOrigins.length ? corsOrigins : true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
 
   // Keep the raw body, the PSP signature is computed over the exact bytes.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {

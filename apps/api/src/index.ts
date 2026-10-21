@@ -17,11 +17,14 @@ import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 
 const port = Number(process.env.PORT ?? 4000);
 const { app, ctx } = await buildApp({ logger: false });
-await seed(ctx);
-await seedKidsDemo(ctx);
-await seedAttendanceDemo(app, ctx);
-await seedPastoralDemo(ctx);
-await seedExpensesDemo(app, ctx);
+// Demo churches and people are loaded unless SEED_DEMO=0 (a real launch starts empty).
+if (process.env.SEED_DEMO !== '0') {
+  await seed(ctx);
+  await seedKidsDemo(ctx);
+  await seedAttendanceDemo(app, ctx);
+  await seedPastoralDemo(ctx);
+  await seedExpensesDemo(app, ctx);
+}
 await runMemberHousekeeping(ctx);
 // Graduation and birthday wishes run hourly. The platform clock can be advanced in development, so this uses it too.
 setInterval(() => void runMemberHousekeeping(ctx).catch((e) => console.error('housekeeping failed', e)), 3600_000).unref();

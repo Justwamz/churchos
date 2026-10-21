@@ -153,6 +153,9 @@ export interface Session {
 }
 
 const SECRET = process.env.CHURCHOS_AUTH_SECRET ?? 'dev-only-secret-change-me';
+if (process.env.NODE_ENV === 'production' && (!process.env.CHURCHOS_AUTH_SECRET || process.env.CHURCHOS_AUTH_SECRET.length < 24)) {
+  throw new Error('CHURCHOS_AUTH_SECRET must be set to a long random value (at least 24 characters) in production');
+}
 const TTL_MS = 12 * 3600_000;
 
 export function signToken(s: Session): string {

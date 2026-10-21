@@ -1,0 +1,135 @@
+# ChurchOS on Render: a STAGING / DEMO deployment (see docs/deploy-render.md).
+# One API and four web apps. The demo churches and people are loaded each time the API starts, and everything is simulated
+# (payments, SMS, email), so nothing real moves. Sign-in uses the fixed development code until real SMS sign-in is built.
+#
+# When you create this Blueprint, Render asks for the values marked "sync: false". Fill them in with the addresses Render shows
+# for the five services (docs/deploy-render.md explains which is which).
+services:
+  - type: web
+    name: churchos-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm install -g pnpm@10.29.2 && pnpm install --frozen-lockfile --prod=false
+    startCommand: pnpm --filter @churchos/api start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SEED_DEMO
+        value: "1"
+      - key: CHURCHOS_AUTH_SECRET
+        generateValue: true
+      - key: GIVING_URL # the address of the giving site, for example https://churchos-giving.onrender.com (used in links in messages)
+        sync: false
+      - key: CORS_ORIGINS # the addresses of the four web apps, separated by commas, so only they can call the API
+        sync: false
+
+  - type: web
+    name: churchos-staff
+    runtime: static
+    buildCommand: npm install -g pnpm@10.29.2 && pnpm install --frozen-lockfile --prod=false && pnpm --filter @churchos/staff build
+    staticPublishPath: apps/staff/dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_VERIFY_ORIGIN
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  - type: web
+    name: churchos-member
+    runtime: static
+    buildCommand: npm install -g pnpm@10.29.2 && pnpm install --frozen-lockfile --prod=false && pnpm --filter @churchos/member build
+    staticPublishPath: apps/member/dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_VERIFY_ORIGIN
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  - type: web
+    name: churchos-giving
+    runtime: static
+    buildCommand: npm install -g pnpm@10.29.2 && pnpm install --frozen-lockfile --prod=false && pnpm --filter @churchos/giving build
+    staticPublishPath: apps/giving/dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_VERIFY_ORIGIN
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  - type: web
+    name: churchos-admin
+    runtime: static
+    buildCommand: npm install -g pnpm@10.29.2 && pnpm install --frozen-lockfile --prod=false && pnpm --filter @churchos/admin build
+    staticPublishPath: apps/admin/dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_VERIFY_ORIGIN
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin

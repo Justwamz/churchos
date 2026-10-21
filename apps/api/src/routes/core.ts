@@ -144,6 +144,8 @@ export function coreRoutes(app: FastifyInstance, ctx: Ctx) {
       await ctx.ledger.audit({ action: 'security.login_locked', category: 'security', summary: 'Too many wrong codes, sign-in locked for 15 minutes', meta: { phone: maskPhone(phone) } });
       throw new HttpError(429, 'Too many attempts, try again in 15 minutes', 'rate_limited');
     }
+    // Real sign-in codes by SMS are not built yet. In production the fixed development code is refused unless someone switches it on on purpose.
+    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEV_OTP !== '1') throw new HttpError(503, 'Sign-in is not switched on yet', 'signin_off');
     const user = (await ctx.db.query<any>(`SELECT * FROM users WHERE phone = $1`, [phone]))[0];
     if (String(body.code) !== DEV_OTP || !user) {
       const cur = lock && lock.until > Date.now() ? lock : { n: 0, until: Date.now() + LOCK_MS };
