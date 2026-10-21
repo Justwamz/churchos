@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { API_URL, Button, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Modal } from './MemberForm';
@@ -6,6 +6,7 @@ import { Card, EmptyState, PageHeader, Section, SidePanel, Stat, StatTiles, Stat
 import { Loaded } from './money-bits';
 import { ExpenseBudgets, ExpenseReports, ExpenseRules } from './ExpenseTabs';
 import { useLinkParams } from './links';
+import { useAction } from './prefill';
 import './expenses.css';
 
 const day = (d?: string | null) => {
@@ -489,9 +490,18 @@ export function Expenses() {
   const setupQ = useAsync<any>(() => api.get(withOrg(s, '/expenses/setup')), [s.grant.org.id]);
   const [tab, setTab] = useState('expenses');
   const [rec, setRec] = useState(false);
+  const [recTick, setRecTick] = useState(0);
   const [openId, setOpenId] = useState<string | undefined>();
   const setup = setupQ.data;
   const can = setup?.can ?? {};
+  const toast = useToast();
+  const wantRec = useRef(false);
+  useAction('expenses', (a) => { if (a === 'record') { wantRec.current = true; setTab('expenses'); setRecTick((n) => n + 1); } });
+  useEffect(() => {
+    if (!wantRec.current || !setup) return;
+    wantRec.current = false;
+    if (can.record) { setTab('expenses'); setRec(true); } else toast.show('You cannot record expenses.');
+  }, [recTick, setup]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs: { id: string; label: string }[] = [{ id: 'expenses', label: 'Expenses' }];
   if (can.view || can.approve || can.manage || can.settings) tabs.push({ id: 'budgets', label: 'Budgets' }, { id: 'reports', label: 'Reports' });
   if (can.settings || can.manage) tabs.push({ id: 'rules', label: 'Rules' });
@@ -504,6 +514,7 @@ export function Expenses() {
   }, [link, setup]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
+      {toast.node}
       <PageHeader
         title="Expenses"
         subtitle="What the church has spent. ChurchOS records it and does not send any money."

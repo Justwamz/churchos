@@ -106,12 +106,12 @@ function AddDialog({ data, catalog, person, onClose, onDone }: { data: TeamData;
   );
 }
 
-function People({ data, catalog, reload, toast, addSignal }: { data: TeamData; catalog: Perm[]; reload: () => void; toast: (m: string) => void; addSignal: number }) {
+function People({ data, catalog, reload, toast, addSignal, onSignal }: { data: TeamData; catalog: Perm[]; reload: () => void; toast: (m: string) => void; addSignal: number; onSignal?: () => void }) {
   const s = useSession();
   const [adding, setAdding] = useState<Person | 'new' | null>(null);
   const [removing, setRemoving] = useState<{ p: Person; a: Assignment } | null>(null);
   const [q, setQ] = useState('');
-  useEffect(() => { if (addSignal > 0 && data.canManage) setAdding('new'); }, [addSignal]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (addSignal > 0) { if (data.canManage) setAdding('new'); onSignal?.(); } }, [addSignal]); // eslint-disable-line react-hooks/exhaustive-deps
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const remove = async () => {
@@ -302,7 +302,7 @@ export function Team() {
   const [addSignal, setAddSignal] = useState(0);
   const [roleSignal, setRoleSignal] = useState(0);
   const d = team.data;
-  useAction('team', (a) => { if (a === 'add') setAddSignal((n) => n + 1); });
+  useAction('team', (a) => { if (a === 'add') { if (d && !d.canManage) toast.show('You cannot add team members.'); else { setSeg('people'); setAddSignal((n) => n + 1); } } });
   const action = !d ? undefined : seg === 'people'
     ? (d.canManage ? <Button onClick={() => setAddSignal((n) => n + 1)}>Add team member</Button> : undefined)
     : (d.canManageRoles ? <Button onClick={() => setRoleSignal((n) => n + 1)}>New role</Button> : undefined);
@@ -313,7 +313,7 @@ export function Team() {
       {(team.loading || cat.loading) && !(team.data && cat.data) && !(team.error ?? cat.error) && <Skeleton rows={4} height={64} />}
       <Load loading={false} error={team.error ?? cat.error} hasData={!!team.data && !!cat.data}>
         {team.data && cat.data && (seg === 'people'
-          ? <People data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} addSignal={addSignal} />
+          ? <People data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} addSignal={addSignal} onSignal={() => setAddSignal(0)} />
           : <Roles data={team.data} catalog={cat.data} reload={team.reload} toast={toast.show} addSignal={roleSignal} />)}
       </Load>
       {toast.node}

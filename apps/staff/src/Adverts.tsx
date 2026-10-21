@@ -365,7 +365,7 @@ export function Adverts() {
     if (!link?.open) return;
     api.get(`/adverts/${link.open}`).then((a: any) => { if (a?.canApprove) setDeciding(a); }).catch(() => {});
   }, [link]);
-  useAction('adverts', (a) => { if (a === 'new' && canManage) { setEditing(null); setMode('form'); } });
+  useAction('adverts', (a) => { if (a === 'new') { if (canManage) { setEditing(null); setMode('form'); } else toast.show('You cannot create this.'); } });
   const rows = list.data ?? [];
   const waiting = rows.filter((a) => a.canApprove);
   const shown = tab === 'mine' ? waiting : rows;

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button, Field, dateOnly, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Hist } from './bits';
+import { useAction } from './prefill';
 import { Modal } from './MemberForm';
 import { Card, EmptyState, PageHeader, Section, SidePanel, StatusChip } from './ui';
 import { Loaded } from './money-bits';
@@ -40,6 +41,7 @@ export function Projects() {
   const [f, setF] = useState({ branchId: '', code: '', name: '', description: '', target: '', deadline: '', restricted: false });
   const branchId = f.branchId || (s.scope !== 'all' ? s.scope : s.branches[0]?.id ?? '');
   const manage = s.can('projects.manage');
+  useAction('projects', (a) => { if (a === 'new') { if (manage) setAdding(true); else toast.show('You cannot create projects.'); } });
 
   const create = async () => {
     setBusy(true);

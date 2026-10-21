@@ -1,8 +1,8 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Badge, Button, Empty, ErrorNote, Field, Table, kes, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, kes, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { Load } from './bits';
-import { Modal } from './MemberForm';
+import { Loaded } from './money-bits';
+import { Card, EmptyState, SidePanel, Stat, StatTiles, StatusChip, Toolbar } from './ui';
 import './shop.css';
 
 export const stockError = (e: any) => {
@@ -91,10 +91,11 @@ function ItemForm({ branch, item, categories, onClose, onSaved }: { branch: stri
     onSaved(item ? 'Changes saved' : 'Item added');
   };
   return (
-    <Modal title={item ? `Edit ${item.name}` : 'Add an item'} onClose={onClose}>
+    <SidePanel title={item ? `Edit ${item.name}` : 'Add an item'} subtitle={item ? undefined : 'It shows in the till as soon as it is saved.'} onClose={onClose}
+      footer={<><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : item ? 'Save changes' : 'Add item'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></>}>
       <div className="stack">
         <Field label="Name" hint="For example Large print Bible"><input maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <div className="grid cols-2">
+        <div className="shp-form">
           <Field label="Code" hint="Optional. A short code or barcode number."><input maxLength={20} value={code} onChange={(e) => setCode(e.target.value)} /></Field>
           <Field label="Category" hint="For example Bibles, Books, Rosaries">
             <input list="sp-cats" maxLength={30} value={category} onChange={(e) => setCategory(e.target.value)} />
@@ -119,9 +120,8 @@ function ItemForm({ branch, item, categories, onClose, onSaved }: { branch: stri
         </Field>
         {picErr && <ErrorNote>{picErr}</ErrorNote>}
         {err && <ErrorNote>{err}</ErrorNote>}
-        <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : item ? 'Save changes' : 'Add item'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
 
@@ -149,7 +149,8 @@ export function StockDialog({ item, kind, onClose, onSaved }: { item: any; kind:
     } catch (e: any) { setErr(stockError(e)); setBusy(false); }
   };
   return (
-    <Modal title={`${title}: ${item.name}`} onClose={onClose}>
+    <SidePanel title={title} subtitle={item.name} onClose={onClose}
+      footer={<><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : title}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></>}>
       <div className="stack">
         <div className="muted">In stock now: <b>{item.stock}</b></div>
         <Field label={kind === 'adjusted' ? 'Change (use - to take away)' : 'How many'} hint={kind === 'adjusted' ? 'For example 3 to add three, -2 to take away two.' : undefined}>
@@ -159,36 +160,67 @@ export function StockDialog({ item, kind, onClose, onSaved }: { item: any; kind:
         <Field label={kind === 'received' ? 'Note' : 'Reason'} hint={kind === 'received' ? 'Optional, for example "From the supplier, invoice 123"' : kind === 'written_off' ? 'For example damaged or lost' : 'For example "Counted the shelf"'}><input maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
         {valid && <InfoNote>{item.stock} now becomes <b>{item.stock + delta}</b></InfoNote>}
         {err && <ErrorNote>{err}</ErrorNote>}
-        <div className="row"><Button disabled={busy} onClick={save}>{busy ? 'Saving...' : title}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>
       </div>
-    </Modal>
+    </SidePanel>
   );
 }
 
-function History({ item, onClose }: { item: any; onClose: () => void }) {
+function History({ item, onClose, onBack }: { item: any; onClose: () => void; onBack: () => void }) {
   const s = useSession();
   const d = useAsync<any[]>(() => api.get(`/shop/items/${item.id}/movements` + s.qs({ branch: undefined })), [item.id]);
   return (
-    <Modal title={`History: ${item.name}`} onClose={onClose}>
-      <Load loading={d.loading} error={d.error} hasData={!!d.data}>
-        {d.data && (d.data.length === 0 ? <Empty>Nothing has happened yet.</Empty> : (
-          <Table head={['What', 'Change', 'Reason', 'Who', 'When', 'Receipt']}>
+    <SidePanel title="Stock history" subtitle={item.name} onClose={onClose} width={560} footer={<Button kind="ghost" onClick={onBack}>Back</Button>}>
+      <Loaded loading={d.loading} error={d.error} hasData={!!d.data} rows={4} height={48}>
+        {d.data && (d.data.length === 0 ? <EmptyState icon="clock" title="Nothing has happened yet" text="Receipts, sales and changes to this item will be listed here." /> : (
+          <div className="shp-moves">
             {d.data.map((m, i) => (
-              <tr key={i}>
-                <td>{MOVE[m.kind] ?? m.kind}</td>
-                <td className="sp-num"><b>{m.qty > 0 ? '+' : ''}{m.qty}</b></td>
-                <td>{m.reason || '-'}</td>
-                <td>{m.by || '-'}</td>
-                <td style={{ whiteSpace: 'nowrap' }}>{shortDate(m.at)}</td>
-                <td>{m.receipt || '-'}</td>
-              </tr>
+              <div className="shp-move" key={i}>
+                <div className="shp-move-top"><b>{MOVE[m.kind] ?? m.kind}</b><b className={`shp-qty ${m.qty > 0 ? 'up' : 'down'}`}>{m.qty > 0 ? '+' : ''}{m.qty}</b></div>
+                <div className="tiny">{shortDate(m.at)}{m.by ? ` · ${m.by}` : ''}{m.receipt ? ` · Receipt ${m.receipt}` : ''}</div>
+                {m.reason && <div className="shp-reason">{m.reason}</div>}
+              </div>
             ))}
-          </Table>
+          </div>
         ))}
-      </Load>
-    </Modal>
+      </Loaded>
+    </SidePanel>
   );
 }
+
+const stockChip = (i: any) => (i.out ? <StatusChip tone="bad">Out of stock</StatusChip> : i.low ? <StatusChip tone="wait">Running low</StatusChip> : null);
+
+function ItemDetail({ item, onClose, onAct, onToggle }: { item: any; onClose: () => void; onAct: (t: 'form' | 'history' | 'received' | 'adjusted' | 'written_off') => void; onToggle: () => void }) {
+  return (
+    <SidePanel title={item.name} subtitle={item.code ? `Code ${item.code}` : item.category || undefined} onClose={onClose}
+      footer={item.canManage ? <Button onClick={() => onAct('received')}>Receive stock</Button> : <Button kind="ghost" onClick={() => onAct('history')}>Stock history</Button>}>
+      <div className="stack">
+        <div className="shp-hero">
+          <ItemThumb item={item} size={72} />
+          <div>
+            <div className="row" style={{ gap: 6 }}><StatusChip tone={item.active ? 'done' : 'off'}>{item.active ? 'On sale' : 'Switched off'}</StatusChip>{stockChip(item)}</div>
+            <div className="shp-price-big">{kes(item.price)}</div>
+          </div>
+        </div>
+        <dl className="mn-kv">
+          <div><span className="k">In stock</span><b>{item.stock}</b></div>
+          <div><span className="k">Warn at</span>{item.lowStock}</div>
+          <div><span className="k">Category</span>{item.category || '-'}</div>
+          {item.cost !== null && item.cost !== undefined && <div><span className="k">Cost price</span>{kes(item.cost)}</div>}
+          {item.value !== null && item.value !== undefined && <div><span className="k">Stock value</span>{kes(item.value)}</div>}
+        </dl>
+        <div className="shp-acts">
+          {item.canManage && <Button kind="ghost" onClick={() => onAct('adjusted')}>Adjust stock</Button>}
+          {item.canManage && <Button kind="ghost" onClick={() => onAct('written_off')}>Write off</Button>}
+          <Button kind="ghost" onClick={() => onAct('history')}>Stock history</Button>
+          {item.canManage && <Button kind="ghost" onClick={() => onAct('form')}>Edit</Button>}
+          {item.canManage && <Button kind="ghost" onClick={onToggle}>{item.active ? 'Switch off' : 'Switch on'}</Button>}
+        </div>
+      </div>
+    </SidePanel>
+  );
+}
+
+type Dlg = { type: 'detail' | 'form' | 'history' | 'received' | 'adjusted' | 'written_off'; item?: any; from?: 'detail' };
 
 export function ItemsAndStock({ branch }: { branch: string }) {
   const s = useSession();
@@ -197,7 +229,7 @@ export function ItemsAndStock({ branch }: { branch: string }) {
   const [q, setQ] = useState('');
   const [cat, setCat] = useState('');
   const [lowOnly, setLowOnly] = useState(false);
-  const [dlg, setDlg] = useState<{ type: 'form' | 'history' | 'received' | 'adjusted' | 'written_off'; item?: any } | null>(null);
+  const [dlg, setDlg] = useState<Dlg | null>(null);
   const items = list.data ?? [];
   const categories = Array.from(new Set(items.map((i) => i.category).filter(Boolean))).sort() as string[];
   const showCost = items.some((i) => i.cost !== null);
@@ -205,53 +237,68 @@ export function ItemsAndStock({ branch }: { branch: string }) {
   const term = q.trim().toLowerCase();
   const rows = items.filter((i) => (!term || i.name.toLowerCase().includes(term) || (i.code ?? '').toLowerCase().includes(term)) && (!cat || i.category === cat) && (!lowOnly || ((i.low || i.out) && i.active)));
   const manage = s.can('shop.manage');
-  const done = (m: string) => { setDlg(null); toast.show(m); list.reload(); };
+  const filtered = !!term || !!cat || lowOnly;
+  const lowN = items.filter((i) => i.low && !i.out && i.active).length;
+  const outN = items.filter((i) => i.out && i.active).length;
+  const onSaleN = items.filter((i) => i.active).length;
+  const totalValue = showValue ? items.reduce((a, i) => a + (i.value ?? 0), 0) : null;
+  const live = (it?: any) => (it ? items.find((x) => x.id === it.id) ?? it : it);
+  // After a stock change, go back to the item so the new numbers show.
+  const done = (m: string) => { const it = dlg?.from ? dlg.item : null; setDlg(it ? { type: 'detail', item: it } : null); toast.show(m); list.reload(); };
   const toggle = async (i: any) => {
     try { await api.put(`/shop/items/${i.id}` + s.qs({ branch: undefined }), { active: !i.active }); toast.show(i.active ? 'Switched off. It will not show in the till.' : 'Switched on'); list.reload(); } catch (e: any) { toast.show(stockError(e), 'bad'); }
   };
   return (
-    <div className="stack">
-      <section className="card">
-        <div className="row between">
-          <div className="row" style={{ alignItems: 'flex-end' }}>
-            <label className="field" style={{ margin: 0 }}><span className="field-label">Search</span><input type="search" placeholder="Name or code" value={q} onChange={(e) => setQ(e.target.value)} /></label>
-            <label className="field" style={{ margin: 0 }}><span className="field-label">Category</span>
-              <select value={cat} onChange={(e) => setCat(e.target.value)}><option value="">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-            </label>
-            <label className="row" style={{ gap: 6, flexWrap: 'nowrap', paddingBottom: 8 }}><input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} /> Low and out of stock only</label>
-          </div>
-          {manage && <Button onClick={() => setDlg({ type: 'form' })}>Add item</Button>}
-        </div>
+    <>
+      {list.data && items.length > 0 && (
+        <StatTiles>
+          <Stat label="Items on sale" value={onSaleN} />
+          <Stat label="Running low" value={lowN} tone={lowN ? 'wait' : undefined} hint={lowN ? 'Tap to see them' : undefined} onClick={lowN ? () => setLowOnly(true) : undefined} />
+          <Stat label="Out of stock" value={outN} tone={outN ? 'bad' : undefined} hint={outN ? 'Tap to see them' : undefined} onClick={outN ? () => setLowOnly(true) : undefined} />
+          {totalValue !== null && <Stat label="Stock value at cost" value={kes(totalValue)} />}
+        </StatTiles>
+      )}
+      <section className="u-section shp-sec">
+        <Toolbar end={manage ? <Button onClick={() => setDlg({ type: 'form' })}>Add item</Button> : undefined}>
+          <input type="search" aria-label="Search items" placeholder="Search by name or code" value={q} onChange={(e) => setQ(e.target.value)} />
+          <select aria-label="Category" value={cat} onChange={(e) => setCat(e.target.value)}><option value="">All categories</option>{categories.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+          <button type="button" className={`chip ${lowOnly ? 'on' : ''}`} aria-pressed={lowOnly} onClick={() => setLowOnly(!lowOnly)}>Low and out of stock</button>
+        </Toolbar>
+        <Loaded loading={list.loading} error={list.error} hasData={!!list.data} rows={5}>
+          {list.data && (rows.length === 0 ? (
+            <Card><EmptyState icon="money" title={filtered ? 'No items match' : 'No items yet'} text={filtered ? 'Try a different word, or clear a filter.' : manage ? 'Add your first item with the button above.' : 'Items will show here once a manager adds them.'} /></Card>
+          ) : (
+            <Card pad={false} className="mn-wrap">
+              <div className="mn-scroll">
+                <table className="mn-table">
+                  <thead><tr><th>Item</th><th>Category</th><th className="num">Price</th>{showCost && <th className="num">Cost</th>}<th>In stock</th>{showValue && <th className="num">Stock value</th>}<th>Status</th><th /></tr></thead>
+                  <tbody>
+                    {rows.map((i) => (
+                      <tr key={i.id} className={`tap ${i.active ? '' : 'sp-off'}`} onClick={() => setDlg({ type: 'detail', item: i })}>
+                        <td className="mn-first shp-wrap"><div className="shp-name"><ItemThumb item={i} /><span><b>{i.name}</b>{i.code && <span className="mn-sub">{i.code}</span>}</span></div></td>
+                        <td data-l="Category">{i.category || '-'}</td>
+                        <td className="num" data-l="Price">{kes(i.price)}</td>
+                        {showCost && <td className="num" data-l="Cost">{i.cost !== null ? kes(i.cost) : '-'}</td>}
+                        <td data-l="In stock"><span className="shp-stock"><b>{i.stock}</b>{stockChip(i)}</span></td>
+                        {showValue && <td className="num" data-l="Stock value">{i.value !== null ? kes(i.value) : '-'}</td>}
+                        <td data-l="Status"><StatusChip tone={i.active ? 'done' : 'off'}>{i.active ? 'On sale' : 'Switched off'}</StatusChip></td>
+                        <td className="mn-act" onClick={(e) => e.stopPropagation()}>
+                          {i.canManage ? <Button small onClick={() => setDlg({ type: 'received', item: i })}>Receive stock</Button> : <Button small kind="ghost" onClick={() => setDlg({ type: 'detail', item: i })}>Details</Button>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ))}
+        </Loaded>
       </section>
-      <Load loading={list.loading} error={list.error} hasData={!!list.data}>
-        {list.data && (rows.length === 0 ? <Empty>{items.length === 0 ? 'No items yet.' : 'No items match these choices.'}</Empty> : (
-          <Table head={['Name', 'Category', 'Price', ...(showCost ? ['Cost'] : []), 'In stock', ...(showValue ? ['Stock value'] : []), 'Status', '']}>
-            {rows.map((i) => (
-              <tr key={i.id} className={i.active ? '' : 'sp-off'}>
-                <td style={{ minWidth: 140 }}><div className="row" style={{ flexWrap: 'nowrap', gap: 10, alignItems: 'center' }}><ItemThumb item={i} /><div><b>{i.name}</b>{i.code && <div className="tiny">{i.code}</div>}</div></div></td>
-                <td>{i.category || '-'}</td>
-                <td className="sp-num">{kes(i.price)}</td>
-                {showCost && <td className="sp-num">{i.cost !== null ? kes(i.cost) : '-'}</td>}
-                <td><b>{i.stock}</b> {i.out ? <Badge tone="bad">Out</Badge> : i.low ? <Badge tone="warn">Low</Badge> : null}</td>
-                {showValue && <td className="sp-num">{i.value !== null ? kes(i.value) : '-'}</td>}
-                <td><Badge tone={i.active ? 'good' : 'muted'}>{i.active ? 'On sale' : 'Switched off'}</Badge></td>
-                <td><div className="row">
-                  {i.canManage && <Button small onClick={() => setDlg({ type: 'received', item: i })}>Receive stock</Button>}
-                  {i.canManage && <Button small kind="ghost" onClick={() => setDlg({ type: 'adjusted', item: i })}>Adjust</Button>}
-                  {i.canManage && <Button small kind="ghost" onClick={() => setDlg({ type: 'written_off', item: i })}>Write off</Button>}
-                  <Button small kind="ghost" onClick={() => setDlg({ type: 'history', item: i })}>History</Button>
-                  {i.canManage && <Button small kind="ghost" onClick={() => setDlg({ type: 'form', item: i })}>Edit</Button>}
-                  {i.canManage && <Button small kind="ghost" onClick={() => toggle(i)}>{i.active ? 'Switch off' : 'Switch on'}</Button>}
-                </div></td>
-              </tr>
-            ))}
-          </Table>
-        ))}
-      </Load>
-      {dlg?.type === 'form' && <ItemForm branch={branch} item={dlg.item} categories={categories} onClose={() => setDlg(null)} onSaved={done} />}
-      {dlg?.type === 'history' && <History item={dlg.item} onClose={() => setDlg(null)} />}
-      {(dlg?.type === 'received' || dlg?.type === 'adjusted' || dlg?.type === 'written_off') && <StockDialog item={dlg.item} kind={dlg.type} onClose={() => setDlg(null)} onSaved={done} />}
+      {dlg?.type === 'detail' && <ItemDetail item={live(dlg.item)} onClose={() => setDlg(null)} onAct={(t) => setDlg({ type: t, item: live(dlg.item), from: 'detail' })} onToggle={() => toggle(live(dlg.item))} />}
+      {dlg?.type === 'form' && <ItemForm branch={branch} item={dlg.item} categories={categories} onClose={() => setDlg(dlg.item ? { type: 'detail', item: dlg.item } : null)} onSaved={(m) => { setDlg(null); toast.show(m); list.reload(); }} />}
+      {dlg?.type === 'history' && <History item={dlg.item} onClose={() => setDlg(null)} onBack={() => setDlg({ type: 'detail', item: dlg.item })} />}
+      {(dlg?.type === 'received' || dlg?.type === 'adjusted' || dlg?.type === 'written_off') && <StockDialog item={dlg.item} kind={dlg.type} onClose={() => setDlg(dlg.from ? { type: 'detail', item: dlg.item } : null)} onSaved={done} />}
       {toast.node}
-    </div>
+    </>
   );
 }

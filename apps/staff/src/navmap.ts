@@ -41,7 +41,8 @@ export const QUICK_ACTIONS: QuickAction[] = [
   { id: 'add-member', label: 'Add a member', page: 'members', right: 'members.edit', icon: 'people', keywords: 'new person register', action: 'add' },
   { id: 'record-expense', label: 'Record an expense', page: 'expenses', right: 'expenses.record', icon: 'receipt', keywords: 'spend claim receipt', action: 'record' },
   { id: 'claim-expense', label: 'Claim an expense', page: 'my-claims', right: 'expenses.claim', icon: 'receipt', keywords: 'reimburse spent my own money receipt back', action: 'new' },
-  { id: 'make-booking', label: 'Make a booking', page: 'bookings', right: 'bookings.manage', icon: 'today', keywords: 'room hall reserve', action: 'new' },
   { id: 'send-message', label: 'Send a message', page: 'messages', right: 'messages.send', icon: 'message', keywords: 'sms email announce', action: 'compose' },
+  { id: 'new-event', label: 'Create an event', page: 'events', right: 'events.manage', icon: 'worship', keywords: 'new event plan service gathering', action: 'new' },
+  { id: 'new-notice', label: 'Post a notice', page: 'notices', right: 'notices.manage', icon: 'communicate', keywords: 'new notice announcement board', action: 'new' },
 ];
 

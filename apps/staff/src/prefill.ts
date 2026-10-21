@@ -50,7 +50,7 @@ export function useAction(page: string, handler: (name: string) => void) {
       const a = actions.get(page);
       if (!a) return;
       actions.delete(page);
-      if (Date.now() - a.at < 5000) fn.current(a.name);
+      if (Date.now() - a.at < 15000) fn.current(a.name);
     };
     take();
     const on = (e: Event) => { if ((e as CustomEvent).detail === page) take(); };

@@ -14,6 +14,7 @@ import { TicketsEditor, blankType, explainTickets, rowFromType, typesPayload, ty
 import { PostponeDialog } from './Postpone';
 import { TicketPanel } from './TicketPanel';
 import { useLinkParams } from './links';
+import { useAction } from './prefill';
 import './community.css';
 import './tickets.css';
 import './worship.css';
@@ -240,6 +241,7 @@ export function Events() {
   const [postponing, setPostponing] = useState<any>(null);
   const [seed, setSeed] = useState<any>(null);
   const canManage = s.can('events.manage');
+  useAction('events', (a) => { if (a === 'new') { if (canManage) { setEditing(null); setSeed(null); setMode('form'); } else toast.show('You cannot create events.'); } });
   // A notification link: ?open=<event id> opens that event's tickets and sales panel (refund requests are in it).
   const link = useLinkParams('events');
   useEffect(() => {

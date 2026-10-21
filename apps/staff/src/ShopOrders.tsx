@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Badge, Button, Empty, ErrorNote, Field, Note, Table, kes, shortDate, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, kes, shortDate, useToast } from '@churchos/ui';
 import { api, friendly, methodLabel, useSession } from './session';
-import { Load } from './bits';
+import { Loaded } from './money-bits';
+import { Card, EmptyState, Stat, StatTiles, StatusChip, Toolbar } from './ui';
 import { Modal, useDebounced } from './MemberForm';
 import './shop.css';
 
 const STATES: [string, string][] = [['open', 'Open'], ['to_prepare', 'To prepare'], ['ready', 'Ready'], ['collected', 'Collected'], ['waiting', 'Waiting for payment']];
-const TONE: Record<string, { text: string; tone: 'good' | 'warn' | 'bad' | 'info' | 'muted' }> = {
-  to_prepare: { text: 'To prepare', tone: 'warn' }, ready: { text: 'Ready', tone: 'info' }, collected: { text: 'Collected', tone: 'good' },
-  waiting: { text: 'Waiting for payment', tone: 'muted' }, awaiting_payment: { text: 'Waiting for payment', tone: 'muted' },
+const TONE: Record<string, { text: string; tone: 'done' | 'wait' | 'info' | 'off' }> = {
+  to_prepare: { text: 'To prepare', tone: 'info' }, ready: { text: 'Ready', tone: 'wait' }, collected: { text: 'Collected', tone: 'done' },
+  waiting: { text: 'Waiting for payment', tone: 'wait' }, awaiting_payment: { text: 'Waiting for payment', tone: 'wait' },
 };
 const orderError = (e: any) => e?.code === 'wrong_code' ? 'That code does not match this order. Check it with the member.' : e?.code === 'wrong_state' ? 'This order has already moved on. The list has been refreshed.' : friendly(e?.message);
 
@@ -89,41 +90,64 @@ export function ShopOrders({ branch, onCount }: { branch: string; onCount?: (n: 
     setBusyId(''); load();
   };
 
+  const open = state === 'open' && !dq;
+  const nPrep = (rows ?? []).filter((o) => o.state === 'to_prepare').length;
+  const nReady = (rows ?? []).filter((o) => o.state === 'ready').length;
+  const nWait = (rows ?? []).filter((o) => o.state === 'waiting' || o.state === 'awaiting_payment').length;
   return (
-    <div className="stack">
-      <Note>Members pay in the app. When an order is paid it appears here to prepare. Mark it ready and the member is told, then hand it over against their code.</Note>
-      <section className="card stack" style={{ gap: 12 }}>
-        <div className="chips" role="group" aria-label="Order status">
-          {STATES.map(([k, l]) => <button type="button" key={k} className={`chip ${state === k ? 'on' : ''}`} aria-pressed={state === k} onClick={() => setState(k)}>{l}</button>)}
-        </div>
-        <input type="search" aria-label="Search orders" placeholder="Receipt, code or name" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 360 }} />
+    <>
+      {open && rows && (
+        <StatTiles>
+          <Stat label="To prepare" value={nPrep} tone={nPrep ? 'info' : undefined} hint="Paid and waiting for you" onClick={() => setState('to_prepare')} />
+          <Stat label="Ready" value={nReady} tone={nReady ? 'wait' : undefined} hint="Waiting for the member to collect" onClick={() => setState('ready')} />
+          {nWait > 0 && <Stat label="Waiting for payment" value={nWait} hint="Not paid yet" onClick={() => setState('waiting')} />}
+        </StatTiles>
+      )}
+      <section className="u-section shp-sec">
+        <Toolbar>
+          <input type="search" aria-label="Search orders" placeholder="Receipt, code or name" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="shp-chipset" role="group" aria-label="Order status">
+            {STATES.map(([k, l]) => <button type="button" key={k} className={`chip ${state === k ? 'on' : ''}`} aria-pressed={state === k} onClick={() => setState(k)}>{l}</button>)}
+          </div>
+        </Toolbar>
+        <div className="tiny" style={{ margin: '-4px 0 12px' }}>Members pay in the app. A paid order appears here to prepare. Mark it ready and the member is told, then hand it over against their code.</div>
+        <Loaded loading={rows === null && !error} error={error && rows === null ? error : ''} hasData={rows !== null} rows={4}>
+          {rows && (rows.length === 0 ? (
+            <Card><EmptyState icon="receipt" title={open ? 'No orders to prepare' : 'No orders match'} text={open ? 'New paid orders show up here by themselves.' : 'Try another status or a different word.'} /></Card>
+          ) : (
+            <Card pad={false} className="mn-wrap">
+              <div className="mn-scroll">
+                <table className="mn-table">
+                  <thead><tr><th>Receipt</th><th>Buyer</th><th>Items</th><th className="num">Total</th><th>Status</th><th>When</th><th /></tr></thead>
+                  <tbody>
+                    {rows.map((o) => {
+                      const st = TONE[o.state] ?? { text: o.state, tone: 'off' as const };
+                      const when = o.state === 'collected' ? o.collectedAt : o.state === 'ready' ? o.readyAt : o.createdAt;
+                      return (
+                        <tr key={o.id}>
+                          <td className="mn-first"><span><b>{o.receiptNo}</b>{o.collectionCode && o.state !== 'waiting' && <span className="mn-sub">Code <span className="shp-code">{o.collectionCode}</span></span>}</span></td>
+                          <td data-l="Buyer"><span>{o.buyer || '-'}{o.buyerPhone && <span className="mn-sub">{o.buyerPhone}</span>}</span></td>
+                          <td data-l="Items" style={{ minWidth: 160 }}>{o.items}</td>
+                          <td className="num" data-l="Total"><span><b>{kes(o.total)}</b>{o.method && <span className="mn-sub">{methodLabel(o.method)}</span>}</span></td>
+                          <td data-l="Status"><StatusChip tone={st.tone}>{st.text}</StatusChip></td>
+                          <td data-l="When" style={{ whiteSpace: 'nowrap' }}>{shortDate(when)}</td>
+                          <td className="mn-act"><div className="mn-btns end">
+                            {o.state === 'to_prepare' && <Button small disabled={busyId === o.id} onClick={() => ready(o)}>Mark ready</Button>}
+                            {o.state === 'ready' && <Button small onClick={() => setHand(o)}>Hand over</Button>}
+                            {o.state === 'to_prepare' && <Button small kind="ghost" onClick={() => setHand(o)}>Hand over</Button>}
+                          </div></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ))}
+        </Loaded>
       </section>
-      <Load loading={rows === null && !error} error={error && rows === null ? error : ''} hasData={rows !== null}>
-        {rows && (rows.length === 0 ? <Empty>{state === 'open' && !dq ? 'No orders to prepare right now. New paid orders show up here by themselves.' : 'No orders match.'}</Empty> : (
-          <Table head={['Receipt', 'Buyer', 'Items', 'Total', 'Status', 'When', '']}>
-            {rows.map((o) => {
-              const st = TONE[o.state] ?? { text: o.state, tone: 'muted' as const };
-              const when = o.state === 'collected' ? o.collectedAt : o.state === 'ready' ? o.readyAt : o.createdAt;
-              return (
-                <tr key={o.id}>
-                  <td style={{ whiteSpace: 'nowrap' }}><b>{o.receiptNo}</b>{o.collectionCode && o.state !== 'waiting' && <div className="tiny">Code {o.collectionCode}</div>}</td>
-                  <td style={{ minWidth: 120 }}>{o.buyer || '-'}{o.buyerPhone && <div className="tiny">{o.buyerPhone}</div>}</td>
-                  <td style={{ minWidth: 160 }}>{o.items}</td>
-                  <td className="sp-num"><b>{kes(o.total)}</b>{o.method && <div className="tiny">{methodLabel(o.method)}</div>}</td>
-                  <td><Badge tone={st.tone}>{st.text}</Badge></td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{shortDate(when)}</td>
-                  <td><div className="row">
-                    {o.state === 'to_prepare' && <Button small disabled={busyId === o.id} onClick={() => ready(o)}>Mark ready</Button>}
-                    {(o.state === 'to_prepare' || o.state === 'ready') && <Button small kind={o.state === 'ready' ? 'primary' : 'ghost'} onClick={() => setHand(o)}>Hand over</Button>}
-                  </div></td>
-                </tr>
-              );
-            })}
-          </Table>
-        ))}
-      </Load>
       {hand && <HandOver order={hand} onClose={() => setHand(null)} onDone={() => { setHand(null); toast.show('Handed over'); load(); }} />}
       {toast.node}
-    </div>
+    </>
   );
 }

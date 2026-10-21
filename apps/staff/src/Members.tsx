@@ -7,7 +7,7 @@ import { Gate, HouseholdModal, MemberFormModal, initials, useDebounced } from '.
 import { MemberRecords } from './Records';
 import { GivingRecordModal } from './GivingRecord';
 import { ConsentDialog } from './ConsentDialog';
-import { usePrefill } from './prefill';
+import { useAction, usePrefill } from './prefill';
 import { useLinkParams } from './links';
 import { JoinRequests } from './JoinRequests';
 import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
@@ -144,6 +144,7 @@ export function Members() {
   const [modal, setModal] = useState<{ kind: 'form' | 'household' | 'consent' | 'records' | 'giving'; member?: any } | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
 
+  useAction('members', (a) => { if (a === 'add') { if (canEdit) { setTab('all'); setSel(null); setModal({ kind: 'form' }); } else toast.show('You cannot add members.'); } });
   const refresh = () => { d.reload(); settings.reload(); insights.reload(); };
   const households: any[] = d.data?.households ?? [];
   const individuals: any[] = d.data?.individuals ?? [];

@@ -4,6 +4,7 @@ import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { nextMemberNumber } from '../members';
 import { addNotification } from '../notifications';
+import { wordsFor } from './words';
 import { inStaffScope, staffWith } from '../scope';
 
 /**
@@ -181,7 +182,7 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
     await addNotification(ctx, {
       orgId: r.org_id, userId: r.user_id, kind: 'announcement',
       title: b.approve ? `Welcome to ${r.church}` : 'About your request to join',
-      body: b.approve ? `${r.bname} approved your request. You are now a member: giving records, services, children and groups are open to you.` : `${r.bname} could not add you yet. ${note}`,
+      body: b.approve ? `${r.bname} approved your request. You are now a member: giving records, ${(await wordsFor(ctx, r.org_id)).manyLower}, children and groups are open to you.` : `${r.bname} could not add you yet. ${note}`,
       link: b.approve ? 'member:home' : undefined, audience: 'member',
     });
     return { id: r.id, status: b.approve ? 'approved' : 'declined', membershipId };

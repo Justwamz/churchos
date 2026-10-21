@@ -75,6 +75,8 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     throw new HttpError(404, 'not found', 'not_found');
   }
 
+  const cancelledErr = async (s: any) => new HttpError(409, `This ${(await wordsFor(ctx, s.org_id)).oneLower} was cancelled`, 'cancelled');
+
   const state = (s: any): 'cancelled' | 'before' | 'open' | 'closed' => {
     if (s.status === 'cancelled') return 'cancelled';
     const n = nowMs();
@@ -161,7 +163,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     return n;
   }
 
-  function rangeEnd(b: any): string {
+  function rangeEnd(b: any, w: { manyLower: string }): string {
     const today = eatToday(ctx.clock.now());
     const r = String(b.range ?? '');
     if (r === 'week') return addDays(weekStartOf(today), 6);
@@ -172,7 +174,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(u) || u < today || u > addDays(today, 3 * 366)) throw new HttpError(400, 'Choose an end date from today to three years ahead', 'bad_date');
       return u;
     }
-    throw new HttpError(400, 'Choose how far ahead to create the services: this week, this month, this year, or until a date', 'bad_range');
+    throw new HttpError(400, `Choose how far ahead to create the ${w.manyLower}: this week, this month, this year, or until a date`, 'bad_range');
   }
 
   async function scopeBranches(req: FastifyRequest, perms: Permission[]) {
@@ -272,14 +274,14 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     return { schedules: await schedulesView(rows), canManage, branches: branches.map((b) => ({ id: b.id, name: b.name })) };
   });
 
-  function scheduleBody(b: any, existing?: any) {
+  function scheduleBody(b: any, existing: any, w: { oneLower: string }) {
     const g = (k: string, d: any) => (b[k] !== undefined ? b[k] : d);
     const name = cap(g('name', existing?.name), 60);
-    if (!name) throw new HttpError(400, 'Enter a name for the service', 'bad_content');
+    if (!name) throw new HttpError(400, `Enter a name for the ${w.oneLower}`, 'bad_content');
     const startTime = String(g('startTime', existing?.start_time));
     if (!timeOk(startTime)) throw new HttpError(400, 'Choose a start time', 'bad_time');
     const durationMin = Number(g('durationMin', existing?.duration_min ?? 90));
-    if (!Number.isInteger(durationMin) || durationMin < 15 || durationMin > 480) throw new HttpError(400, 'A service lasts from 15 minutes to 8 hours', 'bad_duration');
+    if (!Number.isInteger(durationMin) || durationMin < 15 || durationMin > 480) throw new HttpError(400, `A ${w.oneLower} lasts from 15 minutes to 8 hours`, 'bad_duration');
     const opens = Number(g('opensBeforeMin', existing?.opens_before_min ?? 20));
     const closes = Number(g('closesAfterMin', existing?.closes_after_min ?? 120));
     if (!Number.isInteger(opens) || opens < 0 || opens > 240) throw new HttpError(400, 'Check-in can open from 0 to 240 minutes before the start', 'bad_window');
@@ -293,10 +295,10 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const g = await grantsFor(ctx, req, 'attendance.manage');
     const b = (req.body ?? {}) as any;
     if (!g.branchIds.includes(String(b.branchId))) throw new HttpError(404, 'not found', 'not_found');
-    const f = scheduleBody(b);
+    const f = scheduleBody(b, undefined, await wordsFor(ctx, g.orgId));
     const days: number[] = [...new Set((Array.isArray(b.weekdays) ? b.weekdays : [b.weekday]).map(Number))] as number[];
     if (!days.length || days.some((d) => !Number.isInteger(d) || d < 1 || d > 7)) throw new HttpError(400, 'Choose the day or days of the week', 'bad_day');
-    const to = rangeEnd(b);
+    const to = rangeEnd(b, await wordsFor(ctx, g.orgId));
     const today = eatToday(ctx.clock.now());
     const ids: string[] = [];
     let generated = 0;
@@ -320,7 +322,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
   app.patch('/attendance/schedules/:id', auth, async (req) => {
     const s = await scheduleFor(req, (req.params as any).id);
     const b = (req.body ?? {}) as any;
-    const f = scheduleBody(b, s);
+    const f = scheduleBody(b, s, await wordsFor(ctx, s.org_id));
     await ctx.db.query(`UPDATE service_schedules SET name=$2, start_time=$3, duration_min=$4, stream_url=$5, opens_before_min=$6, closes_after_min=$7 WHERE id=$1`, [s.id, f.name, f.startTime, f.durationMin, f.stream, f.opens, f.closes]);
     let updated = 0;
     if (b.applyToFuture) {
@@ -338,7 +340,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post('/attendance/schedules/:id/extend', auth, async (req) => {
     const s = await scheduleFor(req, (req.params as any).id);
     if (!s.active) throw new HttpError(409, 'This schedule was stopped', 'wrong_state');
-    const to = rangeEnd((req.body ?? {}) as any);
+    const to = rangeEnd((req.body ?? {}) as any, await wordsFor(ctx, s.org_id));
     const last = (await ctx.db.query<any>(`SELECT max(starts_at) AS last FROM services WHERE schedule_id=$1`, [s.id]))[0].last;
     const today = eatToday(ctx.clock.now());
     const from = last && eatDateOf(last) >= today ? addDays(eatDateOf(last), 1) : today;
@@ -375,12 +377,13 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const g = await grantsFor(ctx, req, 'attendance.manage');
     const b = (req.body ?? {}) as any;
     if (!g.branchIds.includes(String(b.branchId))) throw new HttpError(404, 'not found', 'not_found');
+    const w = await wordsFor(ctx, g.orgId);
     const name = cap(b.name, 60);
-    if (!name) throw new HttpError(400, 'Enter a name for the service', 'bad_content');
+    if (!name) throw new HttpError(400, `Enter a name for the ${w.oneLower}`, 'bad_content');
     const t = Date.parse(String(b.startsAt));
     if (Number.isNaN(t)) throw new HttpError(400, 'Choose a start time', 'bad_date');
     const dur = Number(b.durationMin ?? 90);
-    if (!Number.isInteger(dur) || dur < 15 || dur > 480) throw new HttpError(400, 'A service lasts from 15 minutes to 8 hours', 'bad_duration');
+    if (!Number.isInteger(dur) || dur < 15 || dur > 480) throw new HttpError(400, `A ${w.oneLower} lasts from 15 minutes to 8 hours`, 'bad_duration');
     const stream = b.streamUrl ? String(b.streamUrl).trim() : null;
     if (!streamOk(stream)) throw new HttpError(400, 'The live stream link must start with https://', 'bad_stream');
     const startsAt = new Date(t).toISOString();
@@ -393,7 +396,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.manage']);
     const b = (req.body ?? {}) as any;
     const name = b.name !== undefined ? cap(b.name, 60) : s.name;
-    if (!name) throw new HttpError(400, 'Enter a name for the service', 'bad_content');
+    if (!name) throw new HttpError(400, `Enter a name for the ${(await wordsFor(ctx, s.org_id)).oneLower}`, 'bad_content');
     let startsAt = s.starts_at, endsAt = s.ends_at, opens = s.opens_at, closes = s.closes_at;
     if (b.startsAt !== undefined) {
       const t = Date.parse(String(b.startsAt));
@@ -430,7 +433,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.put('/attendance/services/:id/headcount', auth, async (req) => {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     const b = (req.body ?? {}) as any;
     const n = (k: string) => { const v = Number(b[k] ?? 0); if (!Number.isInteger(v) || v < 0 || v > 100000) throw new HttpError(400, 'Enter whole numbers, 0 or more', 'bad_number'); return v; };
     const adults = n('adults'), children = n('children'), visitors = n('visitors');
@@ -466,7 +469,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get('/attendance/services/:id/door', auth, async (req) => {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     const exp = nowMs() + DOOR_TTL_MS;
     const url = `${ctx.givingUrl}/here/D1.${signData({ k: 'd', s: s.id, e: exp })}`;
     return { url, qrSvg: qrSvg(url), refreshSeconds: 45, expiresAt: new Date(exp).toISOString(), service: { id: s.id, name: s.name, church: s.church, branch: s.branch_name, startsAt: s.starts_at } };
@@ -474,7 +477,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/attendance/services/:id/scan', auth, async (req) => {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     const raw = String((req.body as any)?.token ?? '').trim();
     const p = raw.startsWith('A1.') ? verifyData(raw.slice(3)) : null;
     if (!p || p.k !== 'a') return { result: 'invalid', message: 'This is not a member code from the app.' };
@@ -482,7 +485,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const m = (await ctx.db.query<any>(`SELECT id, full_name, member_number, org_id FROM memberships WHERE id=$1 AND status='active'`, [p.m]))[0];
     if (!m || m.org_id !== s.org_id) return { result: 'wrong_church', message: 'This code belongs to someone from another church.' };
     const created = await record(s, { kind: 'member', membershipId: m.id, name: m.full_name, mode: 'in_person', via: 'usher', byUser: req.session!.uid, byName: req.session!.name });
-    return { result: created ? 'ok' : 'already', name: m.full_name, memberNumber: m.member_number, message: created ? 'Welcome.' : 'Already counted for this service.' };
+    return { result: created ? 'ok' : 'already', name: m.full_name, memberNumber: m.member_number, message: created ? 'Welcome.' : `Already counted for this ${(await wordsFor(ctx, s.org_id)).oneLower}.` };
   });
 
   app.get('/attendance/services/:id/members', auth, async (req) => {
@@ -500,7 +503,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/attendance/services/:id/mark', auth, async (req) => {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     const m = (await ctx.db.query<any>(`SELECT id, full_name FROM memberships WHERE id=$1 AND org_id=$2 AND status='active'`, [String((req.body as any)?.membershipId ?? ''), s.org_id]))[0];
     if (!m) throw new HttpError(404, 'not found', 'not_found');
     const created = await record(s, { kind: 'member', membershipId: m.id, name: m.full_name, mode: 'in_person', via: 'usher', byUser: req.session!.uid, byName: req.session!.name });
@@ -517,7 +520,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/attendance/services/:id/visitor', auth, async (req) => {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     const b = (req.body ?? {}) as any;
     const v = visitorBody(b);
     const r = await identify(s, { ...v, mode: 'in_person', via: 'usher', byUser: req.session!.uid, byName: req.session!.name });
@@ -573,9 +576,9 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const m = (await myMemberships(req.session!.uid)).find((x) => x.org_id === s.org_id && x.branch_id === s.branch_id) ?? (await myMemberships(req.session!.uid)).find((x) => x.org_id === s.org_id);
     if (!m) throw new HttpError(404, 'not found', 'not_found');
     const st = state(s);
-    if (st === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (st === 'cancelled') throw await cancelledErr(s);
     if (st === 'before') throw new HttpError(409, `Check-in opens at ${when(s.opens_at)}`, 'not_open');
-    if (st === 'closed') throw new HttpError(409, 'Check-in for this service has closed', 'closed');
+    if (st === 'closed') throw new HttpError(409, `Check-in for this ${(await wordsFor(ctx, s.org_id)).oneLower} has closed`, 'closed');
     const mode = b.mode === 'online' ? 'online' : 'in_person';
     let location: string | null = null;
     let distanceM: number | null = null;
@@ -601,7 +604,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const s = await serviceRow((req.params as any).id);
     const m = (await myMemberships(req.session!.uid)).find((x) => x.org_id === s.org_id);
     if (!m) throw new HttpError(404, 'not found', 'not_found');
-    if (!s.stream_url) throw new HttpError(409, 'There is no live stream for this service', 'no_stream');
+    if (!s.stream_url) throw new HttpError(409, `There is no live stream for this ${(await wordsFor(ctx, s.org_id)).oneLower}`, 'no_stream');
     if (state(s) === 'open') await record(s, { kind: 'member', membershipId: m.id, name: m.full_name, mode: 'online', via: 'app' });
     return { url: s.stream_url };
   });
@@ -610,7 +613,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const s = await serviceRow((req.params as any).id);
     const m = (await myMemberships(req.session!.uid)).find((x) => x.org_id === s.org_id);
     if (!m) throw new HttpError(404, 'not found', 'not_found');
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     const exp = Math.max(Date.parse(s.closes_at), nowMs()) + 6 * HOUR;
     const code = `I1.${signData({ k: 'i', s: s.id, m: m.id, e: exp })}`;
     const here = `${ctx.givingUrl}/here/${code}`;
@@ -665,9 +668,9 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const { kind, p } = readToken((req.params as any).token);
     const s = await serviceRow(String(p.s));
     const st = state(s);
-    if (st === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (st === 'cancelled') throw await cancelledErr(s);
     if (st === 'before') throw new HttpError(409, `Check-in opens at ${when(s.opens_at)}`, 'not_open');
-    if (st === 'closed') throw new HttpError(409, 'Check-in for this service has closed', 'closed');
+    if (st === 'closed') throw new HttpError(409, `Check-in for this ${(await wordsFor(ctx, s.org_id)).oneLower} has closed`, 'closed');
     const b = (req.body ?? {}) as any;
     const v = visitorBody(b);
     const mode = b.mode === 'online' && s.stream_url ? 'online' : 'in_person';
@@ -679,9 +682,10 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const c = String(code ?? '').trim();
     if (c.toLowerCase().startsWith('b-')) {
       const now = nowIso();
+      const bOrg = (await ctx.db.query<any>(`SELECT org_id FROM branches WHERE code=$1`, [c.slice(2).toUpperCase()]))[0]?.org_id;
       const open = (await ctx.db.query<any>(`${SELECT_SERVICE} WHERE b.code=$1 AND s.status='scheduled' AND s.stream_url IS NOT NULL AND s.opens_at <= $2 AND s.closes_at >= $2 ORDER BY s.starts_at LIMIT 1`, [c.slice(2).toUpperCase(), now]))[0];
       const next = open ?? (await ctx.db.query<any>(`${SELECT_SERVICE} WHERE b.code=$1 AND s.status='scheduled' AND s.stream_url IS NOT NULL AND s.starts_at > $2 ORDER BY s.starts_at LIMIT 1`, [c.slice(2).toUpperCase(), now]))[0];
-      if (!next) throw new HttpError(404, 'There is no live service coming up for this church yet', 'no_service');
+      if (!next) throw new HttpError(404, `There is no live ${(await wordsFor(ctx, bOrg)).oneLower} coming up for this church yet`, 'no_service');
       return next;
     }
     const s = (await ctx.db.query<any>(`${SELECT_SERVICE} WHERE s.code=$1`, [c.toUpperCase()]))[0];
@@ -696,7 +700,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/public/live/:code', async (req) => {
     const s = await liveService((req.params as any).code);
-    if (s.status === 'cancelled') throw new HttpError(409, 'This service was cancelled', 'cancelled');
+    if (s.status === 'cancelled') throw await cancelledErr(s);
     if (!s.stream_url) throw new HttpError(409, 'The live stream link is not ready yet. Please try again a little later.', 'no_stream');
     const b = (req.body ?? {}) as any;
     const v = visitorBody(b);
@@ -885,7 +889,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   const arrow = (now: number | null, then: number | null) => (now === null || then === null ? '' : now > then ? ` (up ${now - then})` : now < then ? ` (down ${then - now})` : ' (same)');
 
-  function renderReport(church: string, scope: string, r: WeekReport, branches: { name: string; r: WeekReport }[]) {
+  function renderReport(church: string, scope: string, r: WeekReport, branches: { name: string; r: WeekReport }[], w: { one: string; oneLower: string; manyLower: string }) {
     const t = r.totals;
     const range = `${dayText(r.weekStart)} to ${dayText(r.weekEnd)}`;
     const subject = `${church} attendance, ${range}`;
@@ -893,10 +897,10 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     lines.push(`Members who came: ${t.members}${arrow(t.members, r.previous.members)}. Usual: ${r.average4.members}.`);
     lines.push(`First-time visitors: ${t.firstVisitors}${arrow(t.firstVisitors, r.previous.firstVisitors)}. Returning visitors: ${t.returningVisitors}${arrow(t.returningVisitors, r.previous.returningVisitors)}.`);
     lines.push(`Watching online: ${t.online}${arrow(t.online, r.previous.online)}.`);
-    if (t.headcount !== null) lines.push(`Headcount across services: ${t.headcount}${r.coverage !== null ? `. Check-ins cover ${r.coverage}% of the headcount, so the member and visitor numbers are a sample.` : ''}`);
-    lines.push('', 'Each service:');
+    if (t.headcount !== null) lines.push(`Headcount across ${w.manyLower}: ${t.headcount}${r.coverage !== null ? `. Check-ins cover ${r.coverage}% of the headcount, so the member and visitor numbers are a sample.` : ''}`);
+    lines.push('', `Each ${w.oneLower}:`);
     for (const s of r.services) lines.push(`- ${s.name}, ${s.branch}, ${when(s.startsAt)}: ${s.members} members, ${s.firstVisitors} first-time and ${s.returningVisitors} returning visitors, ${s.online} online${s.onlinePeak !== null ? ` (peak ${s.onlinePeak})` : ''}${s.headcount !== null ? `, headcount ${s.headcount}${s.coverage !== null ? ` (${s.coverage}% checked in)` : ''}` : ''}`);
-    if (!r.services.length) lines.push('- No services were held this week.');
+    if (!r.services.length) lines.push(`- No ${w.manyLower} were held this week.`);
     if (r.firstVisitors.length) { lines.push('', `First-time visitors to follow up (${r.firstVisitors.length}):`); for (const v of r.firstVisitors.slice(0, 40)) lines.push(`- ${v.name}, ${v.branch}${v.service ? `, ${v.service}` : ''}`); }
     if (r.care.length) { lines.push('', `Regular members who have not come for three weeks (${r.care.length}):`); for (const m of r.care.slice(0, 40)) lines.push(`- ${m.name} (${m.memberNumber}), ${m.branch}, last seen ${dayText(eatDateOf(m.lastSeen))}`); }
     if (r.events.length) { lines.push('', 'Events:'); for (const e of r.events) lines.push(`- ${e.title}, ${when(e.startsAt)}: ${e.kind === 'tickets' ? `${e.sold} tickets sold, ${e.scanned} scanned at the door` : `${e.going} replied going`}`); }
@@ -908,7 +912,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const html = `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#17212b"><h2 style="color:#0e5a52;margin-bottom:4px">${esc(church)}</h2><div style="color:#667">Attendance for ${esc(range)}${scope ? `, ${esc(scope)}` : ''}</div>
       <table style="width:100%;margin:16px 0;text-align:center"><tr><td><div style="font-size:26px;font-weight:700">${t.members}</div><div style="font-size:12px;color:#667">Members${esc(arrow(t.members, r.previous.members))}</div></td><td><div style="font-size:26px;font-weight:700">${t.firstVisitors}</div><div style="font-size:12px;color:#667">First-time visitors${esc(arrow(t.firstVisitors, r.previous.firstVisitors))}</div></td><td><div style="font-size:26px;font-weight:700">${t.returningVisitors}</div><div style="font-size:12px;color:#667">Returning</div></td><td><div style="font-size:26px;font-weight:700">${t.online}</div><div style="font-size:12px;color:#667">Online</div></td></tr></table>
       <p style="color:#667;font-size:13px">Usual week (last four): ${r.average4.members} members, ${r.average4.firstVisitors} first-time visitors, ${r.average4.online} online.${r.coverage !== null ? ` Check-ins cover ${r.coverage}% of the headcount.` : ''}</p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px"><tr style="text-align:left;color:#667"><th ${td}>Service</th><th ${td}>Members</th><th ${td}>First-time</th><th ${td}>Returning</th><th ${td}>Online</th><th ${td}>Headcount</th></tr>${rowsHtml || `<tr><td ${td} colspan="6">No services were held this week.</td></tr>`}</table>
+      <table style="width:100%;border-collapse:collapse;font-size:14px"><tr style="text-align:left;color:#667"><th ${td}>${esc(w.one)}</th><th ${td}>Members</th><th ${td}>First-time</th><th ${td}>Returning</th><th ${td}>Online</th><th ${td}>Headcount</th></tr>${rowsHtml || `<tr><td ${td} colspan="6">No ${esc(w.manyLower)} were held this week.</td></tr>`}</table>
       ${r.firstVisitors.length ? `<h3>First-time visitors to follow up (${r.firstVisitors.length})</h3><ul>${r.firstVisitors.slice(0, 40).map((v) => `<li>${esc(v.name)}, ${esc(v.branch)}</li>`).join('')}</ul>` : ''}
       ${r.care.length ? `<h3>Regular members who have not come for three weeks (${r.care.length})</h3><ul>${r.care.slice(0, 40).map((m) => `<li>${esc(m.name)} (${esc(m.memberNumber)}), ${esc(m.branch)}, last seen ${esc(dayText(eatDateOf(m.lastSeen)))}</li>`).join('')}</ul>` : ''}
       ${r.events.length ? `<h3>Events</h3><ul>${r.events.map((e) => `<li>${esc(e.title)}: ${e.kind === 'tickets' ? `${e.sold} tickets sold, ${e.scanned} scanned` : `${e.going} replied going`}</li>`).join('')}</ul>` : ''}
@@ -932,7 +936,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const perBranch: { name: string; r: WeekReport }[] = [];
     if (whole || mine.length > 1) for (const b of names) perBranch.push({ name: b.name, r: await weekReport(orgId, [b.id], ws) });
     const scope = whole ? 'all branches' : mine.length === 1 ? names[0].name : names.map((n) => n.name).join(', ');
-    const m = renderReport(church, scope, r, perBranch);
+    const m = renderReport(church, scope, r, perBranch, await wordsFor(ctx, orgId));
     return sendEmail(ctx, orgId, user.email, m.subject, m.text, m.html);
   }
 
@@ -941,7 +945,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const u = (await ctx.db.query<any>(`SELECT id, name, email, email_verified FROM users WHERE id=$1`, [req.session!.uid]))[0];
     if (!u.email || !u.email_verified) throw new HttpError(409, 'Add and confirm your email address in your profile first', 'no_email');
     const ok = await sendReportTo(u, sc.orgId, lastFullWeek());
-    if (!ok) throw new HttpError(409, 'There were no services or visitors last week to report on', 'nothing');
+    if (!ok) throw new HttpError(409, `There were no ${(await wordsFor(ctx, sc.orgId)).manyLower} or visitors last week to report on`, 'nothing');
     return { sent: true, week: lastFullWeek() };
   });
 

@@ -114,7 +114,7 @@ export function Notices() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const canManage = s.can('notices.manage');
-  useAction('notices', (a) => { if (a === 'new' && canManage) { setEditing(null); setMode('form'); } });
+  useAction('notices', (a) => { if (a === 'new') { if (canManage) { setEditing(null); setMode('form'); } else toast.show('You cannot create this.'); } });
 
   const archive = async () => {
     setBusy(true); setErr('');
