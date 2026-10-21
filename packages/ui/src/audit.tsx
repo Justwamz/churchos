@@ -229,7 +229,7 @@ export function AuditLog(p: AuditLogProps) {
   };
 
   const set = (k: keyof typeof filters) => (e: { target: { value: string } }) => setFilters((f) => ({ ...f, [k]: e.target.value }));
-  const exportUrl = () => p.api.url(`/audit/export?${query(null)}`);
+  const download = () => { p.api.openDownload(`/audit/export?${query(null)}`).catch((e: any) => setError(e.message)); };
   const entityTitle = (e: any) => `${(e.entity ?? '').replace(/_/g, ' ')} ${e.entity_id ?? ''}`.trim();
 
   const bad = integrity && (integrity.ok === false);
@@ -275,7 +275,7 @@ export function AuditLog(p: AuditLogProps) {
         </div>
         <div className="row between" style={{ marginTop: 8 }}>
           <span className="tiny">{rows.length} shown{next ? ' (more available)' : ''}</span>
-          {p.canExport && <a className="btn ghost small" href={exportUrl()} target="_blank" rel="noreferrer">Download CSV</a>}
+          {p.canExport && <button type="button" className="btn ghost small" onClick={download}>Download CSV</button>}
         </div>
         {error && <div className="note bad">{error}</div>}
         <div className="table-wrap">

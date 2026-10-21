@@ -253,7 +253,8 @@ describe('budgets and alerts (L241)', () => {
 
   it('tells the people who manage expenses once at 80% and once at 100%', async () => {
     const util = cats['Utilities'];
-    const spend = async (amount: number) => { const e = await rec(ADMIN, { amount, categoryId: util, noReceiptReason: 'Bill paid online' }); expect(e.statusCode).toBe(200); expect(e.json().status).toBe('approved'); };
+    let vendor = 0; // a different payee each time: the same person paying one payee repeatedly counts together toward the approval limit (LG-22)
+    const spend = async (amount: number) => { const e = await rec(ADMIN, { amount, categoryId: util, noReceiptReason: 'Bill paid online', payee: `Utility vendor ${++vendor}` }); expect(e.statusCode).toBe(200); expect(e.json().status).toBe('approved'); };
     const alerts = async (who = TREAS) => (await inbox(who, 'staff')).filter((n) => /Utilities/.test(n.title) && /Budget alert|Over budget/.test(n.title));
     await spend(4000); // 40% of KES 10,000
     expect(await alerts()).toHaveLength(0);
@@ -280,9 +281,9 @@ describe('budgets and alerts (L241)', () => {
     await call(OWNER, 'POST', '/projects', { branchId: 'br_grc001', code: 'ROBES', name: 'Choir robes', target: 500000, restricted: false });
     const p = (await setup(TREAS)).projects.find((x: any) => x.name === 'Choir robes');
     await call(TREAS, 'PUT', '/expenses/project-budget', { projectId: p.id, amount: 1000 });
-    expect((await rec(ADMIN, { amount: 900, projectId: p.id })).json().status).toBe('approved');
+    expect((await rec(ADMIN, { amount: 900, projectId: p.id, payee: 'Robes tailor A' })).json().status).toBe('approved');
     expect((await inbox(TREAS, 'staff')).some((n) => /Budget alert: the project Choir robes/.test(n.title))).toBe(true);
-    expect((await rec(ADMIN, { amount: 200, projectId: p.id })).json().status).toBe('approved');
+    expect((await rec(ADMIN, { amount: 200, projectId: p.id, payee: 'Robes tailor B' })).json().status).toBe('approved');
     expect((await inbox(TREAS, 'staff')).some((n) => /Over budget: the project Choir robes/.test(n.title))).toBe(true);
     const row = (await call(TREAS, 'GET', '/projects')).json().find((x: any) => x.name === 'Choir robes');
     expect(row).toMatchObject({ budget: 100000, spent: 110000 });

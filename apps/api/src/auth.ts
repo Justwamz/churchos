@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Db } from '@churchos/ledger';
 
 export const PERMISSIONS = [
@@ -150,50 +150,82 @@ export interface Session {
   phone: string;
   name: string;
   isAdmin: boolean;
+  /** The server-side session this request belongs to. */
+  sid?: string;
 }
 
-const SECRET = process.env.CHURCHOS_AUTH_SECRET ?? 'dev-only-secret-change-me';
-if (process.env.NODE_ENV === 'production' && (!process.env.CHURCHOS_AUTH_SECRET || process.env.CHURCHOS_AUTH_SECRET.length < 24)) {
-  throw new Error('CHURCHOS_AUTH_SECRET must be set to a long random value (at least 24 characters) in production');
-}
-const TTL_MS = 12 * 3600_000;
+// ---------------------------------------------------------------------------------------------------------
+// Signing keys. One master secret, a separate derived key per purpose, so a token made for one job (a door QR
+// code, say) can never be replayed as another (a sign-in session).
+// ---------------------------------------------------------------------------------------------------------
+const MASTER: string = (() => {
+  const env = process.env.CHURCHOS_AUTH_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    if (!env || env.length < 32) throw new Error('CHURCHOS_AUTH_SECRET must be set to a long random value (at least 32 characters) in production');
+    return env;
+  }
+  if (env) return env;
+  if (process.env.NODE_ENV !== 'test') console.warn('CHURCHOS_AUTH_SECRET is not set: using a random secret for this run. Sign-ins end when the server restarts.');
+  return randomBytes(32).toString('hex');
+})();
 
-export function signToken(s: Session): string {
-  const payload = Buffer.from(JSON.stringify({ ...s, exp: Date.now() + TTL_MS })).toString('base64url');
-  const sig = createHmac('sha256', SECRET).update(payload).digest('base64url');
-  return `${payload}.${sig}`;
+export type KeyPurpose = 'session' | 'qr' | 'door' | 'invite' | 'guardian' | 'scan' | 'download';
+const keyCache = new Map<string, Buffer>();
+function keyFor(purpose: KeyPurpose): Buffer {
+  let k = keyCache.get(purpose);
+  if (!k) {
+    k = createHmac('sha256', MASTER).update(`churchos:v1:${purpose}`).digest();
+    keyCache.set(purpose, k);
+  }
+  return k;
 }
 
-export function verifyToken(token: string | undefined): Session | null {
-  if (!token) return null;
-  const [payload, sig] = token.split('.');
-  if (!payload || !sig) return null;
-  const expected = createHmac('sha256', SECRET).update(payload).digest('base64url');
+function macOf(payload: string, purpose: KeyPurpose): string {
+  return createHmac('sha256', keyFor(purpose)).update(payload).digest('base64url');
+}
+
+/** Signs a small object with the key for `purpose`. The purpose is also written into the payload as `typ`. */
+export function signData(obj: Record<string, unknown>, purpose: KeyPurpose): string {
+  const payload = Buffer.from(JSON.stringify({ ...obj, typ: purpose })).toString('base64url');
+  return `${payload}.${macOf(payload, purpose)}`;
+}
+
+/**
+ * Checks the signature with the key for `purpose` (constant time), that the payload says the same purpose, and that it has not
+ * expired (`e`, epoch milliseconds, compared with `now`). `allowExpired` is for callers that answer an expired code with their own message.
+ */
+export function verifyData(token: string, purpose: KeyPurpose, now: number = Date.now(), opts: { allowExpired?: boolean } = {}): Record<string, any> | null {
+  const parts = String(token ?? '').split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [payload, sig] = parts;
   const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
+  const b = Buffer.from(macOf(payload, purpose));
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
     const p = JSON.parse(Buffer.from(payload, 'base64url').toString());
-    if (typeof p.exp !== 'number' || p.exp < Date.now()) return null;
-    return { uid: p.uid, phone: p.phone, name: p.name, isAdmin: !!p.isAdmin };
+    if (!p || typeof p !== 'object' || p.typ !== purpose) return null;
+    if (typeof p.e !== 'number' || !Number.isFinite(p.e)) return null;
+    if (!opts.allowExpired && p.e < now) return null;
+    return p;
   } catch {
     return null;
   }
 }
 
-/** Signs any small object so it cannot be changed on the way: the guardian's rotating QR code and the scan proof the teacher holds. */
-export function signData(obj: Record<string, unknown>): string {
-  const payload = Buffer.from(JSON.stringify(obj)).toString('base64url');
-  return `${payload}.${createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
+export const SESSION_TTL_MS = 12 * 3600_000;
+export const ADMIN_SESSION_TTL_MS = 4 * 3600_000;
+
+/** A sign-in token. It only names a server-side session (`sid`); who the person is and what they may do is read on every request. */
+export function signToken(a: { uid: string; sid: string; expiresAt: number }): string {
+  return signData({ uid: a.uid, sid: a.sid, e: a.expiresAt }, 'session');
 }
 
-export function verifyData(token: string): Record<string, any> | null {
-  const [payload, sig] = String(token ?? '').split('.');
-  if (!payload || !sig) return null;
-  const a = Buffer.from(sig);
-  const b = Buffer.from(createHmac('sha256', SECRET).update(payload).digest('base64url'));
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  try { return JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
+/** The claims in a sign-in token, or null when it is forged, the wrong kind, or has no session id. Expiry is checked against the platform clock by the caller. */
+export function readToken(token: string | undefined): { uid: string; sid: string; e: number } | null {
+  if (!token) return null;
+  const p = verifyData(token, 'session', 0, { allowExpired: true });
+  if (!p || typeof p.uid !== 'string' || typeof p.sid !== 'string' || !p.sid) return null;
+  return { uid: p.uid, sid: p.sid, e: p.e };
 }
 
 export function normalizePhone(raw: string): string | null {

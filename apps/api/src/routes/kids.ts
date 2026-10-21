@@ -259,7 +259,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!m) throw new HttpError(404, 'not found', 'not_found');
     const exp = nowMs() + QR_TTL_MS;
     const g = parseGeo(b.geo);
-    const token = `K1.${signData({ k: 'q', m: m.id, o: m.org_id, d: deviceOf(req, b.device), e: exp, ...(g ? { g } : {}) })}`;
+    const token = `K1.${signData({ k: 'q', m: m.id, o: m.org_id, d: deviceOf(req, b.device), e: exp, ...(g ? { g } : {}) }, 'guardian')}`;
     return { token, expiresAt: new Date(exp).toISOString(), refreshSeconds: 30, name: m.full_name, qrSvg: qrSvg(token) };
   });
 
@@ -460,10 +460,10 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ======================= scanning a guardian (L181, L182) =======================
 
-  const proofFor = (s: any, req: FastifyRequest, p: Record<string, unknown>) => signData({ k: 'p', s: s.id, o: s.org_id, by: req.session!.uid, e: nowMs() + PROOF_TTL_MS, ...p });
+  const proofFor = (s: any, req: FastifyRequest, p: Record<string, unknown>) => signData({ k: 'p', s: s.id, o: s.org_id, by: req.session!.uid, e: nowMs() + PROOF_TTL_MS, ...p }, 'scan');
 
   function readProof(req: FastifyRequest, s: any, raw: unknown) {
-    const p = verifyData(String(raw ?? ''));
+    const p = verifyData(String(raw ?? ''), 'scan', nowMs(), { allowExpired: true });
     if (!p || p.k !== 'p' || p.s !== s.id || p.by !== req.session!.uid) throw new HttpError(400, 'This scan is not valid. Scan again.', 'bad_proof');
     if (Number(p.e) < nowMs()) throw new HttpError(400, 'This scan has timed out. Scan again.', 'proof_expired');
     return p;
@@ -495,7 +495,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const dev = deviceOf(req, b.device);
     const base = { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, method: 'qr' };
     const raw = String(b.token ?? '').trim();
-    const p = raw.startsWith('K1.') ? verifyData(raw.slice(3)) : null;
+    const p = raw.startsWith('K1.') ? verifyData(raw.slice(3), 'guardian', nowMs(), { allowExpired: true }) : null;
     if (!p || p.k !== 'q') {
       await kidsLog(ctx, { ...base, action: 'scan', result: 'invalid', detail: 'Not a guardian code' });
       return { result: 'invalid', message: 'This is not a guardian code from the app.' };

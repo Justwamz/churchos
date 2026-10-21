@@ -1,4 +1,6 @@
 import { buildApp } from './server';
+import { corsOrigins, isProduction } from './cors';
+import { productionGuards } from './guards';
 import { runMemberHousekeeping } from './members';
 import { runScheduledMessages } from './messages';
 import { runCommunityJobs } from './routes/community';
@@ -14,6 +16,20 @@ import { seedAttendanceDemo } from './seed-attendance';
 import { seedPastoralDemo } from './seed-pastoral';
 import { seedExpensesDemo } from './seed-expenses';
 import { DEV_OTP, SEED_LOGINS, seed } from './seed';
+
+// Last-resort handlers. The database is in memory, so a stray rejected promise must not take the process (and the data) down;
+// a truly uncaught exception leaves unknown state, so log it and exit (Render restarts the service). One short line, no payloads.
+const oneLine = (e: any) => `${e?.constructor?.name ?? typeof e}${e?.code ? ` [${e.code}]` : ''}: ${String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 200)}`;
+process.on('unhandledRejection', (e) => console.error(`unhandled rejection ${oneLine(e)}`));
+process.on('uncaughtException', (e) => { console.error(`uncaught exception ${oneLine(e)}`); process.exit(1); });
+
+const guards = productionGuards();
+for (const w of guards.warnings) console.warn(`WARNING: ${w}`);
+if (guards.errors.length) {
+  for (const m of guards.errors) console.error(`REFUSING TO START: ${m}`);
+  process.exit(1);
+}
+if (isProduction()) console.log(`CORS allows: ${corsOrigins().join(', ')}`);
 
 const port = Number(process.env.PORT ?? 4000);
 const { app, ctx } = await buildApp({ logger: false });
@@ -46,7 +62,10 @@ setInterval(() => void runCommunityJobs(ctx).catch((e) => console.error('communi
 if (!listenEarly) await app.listen({ port, host: '0.0.0.0' });
 
 console.log(`\nChurchOS API listening on http://localhost:${port}`);
-console.log(`Dev one-time code for every login: ${DEV_OTP}`);
-console.log('Seeded logins:');
-if (process.env.SEED_DEMO !== '0') console.log('  0733000001  Member app       Neema Newcomer, not linked to a church yet');
-for (const l of SEED_LOGINS) console.log(`  ${l.phone}  ${l.app.padEnd(16)} ${l.who}`);
+// The sign-in code and the demo logins are printed only outside production (the log of a hosted service is not private).
+if (!isProduction()) {
+  console.log(`Dev one-time code for every login: ${DEV_OTP}`);
+  console.log('Seeded logins:');
+  if (process.env.SEED_DEMO !== '0') console.log('  0733000001  Member app       Neema Newcomer, not linked to a church yet');
+  for (const l of SEED_LOGINS) console.log(`  ${l.phone}  ${l.app.padEnd(16)} ${l.who}`);
+}

@@ -3,7 +3,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Clock, Db, Ledger } from '@churchos/ledger';
 import { isMock, type MockProvider, type Provider } from '@churchos/payments';
 import type { MockEmailProvider, MockMessagingProvider } from '@churchos/messaging';
-import { branchesFor, verifyToken, type Permission, type Session } from './auth';
+import { branchesFor, type Permission, type Session } from './auth';
+import { bearerOf, getSession } from './sessions';
 import { setActor } from './audit';
 
 export interface Ctx {
@@ -22,6 +23,8 @@ export interface Ctx {
 declare module 'fastify' {
   interface FastifyRequest {
     session?: Session;
+    /** The app context, set by an onRequest hook so session checks can reach the database. */
+    churchCtx?: Ctx;
   }
 }
 
@@ -44,14 +47,14 @@ export class HttpError extends Error {
   }
 }
 
+/** The token from the Authorization header. A token in the query string is no longer accepted (use a download ticket, see sessions.ts). */
 export function bearer(req: FastifyRequest): string | undefined {
-  const h = req.headers.authorization;
-  if (h?.startsWith('Bearer ')) return h.slice(7);
-  return (req.query as any)?.token;
+  return bearerOf(req);
 }
 
 export async function requireSession(req: FastifyRequest, _reply: FastifyReply) {
-  const s = verifyToken(bearer(req));
+  const c = req.churchCtx;
+  const s = c ? await getSession(c, req) : null;
   if (!s) throw new HttpError(401, 'sign in required', 'unauthenticated');
   req.session = s;
   setActor(s);

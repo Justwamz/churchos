@@ -3,6 +3,7 @@ import { branchesFor } from '../auth';
 import { assertEmail } from '../email-rules';
 import { BRANCH_PROFILE_SPECS, diff, flattenRecord, maskedSnapshot, RECORD_SPECS, recordVersion, sha, TEMPLATE_SPECS } from '../audit';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
+import { sendPrivateFile } from '../serve';
 import {
   loadTemplate, newVerifyKey, nextSerial, renderPayload, requestIssue, validateFile, validateLogo, validateRecord, validateTemplate,
   type RecordFields,
@@ -182,8 +183,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     const r = await loadRecord(req, 'records.view');
     if (!r.file_data) throw new HttpError(404, 'There is no scan attached to this record', 'no_file');
     await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: 'access.view_file', category: 'access', entity: 'record', entityId: r.id, summary: `Viewed the scan of the ${r.kind} record for ${r.subject_name}` });
-    reply.header('content-type', r.file_mime).header('content-disposition', `inline; filename="${String(r.file_name ?? 'scan').replace(/"/g, '')}"`);
-    return reply.send(Buffer.from(r.file_data, 'base64'));
+    return sendPrivateFile(reply, { mime: r.file_mime, name: r.file_name ?? 'scan', data: Buffer.from(r.file_data, 'base64') });
   });
 
   app.post('/records/:id/submit', auth, async (req) => {

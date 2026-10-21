@@ -150,6 +150,65 @@ CREATE TRIGGER audit_events_no_change BEFORE UPDATE OR DELETE ON audit_events FO
 DROP TRIGGER IF EXISTS audit_events_no_truncate ON audit_events;
 CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events FOR EACH STATEMENT EXECUTE FUNCTION audit_events_immutable();
 
+-- Money tables (LG-08): the books are append-only. Postings and journal entries can never change; a payment keeps its amount, provider
+-- transaction, method and church once set (stage, fees, member and project links still move through their life).
+CREATE OR REPLACE FUNCTION ledger_append_only() RETURNS trigger AS $fn$
+BEGIN
+  RAISE EXCEPTION '% is append-only', TG_TABLE_NAME;
+END;
+$fn$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS postings_no_change ON postings;
+CREATE TRIGGER postings_no_change BEFORE UPDATE OR DELETE ON postings FOR EACH ROW EXECUTE FUNCTION ledger_append_only();
+DROP TRIGGER IF EXISTS journal_entries_no_change ON journal_entries;
+CREATE TRIGGER journal_entries_no_change BEFORE UPDATE OR DELETE ON journal_entries FOR EACH ROW EXECUTE FUNCTION ledger_append_only();
+CREATE OR REPLACE FUNCTION payments_guard() RETURNS trigger AS $fn$
+BEGIN
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'payments cannot be deleted'; END IF;
+  IF NEW.amount_paid IS DISTINCT FROM OLD.amount_paid OR NEW.provider_tx_id IS DISTINCT FROM OLD.provider_tx_id OR NEW.method IS DISTINCT FROM OLD.method
+     OR (OLD.org_id IS NOT NULL AND NEW.org_id IS DISTINCT FROM OLD.org_id) THEN
+    RAISE EXCEPTION 'payment amount, transaction, method and church cannot be changed';
+  END IF;
+  RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS payments_no_tamper ON payments;
+CREATE TRIGGER payments_no_tamper BEFORE UPDATE OR DELETE ON payments FOR EACH ROW EXECUTE FUNCTION payments_guard();
+
+-- Single-flight guards (LG-02, LG-03): one row per running job, and one refund attempt per payment.
+CREATE TABLE IF NOT EXISTS locks (
+  key text PRIMARY KEY,
+  holder text NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+CREATE TABLE IF NOT EXISTS refund_attempts (
+  payment_id text PRIMARY KEY,
+  refund_ref text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+ALTER TABLE payouts ADD COLUMN IF NOT EXISTS attempted_at timestamptz;
+-- Available can never be driven below zero (credit-normal account, so the posting sum can never be positive).
+CREATE OR REPLACE FUNCTION postings_available_floor() RETURNS trigger AS $fn$
+BEGIN
+  IF NEW.account_id LIKE '%:available' AND (SELECT COALESCE(SUM(amount),0) FROM postings WHERE account_id = NEW.account_id) > 0 THEN
+    RAISE EXCEPTION 'available balance cannot go below zero (%)', NEW.account_id;
+  END IF;
+  RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS postings_available_floor_check ON postings;
+CREATE TRIGGER postings_available_floor_check AFTER INSERT ON postings FOR EACH ROW EXECUTE FUNCTION postings_available_floor();
+-- Payments that did not match their order (underpaid or overpaid), kept for staff to resolve; the money itself is already on the books.
+CREATE TABLE IF NOT EXISTS held_payments (
+  id text PRIMARY KEY,
+  payment_id text NOT NULL,
+  purpose text NOT NULL,
+  expected bigint NOT NULL,
+  paid bigint NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('underpaid','overpaid')),
+  status text NOT NULL DEFAULT 'open',
+  created_at timestamptz NOT NULL
+);
+
 -- Row-level security: the restricted app_user role only ever sees its own organisation's rows.
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;

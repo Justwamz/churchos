@@ -16,8 +16,16 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22.12.0
+        value: 22.20.0
+      - key: NODE_ENV # production mode: no sign-in code on screen, no dev tools, security headers incl. HSTS. The demo sign-in still works because ALLOW_DEV_OTP=1 below.
+        value: production
       - key: TRUST_PROXY
+        value: "1"
+      - key: TRUST_PROXY_HOPS # how many proxies sit in front of the API: 2 = Render's edge plus Cloudflare (docs/deploy-render.md shows how to check)
+        value: "2"
+      - key: ALLOW_DEMO_PSP # DEMO ONLY: production mode refuses to start with the payment simulator unless this is 1. A real launch sets PSP_MODE=live and removes it.
+        value: "1"
+      - key: ALLOW_DEMO_SEED # DEMO ONLY: production mode refuses to start with demo data unless this is 1. A real launch sets SEED_DEMO=0 and removes it.
         value: "1"
       - key: SEED_DEMO
         value: "1"
@@ -40,7 +48,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22.12.0
+        value: 22.20.0
       - key: VITE_API_URL
         sync: false
       - key: VITE_VERIFY_ORIGIN
@@ -50,15 +58,39 @@ services:
         source: /*
         destination: /index.html
     headers:
-      - path: /sw.js
-        name: Cache-Control
-        value: no-cache
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'self'; frame-src blob:; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
       - path: /*
         name: Referrer-Policy
-        value: strict-origin-when-cross-origin
+        value: strict-origin
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /*
+        name: Permissions-Policy
+        value: "camera=(self), geolocation=(self), microphone=(), payment=(), usb=(), bluetooth=(), interest-cohort=()"
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
+      - path: /assets/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /manifest.webmanifest
+        name: Cache-Control
+        value: no-cache
 
   - type: web
     name: churchos-member
@@ -68,7 +100,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22.12.0
+        value: 22.20.0
       - key: VITE_API_URL
         sync: false
       - key: VITE_VERIFY_ORIGIN
@@ -78,15 +110,39 @@ services:
         source: /*
         destination: /index.html
     headers:
-      - path: /sw.js
-        name: Cache-Control
-        value: no-cache
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'self'; frame-src 'none'; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
       - path: /*
         name: Referrer-Policy
-        value: strict-origin-when-cross-origin
+        value: strict-origin
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /*
+        name: Permissions-Policy
+        value: "geolocation=(self), camera=(), microphone=(), payment=(), usb=(), bluetooth=(), interest-cohort=()"
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
+      - path: /assets/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
+      - path: /sw.js
+        name: Cache-Control
+        value: no-cache
+      - path: /manifest.webmanifest
+        name: Cache-Control
+        value: no-cache
 
   - type: web
     name: churchos-giving
@@ -96,7 +152,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22.12.0
+        value: 22.20.0
       - key: VITE_API_URL
         sync: false
       - key: VITE_VERIFY_ORIGIN
@@ -107,11 +163,32 @@ services:
         destination: /index.html
     headers:
       - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
         name: X-Content-Type-Options
         value: nosniff
       - path: /*
         name: Referrer-Policy
-        value: strict-origin-when-cross-origin
+        value: no-referrer
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /*
+        name: Permissions-Policy
+        value: "geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()"
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
+      - path: /assets/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache
 
   - type: web
     name: churchos-admin
@@ -121,7 +198,7 @@ services:
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
-        value: 22.12.0
+        value: 22.20.0
       - key: VITE_API_URL
         sync: false
       - key: VITE_VERIFY_ORIGIN
@@ -132,8 +209,29 @@ services:
         destination: /index.html
     headers:
       - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
         name: X-Content-Type-Options
         value: nosniff
       - path: /*
         name: Referrer-Policy
-        value: strict-origin-when-cross-origin
+        value: strict-origin
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin-allow-popups
+      - path: /*
+        name: Permissions-Policy
+        value: "geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()"
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
+      - path: /assets/*
+        name: Cache-Control
+        value: "public, max-age=31536000, immutable"
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache

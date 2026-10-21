@@ -3,7 +3,11 @@ import { computeFee, toCents } from '@churchos/shared';
 import { branchesFor, loadGrants, PERMISSIONS, type Permission } from '../auth';
 import { appendCashGifts, isGivingPurpose } from './giving-ledger';
 import { HttpError, inList, requireSession, staffScope, startOfDayEat, bearer, type Ctx } from '../ctx';
-import { verifyToken } from '../auth';
+import { getSession, stillSignedIn } from '../sessions';
+
+const STREAM_MAX_MS = 30 * 60_000;
+const STREAM_PING_MS = 15_000;
+import { corsAllows } from '../cors';
 import { csv, maskPhoneSql } from './helpers';
 import { emailRequired } from '../wallets';
 import { nextMemberNumber } from '../members';
@@ -81,21 +85,27 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     });
   });
 
-  /** Server-sent events for real-time collections. EventSource cannot set headers, so the token travels in the query string. */
+  /** Server-sent events for real-time collections. EventSource cannot set headers, so it opens with a short-lived download ticket (?t=). The session and permission are checked when it opens, and the stream closes when the session is revoked or after 30 minutes (the app then reconnects with a fresh ticket). */
   app.get('/stream/collections', async (req, reply) => {
-    const session = verifyToken(bearer(req));
+    const session = await getSession(ctx, req);
     if (!session) throw new HttpError(401, 'sign in required', 'unauthenticated');
     req.session = session;
     const allowed = new Set((await branchesFor(ctx.db, session.uid, 'collections.view')).map((r) => r.branchId));
     if (allowed.size === 0) throw new HttpError(403, 'missing permission collections.view', 'forbidden');
+    const origin = req.headers.origin;
+    req.raw.socket?.setTimeout?.(0); // the connection timeout must not cut a quiet stream
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
-      'access-control-allow-origin': '*',
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
+      vary: 'Origin',
+      ...(origin && corsAllows(origin) ? { 'access-control-allow-origin': origin } : {}),
     });
     reply.raw.write('retry: 2000\n\n');
     const onPayment = async (e: any) => {
+     try {
       if (!e.branchId || !allowed.has(e.branchId)) return;
       const p = (
         await ctx.db.query<any>(
@@ -105,9 +115,19 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
         )
       )[0];
       if (p) reply.raw.write(`event: payment\ndata: ${JSON.stringify(p)}\n\n`);
+     } catch (err: any) { console.error(`stream payment event failed: ${err?.name ?? 'Error'}`); }
     };
     ctx.events.on('payment', onPayment);
-    const ping = setInterval(() => reply.raw.write(': ping\n\n'), 20000);
+    const openedAt = ctx.clock.now().getTime();
+    const closeStream = () => { try { reply.raw.end(); } catch { /* already closed */ } };
+    const ping = setInterval(() => {
+      reply.raw.write(': ping\n\n');
+      void (async () => {
+        try {
+          if (ctx.clock.now().getTime() - openedAt > STREAM_MAX_MS || !(await stillSignedIn(ctx, session)) || (await branchesFor(ctx.db, session.uid, 'collections.view')).length === 0) closeStream();
+        } catch { closeStream(); }
+      })();
+    }, Number(process.env.STREAM_CHECK_MS) || STREAM_PING_MS);
     req.raw.on('close', () => {
       ctx.events.off('payment', onPayment);
       clearInterval(ping);

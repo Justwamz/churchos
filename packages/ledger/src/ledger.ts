@@ -426,7 +426,36 @@ export class Ledger {
     return Math.floor(Number(r[0].s) / 30);
   }
 
-  async runSettlement(): Promise<SettlementResult[]> {
+  private settling = false;
+
+  /**
+   * Runs fn as the only settlement run (LG-02): one at a time in this process, and one at a time across processes through a row in `locks`
+   * (a stale row from a crashed run expires after 10 minutes). A second caller gets LedgerError('settlement_running').
+   */
+  async exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.settling) throw new LedgerError('settlement_running', 'A settlement run is already in progress');
+    this.settling = true;
+    const holder = randomUUID();
+    try {
+      const nowMs = Date.now();
+      const got = await this.db.query(
+        `INSERT INTO locks (key, holder, expires_at) VALUES ('settlement',$1,$2) ON CONFLICT (key) DO UPDATE SET holder=$1, expires_at=$2 WHERE locks.expires_at < $3 RETURNING key`,
+        [holder, new Date(nowMs + 600_000).toISOString(), new Date(nowMs).toISOString()],
+      );
+      if (got.length === 0) throw new LedgerError('settlement_running', 'A settlement run is already in progress');
+      try {
+        return await fn();
+      } finally {
+        await this.db.query(`DELETE FROM locks WHERE key='settlement' AND holder=$1`, [holder]);
+      }
+    } finally {
+      this.settling = false;
+    }
+  }
+
+  /** Pass held=true when the caller already holds the settlement lock through exclusive(). */
+  async runSettlement(held = false): Promise<SettlementResult[]> {
+    if (!held) return this.exclusive(() => this.runSettlement(true));
     await this.releasePending();
     const branches = await this.db.query<any>(`SELECT id, org_id, payout_destination, payout_paused, payout_verified FROM branches ORDER BY id`);
     const results: SettlementResult[] = [];
@@ -457,8 +486,10 @@ export class Ledger {
     if (payoutAmt > 0 && payoutAmt < this.opts.minPayout) return { ...base, status: 'carried', amount: payoutAmt };
 
     const payoutId = `po_${randomUUID().slice(0, 12)}`;
-    // Reserve first, so a failed PSP call can never drop funds.
+    // Reserve first, so a failed PSP call can never drop funds. The balance is read again inside the transaction: Available can never go negative.
+    let reserved = true;
     await this.db.tx(async (q) => {
+      if ((await this.balance('available', b.id, q)) < avail) { reserved = false; return; }
       await q.query(`INSERT INTO payouts (id, org_id, branch_id, amount, netted, gross, status, created_at) VALUES ($1,$2,$3,$4,$5,$6,'created',$7)`, [
         payoutId, b.org_id, b.id, payoutAmt, netted, avail, this.now(),
       ]);
@@ -472,6 +503,11 @@ export class Ledger {
       });
     });
 
+    if (!reserved) return { ...base, status: 'nothing' };
+
+    // The attempt is recorded before the provider is called, and a payout id is only ever sent once.
+    const first = await this.db.query(`UPDATE payouts SET attempted_at=$2 WHERE id=$1 AND attempted_at IS NULL RETURNING id`, [payoutId, this.now()]);
+    if (first.length === 0) return { ...base, status: 'submitted', payoutId, amount: payoutAmt };
     const res = payoutAmt > 0
       ? await this.provider.payout({ payoutId, destination: b.payout_destination, amount: payoutAmt })
       : { status: 'confirmed' as const };
@@ -542,8 +578,20 @@ export class Ledger {
       throw new LedgerError('window_expired', `reversal window of ${this.opts.reversalWindowHours}h has passed`);
     }
     const refundAmount = p.amount_paid - p.psp_cost;
-    const refunded = await this.provider.refund({ providerTxId: p.provider_tx_id, amount: refundAmount, method: p.method, phone: p.payer_phone ?? undefined });
-    if (refunded.status !== 'confirmed') throw new LedgerError('refund_failed', 'PSP did not confirm the refund, nothing was changed');
+    // One refund per payment (LG-03): the attempt is claimed in the database before the provider is called. A second caller is refused.
+    const claim = await this.db.query(`INSERT INTO refund_attempts (payment_id, refund_ref, created_at) VALUES ($1,$2,$3) ON CONFLICT (payment_id) DO NOTHING RETURNING payment_id`, [paymentId, p.provider_tx_id, this.now()]);
+    if (claim.length === 0) throw new LedgerError('refund_in_progress', 'A refund for this payment is already in progress or done');
+    let refunded: { status: string };
+    try {
+      refunded = await this.provider.refund({ providerTxId: p.provider_tx_id, amount: refundAmount, method: p.method, phone: p.payer_phone ?? undefined });
+    } catch (e) {
+      await this.db.query(`DELETE FROM refund_attempts WHERE payment_id=$1`, [paymentId]);
+      throw e;
+    }
+    if (refunded.status !== 'confirmed') {
+      await this.db.query(`DELETE FROM refund_attempts WHERE payment_id=$1`, [paymentId]);
+      throw new LedgerError('refund_failed', 'PSP did not confirm the refund, nothing was changed');
+    }
 
     await this.db.tx(async (q) => {
       if (p.stage === 'suspense') {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, ErrorNote, Field, Note, Table, kes, shortDate, useAsync } from '@churchos/ui';
+import { AuthImg, Badge, Button, ErrorNote, Field, Note, Table, kes, shortDate, useAsync } from '@churchos/ui';
 import { Card, Dialog, EmptyState, PageHeader, SidePanel, Toolbar } from './ui';
 import { Load, api, errText, num, type PageProps, type Toast } from './common';
 
@@ -443,7 +443,7 @@ export function Adverts({ toast }: PageProps) {
               const off = a.status === 'taken_down' || a.status === 'ended';
               return (
                 <Card key={a.id} className="advert-card">
-                  <img className="advert-thumb" src={api.url(a.imageUrl)} alt={`Artwork for ${a.title}`} loading="lazy" />
+                  <AuthImg api={api} className="advert-thumb" src={a.imageUrl} alt={`Artwork for ${a.title}`} loading="lazy" />
                   <div className="row between"><span className="tiny">{a.orgName}</span><Badge tone={st.tone}>{st.label}</Badge></div>
                   <h3>{a.title}</h3>
                   {a.body && <p className="muted pre-wrap">{a.body}</p>}

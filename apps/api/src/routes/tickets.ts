@@ -167,6 +167,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     let providerTxId: string | null = null;
     let checkoutUrl: string | null = null;
     let fee: ReturnType<typeof computeFee> | null = null;
+    let startPrompt: (() => Promise<string>) | null = null;
     const code = newCode();
     const branch = (await ctx.db.query<any>(`SELECT id, code, name FROM branches WHERE id=COALESCE($2, (SELECT id FROM branches WHERE org_id=$1 ORDER BY code LIMIT 1))`, [e.org_id, e.branch_id]))[0];
     if (!covered) {
@@ -179,11 +180,15 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
       fee = computeFee(org.fee_schedule, method as any, payable, 'member'); // the buyer pays the service fee on top (L172)
       if (fee.amountPaid > 15_000_000) throw new HttpError(400, 'An order can be at most KES 150,000. Please buy in two orders.', 'too_large');
       const reference = buildReference(branch.code, `TKT-${code}`);
-      if (method === 'card') {
-        const card = await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined });
-        providerTxId = card.providerTxId;
-        checkoutUrl = checkoutLink(ctx, card);
-      } else providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method: method as any })).providerTxId;
+      // LG-14: the order and its stock reservation are written first; the prompt is sent after (see below), never before.
+      startPrompt = async () => {
+        if (method === 'card') {
+          const card = await ctx.provider.initiateCardCheckout({ amount: fee!.amountPaid, reference, phone: phone ?? undefined });
+          checkoutUrl = checkoutLink(ctx, card);
+          return card.providerTxId;
+        }
+        return (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee!.amountPaid, reference, method: method as any })).providerTxId;
+      };
     }
     const id = ctx.newId('tko');
     const secret = randomBytes(16).toString('hex');
@@ -207,6 +212,18 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
           [ctx.newId('int'), providerTxId, e.org_id, branch.id, `TKT-${code}`, phone ?? '', method, payable, fee.amountPaid, JSON.stringify(fee), now]);
       }
     });
+    if (startPrompt) {
+      try {
+        providerTxId = await startPrompt();
+        await ctx.db.query(`UPDATE ticket_orders SET provider_tx_id=$2 WHERE id=$1 AND provider_tx_id IS NULL`, [id, providerTxId]);
+        await ctx.db.query(`UPDATE give_intents SET provider_tx_id=$2 WHERE purpose=$1 AND provider_tx_id IS NULL`, [`TKT-${code}`, providerTxId]);
+      } catch (err) {
+        // The provider would not take the prompt: nothing is live, so the order is released with its stock and any credit it held.
+        await ctx.db.query(`UPDATE ticket_orders SET status='lapsed', hold_until=NULL WHERE id=$1 AND status='awaiting_payment'`, [id]);
+        await restoreUsed(ctx, id);
+        throw err;
+      }
+    }
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: b.userId ?? undefined, actorType: b.userId ? 'user' : 'system', action: 'ticket.order', entity: 'ticket_order', entityId: id, summary: `${free ? 'Took' : 'Started an order for'} ${lines.map((l) => `${l.qty} x ${l.c.row.name}`).join(', ')} for "${e.title}"${free ? '' : `, ${kesText(subtotal)}${creditUse ? `, of which ${kesText(creditUse)} from event credit` : ''}${fee ? ` plus a ${kesText(fee.totalFee)} service fee` : ''}`}`, meta: { order: code, subtotal, free, creditUsed: creditUse, advert: o.advertId ?? null } });
     if (covered) await issueTickets(id);
     return { id, secret, code, free, covered, creditUsed: creditUse, checkoutUrl, subtotal, serviceFee: fee?.totalFee ?? 0, total: fee?.amountPaid ?? 0, method };

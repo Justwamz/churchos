@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
 import { formatKes } from '@churchos/shared';
 import { ApiError, createApi, type Api } from './api';
 
@@ -169,7 +169,7 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
   }, [user, p.api]);
 
   const signOut = () => {
-    p.api.setToken(null);
+    void p.api.signOut(); // ends the session on the server too; the token is cleared here at once
     try { localStorage.removeItem(`${p.title}:user`); } catch { /* ignore */ }
     setUser(null);
     setStep('phone');
@@ -233,4 +233,26 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
       </form>
     </main>
   );
+}
+
+/**
+ * A protected image as an object URL, fetched with the Authorization header (the sign-in token never goes in a URL).
+ * Returns undefined while loading, or when there is no path or the file cannot be fetched.
+ */
+export function useBlobUrl(api: Api, path?: string | null): string | undefined {
+  const [url, setUrl] = useState<string | undefined>();
+  useEffect(() => {
+    if (!path) { setUrl(undefined); return; }
+    let live = true;
+    let made: string | undefined;
+    api.blobUrl(path).then((u) => { if (live) { made = u; setUrl(u); } else URL.revokeObjectURL(u); }).catch(() => { if (live) setUrl(undefined); });
+    return () => { live = false; if (made) URL.revokeObjectURL(made); };
+  }, [api, path]);
+  return url;
+}
+
+/** An <img> for a protected path. */
+export function AuthImg({ api, src, ...rest }: { api: Api; src?: string | null } & Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>) {
+  const url = useBlobUrl(api, src);
+  return <img {...rest} src={url} />;
 }

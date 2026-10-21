@@ -157,11 +157,17 @@ export function teamRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!a) throw new HttpError(404, 'That access was not found', 'not_found');
     const { ids, label } = await branchesOf(g.orgId, { type: a.scope_type, id: a.scope_id });
     if (!(await holds(req.session!.uid, 'team.manage', g.orgId, ids))) throw new HttpError(403, `You cannot change access for ${label}`, 'forbidden');
+    // Taking a role away needs the same standing as giving it (AZ-05): you must hold every permission in it over that place yourself.
+    const roleRow = await roleOf(g.orgId, a.role_id);
+    for (const perm of roleRow.permissions as Permission[]) {
+      if (!(await holds(req.session!.uid, perm, g.orgId, ids))) throw new HttpError(403, `You cannot take away the role ${a.role_name} for ${label} because it includes "${PERMISSION_INFO[perm]?.label ?? perm}", which you do not have there yourself.`, 'cannot_escalate');
+    }
     if (a.role_name === OWNER_ROLE && a.scope_type === 'org') {
       const owners = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM role_assignments ra JOIN roles r ON r.id=ra.role_id WHERE ra.org_id=$1 AND r.name=$2 AND ra.scope_type='org'`, [g.orgId, OWNER_ROLE]))[0].n);
       if (owners <= 1) throw new HttpError(409, 'A church must always have an Organisation Owner. Give someone else that role first.', 'last_owner');
     }
     await ctx.db.query(`DELETE FROM role_assignments WHERE id=$1`, [a.id]);
+    if (a.role_name === OWNER_ROLE) await ctx.ledger.audit({ orgId: g.orgId, actor: req.session!.uid, action: 'security.owner_removed', category: 'security', entity: 'team', entityId: a.user_id, summary: `The Organisation Owner role was taken away from ${a.user_name} for ${label}`, meta: { scope: a.scope_type } });
     await ctx.ledger.audit({ orgId: g.orgId, actor: req.session!.uid, action: 'team.unassign', entity: 'team', entityId: a.user_id, summary: `Took the role ${a.role_name} for ${label} away from ${a.user_name}`, changes: [{ field: 'role', label: 'Role', before: `${a.role_name}, ${label}`, after: null }] });
     return { ok: true };
   });

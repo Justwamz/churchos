@@ -47,6 +47,36 @@ import { memberRecordRoutes, publicRecordRoutes, recordRoutes } from './routes/r
 import { staffRoutes } from './routes/staff';
 import { APP_SCHEMA } from './schema';
 import { als, auditContext } from './audit';
+import { CORS_HEADERS, CORS_METHODS, corsAllows, isProduction } from './cors';
+import { trustProxyHops } from './guards';
+
+export const DEFAULT_BODY_LIMIT = 64 * 1024;
+const MB = 1024 * 1024;
+/** Routes that take pictures or scans as base64 in JSON. Largest legitimate payload: 3 receipts of 1.2 MB each (about 4.9 MB in base64). */
+const UPLOAD_LIMITS: { methods: string[]; url: RegExp; limit: number }[] = [
+  { methods: ['POST'], url: /^\/(expenses|me\/claims)$/, limit: 6 * MB },
+  { methods: ['POST'], url: /^\/expenses\/:id\/files$/, limit: 6 * MB },
+  { methods: ['POST'], url: /^\/kyc\/documents$/, limit: 6 * MB }, // files up to 3 MB
+  { methods: ['POST'], url: /^\/records$/, limit: 6 * MB },
+  { methods: ['PUT'], url: /^\/records\/:id$/, limit: 6 * MB },
+  { methods: ['POST'], url: /^\/records\/:id\/file$/, limit: 6 * MB },
+  { methods: ['PUT'], url: /^\/certificates\/template$/, limit: 2 * MB },
+  { methods: ['PUT'], url: /^\/church\/branding$/, limit: 4 * MB }, // six icons, up to 2.6 MB before base64
+  { methods: ['POST'], url: /^\/events\/:id\/poster$/, limit: 2 * MB },
+  { methods: ['POST', 'PUT'], url: /^\/adverts(\/:id)?$/, limit: 2 * MB },
+  { methods: ['POST'], url: /^\/shop\/items\/:id\/image$/, limit: 1 * MB },
+  { methods: ['POST'], url: /^\/lectionary\/import$/, limit: 1 * MB },
+];
+export const uploadLimit = (methods: string[], url: string): number | undefined => UPLOAD_LIMITS.find((u) => u.url.test(url) && methods.some((m) => u.methods.includes(m)))?.limit;
+
+/** PostgreSQL SQLSTATEs that mean "the value you sent is not valid". */
+const BAD_INPUT_SQLSTATES = new Set(['22021', '22P02', '22007', '22008', '22003', '22001', '22P05', '22004']);
+
+/** One short line, never a body, header, token, query string or phone number. */
+function logError(req: any, err: any) {
+  const msg = String(err?.message ?? '').replace(/\s+/g, ' ').slice(0, 200);
+  console.error(`error ${req?.method} ${String(req?.url ?? '').split('?')[0]} id=${req?.id} ${err?.constructor?.name ?? 'Error'}${err?.code ? ` [${err.code}]` : ''}: ${msg}`);
+}
 
 export interface BuildOptions {
   db?: Db;
@@ -102,14 +132,54 @@ export async function buildApp(opts: BuildOptions = {}) {
   }
 
   ledger.auditContext = auditContext;
-  const app = Fastify({ trustProxy: process.env.TRUST_PROXY === '1', logger: opts.logger ?? false, bodyLimit: 6 * 1024 * 1024, maxParamLength: 600 });
+  const hops = trustProxyHops();
+  const app = Fastify({
+    // A hop count, never `true`: with `true` a caller can write their own address into X-Forwarded-For and be believed (WEB-03).
+    // A plain number is NOT usable here: Fastify 5.12 treats a numeric trustProxy as "trust nobody". The function form trusts the first `hops` hops.
+    trustProxy: hops > 0 ? (_address: string, hop: number) => hop < hops : false,
+    logger: opts.logger ?? false,
+    bodyLimit: DEFAULT_BODY_LIMIT,
+    maxParamLength: 600,
+    requestTimeout: 30_000,
+    connectionTimeout: 10_000,
+    keepAliveTimeout: 5_000,
+  });
+  // Routes that legitimately carry pictures or scans (base64 inside JSON) get a larger, explicit limit. Everything else is 64 KB.
+  app.addHook('onRoute', (route) => {
+    const methods = ([] as string[]).concat(route.method as any);
+    const limit = uploadLimit(methods, route.url);
+    if (limit) route.bodyLimit = limit;
+  });
+  // Security headers on every response (WEB-05, WEB-08). Routes that set their own Cache-Control, CSP or CORP keep theirs.
+  app.addHook('onSend', async (_req, reply, payload) => {
+    const type = String(reply.getHeader('content-type') ?? '');
+    const image = type.startsWith('image/');
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('referrer-policy', 'no-referrer');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('permissions-policy', 'geolocation=(), camera=(), microphone=()');
+    // The web apps live on other sites (onrender.com is a public suffix) and load pictures with <img>, so images must be cross-origin readable.
+    if (!reply.hasHeader('cross-origin-resource-policy')) reply.header('cross-origin-resource-policy', image ? 'cross-origin' : 'same-site');
+    if (!reply.hasHeader('content-security-policy')) {
+      reply.header('content-security-policy', image ? "sandbox; default-src 'none'; img-src 'self' data:" : type.startsWith('application/pdf') ? "frame-ancestors 'none'" : "default-src 'none'; frame-ancestors 'none'");
+    }
+    if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+    if (isProduction()) reply.header('strict-transport-security', 'max-age=31536000; includeSubDomains');
+    return payload;
+  });
   // Every event written while handling a request carries where it came from (L104).
   app.addHook('onRequest', (req, _reply, done) => {
     const app = req.headers['x-churchos-app'];
     als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: typeof app === 'string' ? app.slice(0, 20) : null, requestId: String(req.id) }, done);
   });
-  const corsOrigins = (process.env.CORS_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  await app.register(cors, { origin: corsOrigins.length ? corsOrigins : true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
+  // CORS fails closed in production (no CORS_ORIGINS = no browser origin allowed; start-up also refuses, see guards.ts). Bearer tokens, no cookies: credentials stay off.
+  await app.register(cors, {
+    origin: (origin, cb) => cb(null, corsAllows(origin)),
+    methods: CORS_METHODS,
+    allowedHeaders: CORS_HEADERS,
+    exposedHeaders: ['content-disposition'],
+    maxAge: 600,
+  });
 
   // Keep the raw body, the PSP signature is computed over the exact bytes.
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
@@ -122,13 +192,22 @@ export async function buildApp(opts: BuildOptions = {}) {
     }
   });
 
-  app.setErrorHandler((err: any, _req, reply) => {
+  app.setErrorHandler((err: any, req, reply) => {
     if (err instanceof PspError) return reply.status(err.kind === 'rejected' || err.kind === 'unsupported' ? 400 : 503).send({ error: friendlyPspMessage(err), code: `psp_${err.kind}` });
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message, code: err.code });
-    if (err?.statusCode && err.statusCode < 500) return reply.status(err.statusCode).send({ error: err.message, code: err.code ?? 'bad_request' });
-    app.log.error(err);
-    return reply.status(500).send({ error: 'Something went wrong on our side. Please try again.', code: 'internal' });
+    const fst = typeof err?.code === 'string' && err.code.startsWith('FST_');
+    if (fst) {
+      if (err.statusCode === 413) return reply.status(413).send({ error: 'That is too large to send', code: 'too_large' });
+      if (err.statusCode === 415) return reply.status(415).send({ error: 'That kind of content is not accepted', code: 'unsupported_type' });
+      if (err.statusCode && err.statusCode < 500) return reply.status(400).send({ error: 'That request could not be read', code: 'bad_request' });
+    }
+    // Bad values that reach the database (NUL bytes, malformed text, dates, numbers out of range) are the caller's mistake, not ours.
+    if (BAD_INPUT_SQLSTATES.has(String(err?.code)) || err instanceof RangeError) return reply.status(400).send({ error: 'That value is not valid', code: 'bad_request' });
+    if (!fst && err?.statusCode && err.statusCode >= 400 && err.statusCode < 500) return reply.status(err.statusCode).send({ error: err.message, code: err.code ?? 'bad_request' });
+    logError(req, err);
+    return reply.status(500).send({ error: 'Something went wrong', code: 'internal' });
   });
+  app.setNotFoundHandler((_req, reply) => reply.status(404).send({ error: 'Not found', code: 'not_found' }));
 
   await loadHelp(db);
 

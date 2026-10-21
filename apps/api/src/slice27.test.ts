@@ -148,7 +148,7 @@ describe('what the church is holding, and reminders', () => {
     expect(s.used).toBeGreaterThan(0);
     expect(s.top.map((t: any) => t.name)).toEqual(expect.arrayContaining(['Jane Wanjiku', 'David Wanjiku']));
     const t = (await call(TREAS, 'GET', '/credit/summary')).json();
-    expect(t.outstanding).toBe(s.outstanding);
+    expect(t.outstanding).toBeLessThanOrEqual(s.outstanding); // a branch treasurer sees the credit held by members of that branch only (AZ-04)
     expect(t.top).toBeUndefined(); // the treasurer sees the totals, not who holds them
     expect((await call(JANE, 'GET', '/credit/summary')).statusCode).toBe(403);
     expect((await call(HOPE, 'GET', '/credit/summary')).json().outstanding).toBe(0);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Card, Empty, ErrorNote, Field, Note, kes, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, Empty, ErrorNote, Field, Note, kes, shortDate, useAsync, useBlobUrl, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load } from './bits';
 import { Card as UCard, EmptyState, PageHeader, SidePanel, Skeleton, StatusChip } from './ui';
@@ -106,7 +106,8 @@ function AdvertForm({ advert, onClose, onSaved }: { advert?: any; onClose: () =>
   };
 
   const editingLive = !!advert && !['draft', 'rejected'].includes(advert.status);
-  const preview = art?.preview ?? (advert ? api.url(advert.imageUrl) : undefined);
+  const savedArt = useBlobUrl(api, advert ? advert.imageUrl : null);
+  const preview = art?.preview ?? savedArt;
 
   const save = async () => {
     setErr('');
@@ -273,6 +274,7 @@ function Decide({ advert, onClose, onDone }: { advert: any; onClose: () => void;
   const [no, setNo] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const decideArt = useBlobUrl(api, advert.imageUrl);
   const go = async (approve: boolean) => {
     setBusy(true); setErr('');
     try {
@@ -283,7 +285,7 @@ function Decide({ advert, onClose, onDone }: { advert: any; onClose: () => void;
   return (
     <SidePanel title="Approve this advert?" subtitle={advert.title} onClose={onClose}>
       <div className="stack">
-        <Preview src={api.url(advert.imageUrl)} title={advert.title} body={advert.body ?? ''} />
+        <Preview src={decideArt} title={advert.title} body={advert.body ?? ''} />
         <div className="tiny">Shown to: {advert.audienceLabel}. {advert.advertiser ? `Paid advert from ${advert.advertiser.name}.` : ''}</div>
         {no && <Field label="Why is it not approved?" hint="The person who made it will see this."><textarea rows={3} maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>}
         {err && <ErrorNote>{err}</ErrorNote>}
@@ -316,11 +318,12 @@ function AdvertCard({ a, canManage, onEdit, onDecide, reload, toast }: { a: any;
   const copy = async () => {
     try { await navigator.clipboard.writeText(a.payUrl); toast('Payment link copied'); } catch { toast('Could not copy. Select the link and copy it.', 'bad'); }
   };
+  const thumb = useBlobUrl(api, a.imageUrl);
   const finished = a.status === 'ended' || a.status === 'taken_down';
   const when = a.endsAt ? `${shortDate(a.startsAt)} to ${shortDate(a.endsAt)}` : `From ${shortDate(a.startsAt)}, until stopped`;
   return (
     <section className="comm-item comm-advert" style={{ cursor: 'default' }}>
-      <div className="adv-thumb" style={{ backgroundImage: `url("${api.url(a.imageUrl)}")` }} role="img" aria-label={`Artwork for ${a.title}`} />
+      <div className="adv-thumb" style={thumb ? { backgroundImage: `url("${thumb}")` } : undefined} role="img" aria-label={`Artwork for ${a.title}`} />
       <div className="stack" style={{ gap: 8, minWidth: 0 }}>
         <div className="row between" style={{ alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0 }}><b style={{ overflowWrap: 'anywhere' }}>{a.title}</b>{a.body && <div className="muted" style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{a.body}</div>}</div>

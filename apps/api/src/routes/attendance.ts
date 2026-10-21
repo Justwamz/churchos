@@ -471,7 +471,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
     if (s.status === 'cancelled') throw await cancelledErr(s);
     const exp = nowMs() + DOOR_TTL_MS;
-    const url = `${ctx.givingUrl}/here/D1.${signData({ k: 'd', s: s.id, e: exp })}`;
+    const url = `${ctx.givingUrl}/here/D1.${signData({ k: 'd', s: s.id, e: exp }, 'door')}`;
     return { url, qrSvg: qrSvg(url), refreshSeconds: 45, expiresAt: new Date(exp).toISOString(), service: { id: s.id, name: s.name, church: s.church, branch: s.branch_name, startsAt: s.starts_at } };
   });
 
@@ -479,7 +479,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
     if (s.status === 'cancelled') throw await cancelledErr(s);
     const raw = String((req.body as any)?.token ?? '').trim();
-    const p = raw.startsWith('A1.') ? verifyData(raw.slice(3)) : null;
+    const p = raw.startsWith('A1.') ? verifyData(raw.slice(3), 'qr', nowMs(), { allowExpired: true }) : null;
     if (!p || p.k !== 'a') return { result: 'invalid', message: 'This is not a member code from the app.' };
     if (Number(p.e) < nowMs()) return { result: 'expired', message: 'This code has expired. Ask the member to keep the screen open: it refreshes by itself.' };
     const m = (await ctx.db.query<any>(`SELECT id, full_name, member_number, org_id FROM memberships WHERE id=$1 AND status='active'`, [p.m]))[0];
@@ -615,7 +615,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!m) throw new HttpError(404, 'not found', 'not_found');
     if (s.status === 'cancelled') throw await cancelledErr(s);
     const exp = Math.max(Date.parse(s.closes_at), nowMs()) + 6 * HOUR;
-    const code = `I1.${signData({ k: 'i', s: s.id, m: m.id, e: exp })}`;
+    const code = `I1.${signData({ k: 'i', s: s.id, m: m.id, e: exp }, 'invite')}`;
     const here = `${ctx.givingUrl}/here/${code}`;
     const live = s.stream_url ? `${ctx.givingUrl}/live/${s.code}?ref=${encodeURIComponent(code)}` : null;
     const invited = Number((await ctx.db.query<any>(`SELECT count(DISTINCT visitor_id)::int AS n FROM attendance WHERE invited_by=$1 AND kind='visitor'`, [m.id]))[0].n);
@@ -626,7 +626,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const m = (await myMemberships(req.session!.uid)).find((x) => x.id === String((req.body as any)?.membershipId ?? '')) ?? (await myMemberships(req.session!.uid))[0];
     if (!m) throw new HttpError(404, 'not found', 'not_found');
     const exp = nowMs() + MEMBER_CODE_TTL_MS;
-    const token = `A1.${signData({ k: 'a', m: m.id, o: m.org_id, e: exp })}`;
+    const token = `A1.${signData({ k: 'a', m: m.id, o: m.org_id, e: exp }, 'qr')}`;
     return { token, qrSvg: qrSvg(token), expiresAt: new Date(exp).toISOString(), refreshSeconds: 30, name: m.full_name };
   });
 
@@ -646,7 +646,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   function readToken(raw: string) {
     const kind = raw.startsWith('D1.') ? 'door' : raw.startsWith('I1.') ? 'invite' : null;
-    const p = kind ? verifyData(raw.slice(3)) : null;
+    const p = kind ? verifyData(raw.slice(3), kind === 'door' ? 'door' : 'invite', nowMs(), { allowExpired: true }) : null;
     if (!kind || !p || (p.k !== 'd' && p.k !== 'i')) throw new HttpError(404, 'This code is not valid', 'bad_code');
     if (Number(p.e) < nowMs()) throw new HttpError(410, 'This code has expired. Scan the code at the door again.', 'expired');
     return { kind, p };
@@ -705,7 +705,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = (req.body ?? {}) as any;
     const v = visitorBody(b);
     let invitedBy: string | null = null;
-    if (b.ref && String(b.ref).startsWith('I1.')) { const p = verifyData(String(b.ref).slice(3)); if (p && p.k === 'i') invitedBy = String(p.m); }
+    if (b.ref && String(b.ref).startsWith('I1.')) { const p = verifyData(String(b.ref).slice(3), 'invite', nowMs(), { allowExpired: true }); if (p && p.k === 'i') invitedBy = String(p.m); }
     // Counted while the service is on. Before or after, the person is still sent to the stream.
     let counted = false;
     let first = false;

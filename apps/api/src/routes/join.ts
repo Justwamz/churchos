@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { maskPhone } from '@churchos/shared';
 import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { clientIp, rateLimit } from '../ratelimit';
 import { nextMemberNumber } from '../members';
 import { addNotification } from '../notifications';
 import { wordsFor } from './words';
@@ -13,7 +14,6 @@ import { inStaffScope, staffWith } from '../scope';
  * a staff role at a church can link themselves to it at once.
  */
 
-const hits = new Map<string, { n: number; until: number }>();
 
 const clean = (v: unknown, max: number) => {
   const s = String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -28,12 +28,7 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
   // ======================= finding a church =======================
 
   app.get('/public/churches/search', async (req) => {
-    const ip = String(req.ip ?? 'x');
-    const now = ctx.clock.now().getTime();
-    const cur = hits.get(ip);
-    const slot = cur && cur.until > now ? cur : { n: 0, until: now + 60_000 };
-    if (slot.n >= 40) throw new HttpError(429, 'Too many searches. Please wait a minute.', 'rate_limited');
-    hits.set(ip, { n: slot.n + 1, until: slot.until });
+    if (!rateLimit(ctx, `church-search:${clientIp(req)}`, { max: 40, windowMs: 60_000 }).ok) throw new HttpError(429, 'Too many searches. Please wait a minute.', 'rate_limited');
     const q = String((req.query as any).q ?? '').trim().slice(0, 60);
     if (q.length < 3) return { churches: [] };
     const like = `%${q.replace(/[%_\\]/g, '')}%`;

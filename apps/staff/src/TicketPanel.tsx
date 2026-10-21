@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, ErrorNote, Field, Note, Table, kes, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, Table, kes, useAsync, useBlobUrl, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Modal } from './MemberForm';
 import { CreditOrder, RefundRequests, RefundsToArrange } from './Refunds';
@@ -62,7 +62,7 @@ function Attendees({ event, types, toast, canCredit, onChanged }: { event: any; 
   const resend = async (t: any) => {
     try { await api.post(`/tickets/orders/${t.orderId}/resend`); toast('Tickets sent again'); } catch (e: any) { toast(friendly(e.message), 'bad'); }
   };
-  const csv = () => window.open(api.url(`/events/${event.id}/attendees?format=csv`), '_blank');
+  const csv = () => api.openDownload(`/events/${event.id}/attendees?format=csv`).catch(() => undefined);
   return (
     <div className="stack">
       <div className="row between" style={{ marginTop: 8 }}><h3 style={{ margin: 0 }}>Attendees</h3><Button small kind="ghost" onClick={csv}>Download CSV</Button></div>
@@ -126,6 +126,7 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
   const [ver, setVer] = useState(0);
   const reloadAll = () => { d.reload(); cr.reload(); setVer((n) => n + 1); };
   const t = d.data;
+  const posterSrc = useBlobUrl(api, t?.hasPoster ? t.posterUrl : null);
   const ci = cr.data?.issued, cp = cr.data?.paidWithCredit;
   return (
     <SidePanel title={event.title} subtitle="Tickets and sales" onClose={onClose} width={720}>
@@ -151,7 +152,7 @@ export function TicketPanel({ event, onClose }: { event: any; onClose: () => voi
                 </div>
               )}
               {t.ticketed && t.status !== 'cancelled' && <div className="tiny">{t.refundDaysBefore != null ? `Buyers can ask for a refund until ${t.refundDaysBefore} ${t.refundDaysBefore === 1 ? 'day' : 'days'} before.` : 'No refunds before the event.'}</div>}
-              {t.hasPoster && <div className="tk-thumb" style={{ backgroundImage: `url("${api.url(t.posterUrl)}")` }} role="img" aria-label="Poster" />}
+              {t.hasPoster && <div className="tk-thumb" style={posterSrc ? { backgroundImage: `url("${posterSrc}")` } : undefined} role="img" aria-label="Poster" />}
               <StatTiles>
                 <Stat label="Sold" value={t.totals.sold} hint={t.totals.held > 0 ? `${t.totals.held} held while people pay` : undefined} />
                 <Stat label="Takings" value={kes(t.totals.takings)} hint={`From ${t.totals.orders} ${t.totals.orders === 1 ? 'order' : 'orders'}. Service fees paid by buyers are not included.`} />

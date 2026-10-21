@@ -46,14 +46,21 @@ export function categoryFor(action: string): AuditCategory {
   return CATEGORY_BY_PREFIX[action.split('.')[0]] ?? 'system';
 }
 
-/** Stable JSON: object keys sorted, so the same event always hashes the same way. */
+/**
+ * Stable JSON: object keys sorted, so the same event always hashes the same way. Values JSON cannot hold are treated exactly as
+ * JSON.stringify treats them (an undefined property is dropped, an undefined array item becomes null), so an event hashes the same when it
+ * is written and when it is read back from the database (LG-07).
+ */
 export function canonical(v: unknown): string {
   if (v === undefined) return 'null';
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
   const o = v as Record<string, unknown>;
-  return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
+  return `{${Object.keys(o).filter((k) => o[k] !== undefined && typeof o[k] !== 'function').sort().map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
 }
+
+/** What the database will hand back for a JSON value: the JSON round trip. */
+const roundTrip = (v: unknown) => (v === null || v === undefined ? null : JSON.parse(JSON.stringify(v)));
 
 const HASHED = ['id', 'chain', 'at', 'org_id', 'branch_id', 'actor_id', 'actor_name', 'actor_type', 'action', 'category', 'entity', 'entity_id', 'summary', 'changes', 'reason', 'ip', 'user_agent', 'app', 'request_id', 'links', 'meta'] as const;
 
@@ -85,14 +92,14 @@ export async function writeAudit(db: Db, at: string, e: AuditInput): Promise<str
       entity: e.entity ?? null,
       entity_id: e.entityId ?? null,
       summary: e.summary ?? e.action.replace(/[._]/g, ' '),
-      changes: e.changes && e.changes.length ? e.changes : null,
+      changes: e.changes && e.changes.length ? roundTrip(e.changes) : null,
       reason: e.reason ?? null,
       ip: e.ip ?? null,
       user_agent: e.userAgent ? String(e.userAgent).slice(0, 200) : null,
       app: e.app ?? null,
       request_id: e.requestId ?? null,
-      links: e.links ?? null,
-      meta: e.meta ?? null,
+      links: roundTrip(e.links),
+      meta: roundTrip(e.meta),
     };
     const hash = hashEvent(prev?.hash ?? null, row);
     await q.query(
@@ -113,9 +120,19 @@ export interface ChainReport {
   /** Sequence number of the first event that does not match, when the chain is broken. */
   brokenAtSeq?: number;
   reason?: string;
+  /** Every event that does not match, not only the first (LG-07). Empty when the chain is intact. */
+  breaks?: { seq: number; reason: string }[];
 }
 
-/** Recomputes every hash and checks each event points at the one before it. */
+/**
+ * Recomputes every hash and checks each event points at the one before it. It does not stop at the first problem: every event that does
+ * not match is listed in `breaks`, and brokenAtSeq / reason still name the first one.
+ *
+ * Note on old data: events written before the LG-07 fix whose meta held an `undefined` value (the kids.* events) were hashed with that
+ * value as null, but the database keeps no such key, so they can no longer be re-verified and report 'changed'. They are listed by seq
+ * with the others; a chain whose only breaks are kids.* events from before the fix is a known artefact, not tampering. New events hash
+ * identically on write and read.
+ */
 export async function verifyChains(db: Db, chain?: string): Promise<ChainReport[]> {
   const chains = chain
     ? [chain]
@@ -124,20 +141,13 @@ export async function verifyChains(db: Db, chain?: string): Promise<ChainReport[
   for (const c of chains) {
     const rows = await db.query<any>(`SELECT * FROM audit_events WHERE chain=$1 ORDER BY seq`, [c]);
     let prev: string | null = null;
-    let report: ChainReport = { chain: c, events: rows.length, ok: true };
+    const breaks: { seq: number; reason: string }[] = [];
     for (const r of rows) {
-      if ((r.prev_hash ?? null) !== prev) {
-        report = { chain: c, events: rows.length, ok: false, brokenAtSeq: Number(r.seq), reason: 'an earlier event was removed or reordered' };
-        break;
-      }
-      const expect = hashEvent(prev, r);
-      if (expect !== r.hash) {
-        report = { chain: c, events: rows.length, ok: false, brokenAtSeq: Number(r.seq), reason: 'this event was changed after it was written' };
-        break;
-      }
-      prev = r.hash;
+      if ((r.prev_hash ?? null) !== prev) breaks.push({ seq: Number(r.seq), reason: 'an earlier event was removed or reordered' });
+      if (hashEvent(r.prev_hash ?? null, r) !== r.hash) breaks.push({ seq: Number(r.seq), reason: 'this event was changed after it was written' });
+      prev = r.hash; // carry on from what is stored, so one bad event does not hide later ones
     }
-    out.push(report);
+    out.push(breaks.length === 0 ? { chain: c, events: rows.length, ok: true } : { chain: c, events: rows.length, ok: false, brokenAtSeq: breaks[0].seq, reason: breaks[0].reason, breaks });
   }
   return out;
 }

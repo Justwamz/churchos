@@ -186,16 +186,27 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     if (r.status !== 'pending') throw new HttpError(409, 'This request was already decided', 'already_decided');
     const b = (req.body ?? {}) as any;
     const { o } = await orderWithEvent(r.order_id);
+    // A staff member who bought the tickets, or who asked for the refund, cannot approve it themselves (AZ-14).
+    if (b.approve && (r.requested_by_user === req.session!.uid || o.buyer_user_id === req.session!.uid)) throw new HttpError(403, 'You cannot approve a refund of your own order. Ask someone else at the church.', 'same_person');
     if (!b.approve) {
       const note = text(b.note, 300, 'reason for declining', true);
-      await ctx.db.query(`UPDATE ticket_refunds SET status='declined', decided_by=$2, decided_by_name=$3, decided_at=$4, decision_note=$5 WHERE id=$1`, [r.id, req.session!.uid, req.session!.name, nowIso(), note]);
+      const won = await ctx.db.query<any>(`UPDATE ticket_refunds SET status='declined', decided_by=$2, decided_by_name=$3, decided_at=$4, decision_note=$5 WHERE id=$1 AND status='pending' RETURNING id`, [r.id, req.session!.uid, req.session!.name, nowIso(), note]);
+      if (!won[0]) throw new HttpError(409, 'This request was already decided', 'already_decided');
       await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actor: req.session!.uid, action: 'ticket.refund_declined', entity: 'ticket_order', entityId: o.id, summary: `Declined the refund of order ${o.code} for "${e.title}"`, reason: note ?? undefined, meta: { refund: r.id } });
       await tell(o, `Your refund request for ${e.title}`, `The church could not approve a refund for order ${o.code}. ${note} Your tickets still work.`);
       return { id: r.id, status: 'declined' };
     }
     const t = (await ctx.db.query<any>(`SELECT count(*) FILTER (WHERE status='used')::int AS used FROM tickets WHERE order_id=$1`, [o.id]))[0];
     if (t.used > 0) throw new HttpError(409, 'Some of these tickets were already used at the door, so this order cannot be refunded in full. Decline it and explain, or contact ChurchOS.', 'tickets_used');
-    await approve(req, r, o, e, text(b.note, 300, 'note'), false);
+    // Claimed in one atomic step, so two approvals at once cannot both go on to create a reversal.
+    const claim = await ctx.db.query<any>(`UPDATE ticket_refunds SET status='approved', decided_by=$2, decided_by_name=$3, decided_at=$4 WHERE id=$1 AND status='pending' RETURNING id`, [r.id, req.session!.uid, req.session!.name, nowIso()]);
+    if (!claim[0]) throw new HttpError(409, 'This request was already decided', 'already_decided');
+    try {
+      await approve(req, r, o, e, text(b.note, 300, 'note'), false);
+    } catch (err) {
+      await ctx.db.query(`UPDATE ticket_refunds SET status='pending', decided_by=NULL, decided_by_name=NULL, decided_at=NULL WHERE id=$1 AND status='approved' AND reversal_id IS NULL`, [r.id]);
+      throw err;
+    }
     return { id: r.id, status: 'approved' };
   });
 

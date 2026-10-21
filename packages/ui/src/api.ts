@@ -60,8 +60,44 @@ export function createApi(tokenKey: string) {
     get: <T = any>(p: string) => request<T>('GET', p),
     post: <T = any>(p: string, b?: unknown) => request<T>('POST', p, b ?? {}),
     put: <T = any>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
-    /** URL for downloads and EventSource, which cannot send headers. */
-    url: (p: string) => `${API_URL}${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(getToken() ?? '')}`,
+    /**
+     * A one-minute link for one GET path, for what cannot send an Authorization header (downloads, the live stream).
+     * The sign-in token itself never appears in a URL.
+     */
+    ticketUrl: async (p: string): Promise<string> => {
+      const r = await request<{ url: string }>('POST', '/auth/download-ticket', { path: p });
+      return `${API_URL}${r.url}`;
+    },
+    /** Opens a file download (CSV, PDF) in a new tab. The tab is opened first so the browser does not block it. */
+    openDownload: async (p: string): Promise<void> => {
+      const w = window.open('about:blank', '_blank');
+      try {
+        const r = await request<{ url: string }>('POST', '/auth/download-ticket', { path: p });
+        if (w) w.location.href = `${API_URL}${r.url}`;
+        else window.location.href = `${API_URL}${r.url}`;
+      } catch (e) {
+        w?.close();
+        throw e;
+      }
+    },
+    /** Fetches a protected image with the Authorization header and returns an object URL for it (revoke it when done). */
+    blobUrl: async (p: string): Promise<string> => {
+      const token = getToken();
+      const res = await fetch(`${API_URL}${p}`, { headers: { 'x-churchos-app': appName, ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+      if (!res.ok) throw new ApiError(res.status, 'Could not load the file');
+      return URL.createObjectURL(await res.blob());
+    },
+    /** Signs out on the server (the token stops working everywhere) and clears it here at once. A failed call is ignored. */
+    signOut: async (): Promise<void> => {
+      const token = getToken();
+      setToken(null);
+      if (!token) return;
+      try {
+        await fetch(`${API_URL}/auth/logout`, { method: 'POST', headers: { 'x-churchos-app': appName, 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: '{}' });
+      } catch {
+        /* offline: the token is gone from this device anyway */
+      }
+    },
   };
 }
 export type Api = ReturnType<typeof createApi>;

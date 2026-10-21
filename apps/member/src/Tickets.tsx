@@ -1,6 +1,6 @@
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, ErrorNote, Field, Note, kes, phonePretty, useAsync } from '@churchos/ui';
+import { AuthImg, Button, ErrorNote, Field, Note, kes, phonePretty, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
 import { CreditNote, openCredit } from './Credit';
 import { Icon, Sheet, Skeleton } from './ui';
@@ -47,7 +47,7 @@ const TILE = ['#0e5a52', '#b9832a', '#25598f', '#8a4f7d', '#b3322d', '#1d7a4a'];
 export function Poster({ url, title, className = '' }: { url?: string | null; title: string; className?: string }) {
   const sum = [...title].reduce((s, c) => s + c.charCodeAt(0), 0);
   return url
-    ? <img className={`tk-poster ${className}`} src={api.url(url)} alt="" loading="lazy" draggable={false} />
+    ? <AuthImg api={api} className={`tk-poster ${className}`} src={url} alt="" loading="lazy" draggable={false} />
     : <span className={`tk-poster tk-poster-tile ${className}`} style={{ background: TILE[sum % TILE.length] }} aria-hidden="true">{(title.trim()[0] ?? '?').toUpperCase()}</span>;
 }
 

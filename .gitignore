@@ -2,3 +2,12 @@ node_modules
 dist
 .data
 *.log
+coverage
+.env
+.env.*
+!.env.example
+*.pem
+!packages/payments/test-fixtures/*.pem
+scripts/_x-*
+scratchpad
+.scratchpad

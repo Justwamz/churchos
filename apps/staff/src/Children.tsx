@@ -948,7 +948,7 @@ function LogTab() {
         <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
         <Field label="Search"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Name or class" /></Field>
         <Field label="What happened"><select value={action} onChange={(e) => setAction(e.target.value)}><option value="">Everything</option>{actions.map((a) => <option key={a} value={a}>{label(a)}</option>)}</select></Field>
-        <div className="kd-filter-btn"><Button kind="ghost" onClick={() => window.open(api.url(`/kids/log?${qs(true)}`), '_blank')}>Download CSV</Button></div>
+        <div className="kd-filter-btn"><Button kind="ghost" onClick={() => api.openDownload(`/kids/log?${qs(true)}`).catch(() => undefined)}>Download CSV</Button></div>
       </div>
       <Gate loading={q.loading} error={q.error} hasData={!!q.data}>
         {q.data && (log.length === 0 ? <EmptyState icon="child" title={<>Nothing was logged in these dates.</>} /> : (
@@ -997,7 +997,7 @@ function ReportTab() {
       <div className="kd-filters">
         <Field label="From"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
-        <div className="kd-filter-btn"><Button kind="ghost" onClick={() => window.open(api.url(`/kids/report?from=${from}&to=${to}&csv=1`), '_blank')}>Download CSV</Button></div>
+        <div className="kd-filter-btn"><Button kind="ghost" onClick={() => api.openDownload(`/kids/report?from=${from}&to=${to}&csv=1`).catch(() => undefined)}>Download CSV</Button></div>
       </div>
       <Gate loading={q.loading} error={q.error} hasData={!!q.data}>
         {q.data && (

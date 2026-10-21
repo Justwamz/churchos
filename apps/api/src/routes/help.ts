@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { loadGrants, verifyToken } from '../auth';
-import { bearer, HttpError, type Ctx } from '../ctx';
+import { loadGrants } from '../auth';
+import { HttpError, type Ctx } from '../ctx';
+import { getSession } from '../sessions';
 import type { HelpAudience } from '../help';
 
 /**
@@ -9,7 +10,7 @@ import type { HelpAudience } from '../help';
  */
 async function allowedAudiences(ctx: Ctx, req: FastifyRequest): Promise<HelpAudience[]> {
   const out: HelpAudience[] = ['member'];
-  const s = verifyToken(bearer(req));
+  const s = await getSession(ctx, req);
   if (!s) return out;
   if (s.isAdmin) out.push('staff', 'admin');
   else if ((await loadGrants(ctx.db, s.uid)).length > 0) out.push('staff');

@@ -1,6 +1,6 @@
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, ErrorNote, Field, Note, kes, phonePretty, shortDate, useAsync } from '@churchos/ui';
+import { AuthImg, Button, ErrorNote, Field, Note, kes, phonePretty, shortDate, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
 import { Icon, Sheet, Skeleton } from './ui';
 
@@ -67,7 +67,7 @@ const TILE_COLOURS = ['#0e5a52', '#b9832a', '#25598f', '#8a4f7d', '#b3322d', '#1
 function Picture({ item, className = '' }: { item: { name: string; imageUrl?: string | null }; className?: string }) {
   const sum = [...item.name].reduce((s, c) => s + c.charCodeAt(0), 0);
   return item.imageUrl
-    ? <img className={`shop-pic ${className}`} src={api.url(item.imageUrl)} alt="" loading="lazy" draggable={false} />
+    ? <AuthImg api={api} className={`shop-pic ${className}`} src={item.imageUrl} alt="" loading="lazy" draggable={false} />
     : <span className={`shop-pic shop-pic-tile ${className}`} style={{ background: TILE_COLOURS[sum % TILE_COLOURS.length] }} aria-hidden="true">{(item.name.trim()[0] ?? '?').toUpperCase()}</span>;
 }
 

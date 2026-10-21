@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
+import { maskPhone } from '@churchos/shared';
+import { grantsFor, inStaffScope } from '../scope';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { rateLimit } from '../ratelimit';
 import { addNotification, type NotificationAudience } from '../notifications';
 import { sendEmail } from '../wallets';
 import { showCode } from './event-credit';
@@ -36,7 +39,6 @@ interface Row { id: string; balance: number }
 export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const nowIso = () => ctx.clock.now().toISOString();
-  const lookups = new Map<string, { n: number; until: number }>();
 
   async function myOrg(uid: string, hint?: unknown): Promise<string> {
     const want = String(hint ?? '');
@@ -86,7 +88,8 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ======================= ask for the credit back as money =======================
 
-  const refundView = (r: any) => ({ id: r.id, amount: Number(r.amount), status: r.status, reason: r.reason, member: r.member_name, phone: r.phone, requestedAt: r.created_at, decidedBy: r.decided_by_name, decidedAt: r.decided_at, decisionNote: r.decision_note, paidAt: r.paid_at, paidBy: r.paid_by_name, paidReference: r.paid_reference });
+  /** `phone` is passed in: the member sees their own number; staff see it masked, except once a request is approved and they have to pay it. */
+  const refundView = (r: any, phone: string | null = r.phone) => ({ id: r.id, amount: Number(r.amount), status: r.status, reason: r.reason, member: r.member_name, phone, requestedAt: r.created_at, decidedBy: r.decided_by_name, decidedAt: r.decided_at, decisionNote: r.decision_note, paidAt: r.paid_at, paidBy: r.paid_by_name, paidReference: r.paid_reference });
 
   /** The money is held back from the credit straight away, so it cannot be spent while the church decides. A decline or a cancel puts it back. */
   app.post('/me/credit/refund-request', auth, async (req) => {
@@ -103,9 +106,11 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
     const name = (await ctx.db.query<any>(`SELECT full_name FROM memberships WHERE user_id=$1 AND org_id=$2 ORDER BY joined_at LIMIT 1`, [uid, orgId]))[0]?.full_name ?? req.session!.name;
     const reason = text(b.reason, 200);
     const id = ctx.newId('crf');
+    // The member's branch is kept on the request, so only the staff who manage that branch can see and decide it (AZ-04).
+    const branchId = (await ctx.db.query<any>(`SELECT branch_id FROM memberships WHERE user_id=$1 AND org_id=$2 AND status='active' ORDER BY joined_at LIMIT 1`, [uid, orgId]))[0]?.branch_id ?? null;
     await ctx.db.tx(async (q) => {
       const taken = await drain(q, rows, amount);
-      await q.query(`INSERT INTO credit_refunds (id, org_id, user_id, member_name, phone, amount, reason, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [id, orgId, uid, name, req.session!.phone ?? null, amount, reason, nowIso()]);
+      await q.query(`INSERT INTO credit_refunds (id, org_id, user_id, member_name, phone, amount, reason, created_at, branch_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, orgId, uid, name, req.session!.phone ?? null, amount, reason, nowIso(), branchId]);
       for (const t of taken) await q.query(`INSERT INTO credit_refund_holds (org_id, refund_id, credit_id, amount) VALUES ($1,$2,$3,$4)`, [orgId, id, t.id, t.take]);
     });
     await ctx.ledger.audit({ orgId, actor: uid, action: 'credit.refund_requested', entity: 'credit_refund', entityId: id, summary: `${name} asked for ${kesText(amount)} of their event credit back as money`, reason: reason ?? undefined });
@@ -127,18 +132,31 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
     return { ok: true };
   });
 
+  /** A request is in the caller's scope when they hold events.manage over its branch (or, for an old request with no branch, over every branch). */
+  async function refundInScope(req: FastifyRequest, r: any) {
+    return inStaffScope(ctx, req, 'events.manage', r.org_id, r.branch_id ?? null);
+  }
+
   app.get('/credit/refunds', auth, async (req) => {
-    const s = await staffOrg(req, ['events.manage']);
+    const g = await grantsFor(ctx, req, 'events.manage');
     const status = String((req.query as any).status ?? '');
-    const rows = await ctx.db.query<any>(`SELECT * FROM credit_refunds WHERE org_id=$1 ${status ? 'AND status = ANY($2::text[])' : ''} ORDER BY (status='pending') DESC, (status='approved') DESC, created_at DESC LIMIT 200`, status ? [s.orgId, status.split(',')] : [s.orgId]);
-    return { refunds: rows.map(refundView), toDecide: rows.filter((r) => r.status === 'pending').length, toPay: rows.filter((r) => r.status === 'approved').length };
+    // Only the branches this person manages; requests with no branch (made before branches were recorded) need a church-wide grant.
+    const rows = await ctx.db.query<any>(`SELECT * FROM credit_refunds WHERE org_id=$1 AND (branch_id = ANY($2::text[])${g.wholeOrg ? ' OR branch_id IS NULL' : ''}) ${status ? 'AND status = ANY($3::text[])' : ''} ORDER BY (status='pending') DESC, (status='approved') DESC, created_at DESC LIMIT 200`, status ? [g.orgId, g.branchIds, status.split(',')] : [g.orgId, g.branchIds]);
+    // The full number is shown only while a request is approved and waiting to be paid (the person who pays needs it), and that is logged once.
+    const reveal = rows.filter((r) => r.status === 'approved' && r.phone);
+    const firstTime = reveal.length ? await ctx.db.query<any>(`UPDATE credit_refunds SET phone_revealed_at=$2 WHERE id = ANY($1::text[]) AND phone_revealed_at IS NULL RETURNING id`, [reveal.map((r) => r.id), nowIso()]) : [];
+    for (const f of firstTime) await ctx.ledger.audit({ orgId: g.orgId, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'credit_refund', entityId: f.id, summary: 'Saw the phone number on an approved event credit refund, to pay it', meta: { fields: ['phone'] } });
+    return { refunds: rows.map((r) => refundView(r, r.status === 'approved' ? r.phone : maskPhone(r.phone))), toDecide: rows.filter((r) => r.status === 'pending').length, toPay: rows.filter((r) => r.status === 'approved').length };
   });
 
   app.post('/credit/refunds/:id/decide', auth, async (req) => {
-    const s = await staffOrg(req, ['events.manage']);
+    await grantsFor(ctx, req, 'events.manage');
     const b = (req.body ?? {}) as any;
-    const r = (await ctx.db.query<any>(`SELECT * FROM credit_refunds WHERE id=$1 AND org_id=$2`, [(req.params as any).id, s.orgId]))[0];
-    if (!r) throw new HttpError(404, 'not found', 'not_found');
+    const r = (await ctx.db.query<any>(`SELECT * FROM credit_refunds WHERE id=$1`, [(req.params as any).id]))[0];
+    if (!r || !(await refundInScope(req, r))) throw new HttpError(404, 'not found', 'not_found');
+    const s = { orgId: r.org_id as string };
+    // The person who asked cannot decide their own request (AZ-03).
+    if (r.user_id === req.session!.uid) throw new HttpError(403, 'You cannot decide your own refund request. Ask someone else at the church.', 'same_person');
     if (r.status !== 'pending') throw new HttpError(409, 'This request was already decided', 'already_decided');
     const decisionNote = text(b.note, 300);
     if (!b.approve && !decisionNote) throw new HttpError(400, 'Say why you are declining, so the member knows', 'bad_content');
@@ -152,10 +170,15 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
 
   /** ChurchOS does not send the money: the church pays the member itself (for example by M-Pesa) and records it here. */
   app.post('/credit/refunds/:id/paid', auth, async (req) => {
-    const s = await staffOrg(req, ['events.manage']);
+    await grantsFor(ctx, req, 'events.manage');
     const reference = text((req.body as any)?.reference, 60);
     if (!reference) throw new HttpError(400, 'Enter the payment reference, for example the M-Pesa code', 'bad_content');
-    const r = (await ctx.db.query<any>(`UPDATE credit_refunds SET status='paid', paid_by=$3, paid_by_name=$4, paid_at=$5, paid_reference=$6 WHERE id=$1 AND org_id=$2 AND status='approved' RETURNING *`, [(req.params as any).id, s.orgId, req.session!.uid, req.session!.name, nowIso(), reference]))[0];
+    const cur = (await ctx.db.query<any>(`SELECT * FROM credit_refunds WHERE id=$1`, [(req.params as any).id]))[0];
+    if (!cur || !(await refundInScope(req, cur))) throw new HttpError(404, 'not found', 'not_found');
+    const s = { orgId: cur.org_id as string };
+    // Nobody marks their own refund as paid (AZ-03). The person who approved it may also be the one who pays it.
+    if (cur.user_id === req.session!.uid) throw new HttpError(403, 'You cannot mark your own refund as paid', 'same_person');
+    const r = (await ctx.db.query<any>(`UPDATE credit_refunds SET status='paid', paid_by=$3, paid_by_name=$4, paid_at=$5, paid_reference=$6 WHERE id=$1 AND org_id=$2 AND status='approved' RETURNING *`, [cur.id, s.orgId, req.session!.uid, req.session!.name, nowIso(), reference]))[0];
     if (!r) throw new HttpError(409, 'Only an approved request can be marked as paid', 'wrong_state');
     await ctx.ledger.audit({ orgId: s.orgId, actor: req.session!.uid, action: 'credit.refund_paid', entity: 'credit_refund', entityId: r.id, summary: `Recorded that ${r.member_name} was paid ${kesText(Number(r.amount))} for their event credit, reference ${reference}` });
     await note(s.orgId, r.user_id, 'Your credit refund was paid', `${kesText(Number(r.amount))} was sent to you by the church. Reference ${reference}.`);
@@ -175,11 +198,7 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
   /** Shows who a number belongs to (first name and last initial) so the sender can check before sending. A few tries an hour, so numbers cannot be probed. */
   app.post('/me/credit/transfer/lookup', auth, async (req) => {
     const uid = req.session!.uid;
-    const cur = lookups.get(uid);
-    const now = ctx.clock.now().getTime();
-    const slot = cur && cur.until > now ? cur : { n: 0, until: now + 3600_000 };
-    if (slot.n >= 10) throw new HttpError(429, 'Too many look-ups. Please try again in an hour.', 'rate_limited');
-    lookups.set(uid, { n: slot.n + 1, until: slot.until });
+    if (!rateLimit(ctx, `credit-lookup:${uid}`, { max: 10, windowMs: 3600_000 }).ok) throw new HttpError(429, 'Too many look-ups. Please try again in an hour.', 'rate_limited');
     const orgId = await myOrg(uid, (req.body as any)?.orgId);
     const r = await recipientOf(orgId, (req.body as any)?.phone, uid);
     return { name: maskName(r.name) };
@@ -217,7 +236,7 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
     const refunds = await ctx.db.query<any>(`SELECT * FROM credit_refunds WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30`, [uid]);
     const out = await ctx.db.query<any>(`SELECT * FROM credit_transfers WHERE from_user=$1 OR to_user=$1 ORDER BY created_at DESC LIMIT 30`, [uid]);
     return {
-      refunds: refunds.map(refundView),
+      refunds: refunds.map((r) => refundView(r)),
       transfers: out.map((t) => ({ id: t.id, direction: t.from_user === uid ? 'sent' : 'received', other: t.from_user === uid ? maskName(t.to_name) : maskName(t.from_name), amount: Number(t.amount), note: t.note, at: t.created_at })),
     };
   });
@@ -225,23 +244,34 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
   // ======================= what the church is holding =======================
 
   app.get('/credit/summary', auth, async (req) => {
-    const s = await staffOrg(req, ['events.manage', 'collections.view']);
+    // Someone who looks after only some branches sees only those branches' figures (AZ-04): credit held by members of their branches, and
+    // refund requests filed under them. Credit held by guests belongs to no branch and is shown to church-wide staff only.
+    let s: { orgId: string; perm: 'events.manage' | 'collections.view'; whole: boolean; branchIds: string[] } | null = null;
+    for (const perm of ['events.manage', 'collections.view'] as const) {
+      if (!(await branchesFor(ctx.db, req.session!.uid, perm)).length) continue;
+      const g = await grantsFor(ctx, req, perm);
+      if (!s || g.wholeOrg) s = { orgId: g.orgId, perm, whole: g.wholeOrg, branchIds: g.branchIds };
+      if (g.wholeOrg) break;
+    }
+    if (!s) throw new HttpError(403, 'missing permission events.manage', 'forbidden');
     const orgId = s.orgId;
+    const mine = s.whole ? '' : ` AND user_id IN (SELECT user_id FROM memberships WHERE org_id=$1 AND branch_id = ANY($B::text[]) AND user_id IS NOT NULL)`;
+    const bp = s.branchIds;
     const one = async (sql: string, p: unknown[] = [orgId]) => (await ctx.db.query<any>(sql, p))[0];
     const now = ctx.clock.now().getTime();
     const d30 = new Date(now - 30 * 86_400_000).toISOString();
     const d90 = new Date(now - 90 * 86_400_000).toISOString();
-    const held = await one(`SELECT COALESCE(SUM(balance),0) AS total, count(DISTINCT COALESCE(user_id, email, id)) FILTER (WHERE balance > 0)::int AS holders, COALESCE(SUM(balance) FILTER (WHERE created_at >= $2),0) AS b30, COALESCE(SUM(balance) FILTER (WHERE created_at < $2 AND created_at >= $3),0) AS b90, COALESCE(SUM(balance) FILTER (WHERE created_at < $3),0) AS older FROM event_credits WHERE org_id=$1 AND balance > 0`, [orgId, d30, d90]);
-    const issued = await one(`SELECT COALESCE(SUM(amount),0) AS total, count(*)::int AS n FROM event_credits WHERE org_id=$1 AND source_kind <> 'transfer'`);
-    const used = await one(`SELECT COALESCE(SUM(amount),0) AS total FROM event_credit_moves WHERE org_id=$1 AND NOT undone`);
-    const refunded = await one(`SELECT COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS paid, COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved')),0) AS open, count(*) FILTER (WHERE status='pending')::int AS to_decide, count(*) FILTER (WHERE status='approved')::int AS to_pay FROM credit_refunds WHERE org_id=$1`);
+    const held = await one(`SELECT COALESCE(SUM(balance),0) AS total, count(DISTINCT COALESCE(user_id, email, id)) FILTER (WHERE balance > 0)::int AS holders, COALESCE(SUM(balance) FILTER (WHERE created_at >= $2),0) AS b30, COALESCE(SUM(balance) FILTER (WHERE created_at < $2 AND created_at >= $3),0) AS b90, COALESCE(SUM(balance) FILTER (WHERE created_at < $3),0) AS older FROM event_credits WHERE org_id=$1 AND balance > 0${mine.replace('$B', '$4')}`, s.whole ? [orgId, d30, d90] : [orgId, d30, d90, bp]);
+    const issued = await one(`SELECT COALESCE(SUM(amount),0) AS total, count(*)::int AS n FROM event_credits WHERE org_id=$1 AND source_kind <> 'transfer'${mine.replace('$B', '$2')}`, s.whole ? [orgId] : [orgId, bp]);
+    const used = await one(`SELECT COALESCE(SUM(amount),0) AS total FROM event_credit_moves WHERE org_id=$1 AND NOT undone${s.whole ? '' : ` AND credit_id IN (SELECT id FROM event_credits WHERE org_id=$1${mine.replace('$B', '$2')})`}`, s.whole ? [orgId] : [orgId, bp]);
+    const refunded = await one(`SELECT COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS paid, COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','approved')),0) AS open, count(*) FILTER (WHERE status='pending')::int AS to_decide, count(*) FILTER (WHERE status='approved')::int AS to_pay FROM credit_refunds WHERE org_id=$1${s.whole ? '' : ' AND branch_id = ANY($2::text[])'}`, s.whole ? [orgId] : [orgId, bp]);
     const out: any = {
       outstanding: Number(held.total), holders: held.holders, aging: { under30: Number(held.b30), from30to90: Number(held.b90), over90: Number(held.older) },
       issued: { total: Number(issued.total), orders: issued.n }, used: Number(used.total),
       refunded: { paid: Number(refunded.paid), open: Number(refunded.open), toDecide: refunded.to_decide, toPay: refunded.to_pay },
       note: 'This is money the church has already received and holds as a promise to buyers. It is not income until the credit is spent.',
     };
-    if (s.perm === 'events.manage') {
+    if (s.perm === 'events.manage' && s.whole) {
       const top = await ctx.db.query<any>(
         `SELECT COALESCE(c.user_id, c.email, c.id) AS who, COALESCE(MAX(m.full_name), MAX(c.email), 'Guest') AS name, SUM(c.balance) AS balance, MIN(c.created_at) AS since
            FROM event_credits c LEFT JOIN memberships m ON m.user_id=c.user_id AND m.org_id=c.org_id WHERE c.org_id=$1 AND c.balance > 0 GROUP BY COALESCE(c.user_id, c.email, c.id) ORDER BY SUM(c.balance) DESC LIMIT 20`,

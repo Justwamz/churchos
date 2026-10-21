@@ -27,12 +27,16 @@ export function Dashboard() {
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout>;
     let closed = false;
-    const open = () => {
-      es = new EventSource(api.url('/stream/collections'));
+    const open = async () => {
+      // A one-minute ticket for this stream, asked for just before connecting. Every reconnect asks for a fresh one.
+      let url: string;
+      try { url = await api.ticketUrl('/stream/collections'); } catch { if (!closed) timer = setTimeout(open, 4000); return; }
+      if (closed) return;
+      es = new EventSource(url);
       es.onopen = () => setLive(true);
       es.onerror = () => {
         setLive(false);
-        if (es && es.readyState === EventSource.CLOSED && !closed) { es.close(); timer = setTimeout(open, 4000); }
+        if (es && !closed) { es.close(); timer = setTimeout(open, 4000); }
       };
       es.addEventListener('payment', (ev) => {
         let p: any;
@@ -45,7 +49,7 @@ export function Dashboard() {
         reloadRef.current();
       });
     };
-    open();
+    void open();
     return () => { closed = true; clearTimeout(timer); es?.close(); };
   }, []);
 

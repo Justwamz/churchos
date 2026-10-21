@@ -6,6 +6,7 @@ import { HttpError, requireSession, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
 import { grantsFor, inStaffScope, staffWith } from '../scope';
 import { notify } from '../sms';
+import { sendPrivateFile } from '../serve';
 import { csv } from './helpers';
 
 /** Expenses (L235 to L244): recorded here, paid elsewhere. One person records, another approves, and approved means fixed. */
@@ -285,7 +286,14 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
       }
     }
     const id = ctx.newId('exp');
-    const auto = kind === 'expense' && settings.approval_mode === 'above_limit' && amount <= settings.approval_limit;
+    let auto = kind === 'expense' && settings.approval_mode === 'above_limit' && amount <= settings.approval_limit;
+    // Splitting a big payment into small ones must not dodge approval (LG-22): what this person already recorded for the same payee in the
+    // last 24 hours counts together with this one.
+    if (auto) {
+      const since = new Date(ctx.clock.now().getTime() - 86_400_000).toISOString();
+      const earlier = Number((await ctx.db.query<any>(`SELECT COALESCE(SUM(amount),0) AS n FROM expenses WHERE org_id=$1 AND recorded_by=$2 AND lower(payee)=lower($3) AND kind='expense' AND status NOT IN ('rejected','voided') AND created_at >= $4`, [g.orgId, uid, payee, since]))[0].n);
+      if (earlier + amount > settings.approval_limit) auto = false;
+    }
     await ctx.db.query(
       `INSERT INTO expenses (id, org_id, branch_id, code, kind, date, amount, category_id, category_name, project_id, payee, method, reference, note, no_receipt_reason, status, auto_approved, recorded_by, recorded_by_name, approver_name, approved_at, override_by, override_reason, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$24)`,
@@ -376,7 +384,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!ok) throw new HttpError(404, 'not found', 'not_found');
     const f = (await ctx.db.query<any>(`SELECT * FROM expense_files WHERE id=$1 AND expense_id=$2`, [(req.params as any).fid, e.id]))[0];
     if (!f) throw new HttpError(404, 'not found', 'not_found');
-    return reply.header('content-type', f.mime).header('content-disposition', `inline; filename="${String(f.name).replace(/[^\w.\- ]/g, '_')}"`).header('cache-control', 'private, max-age=60').send(Buffer.from(f.data, 'base64'));
+    return sendPrivateFile(reply, { mime: f.mime, name: f.name, data: Buffer.from(f.data, 'base64') });
   });
 
   app.post('/expenses/:id/files', auth, async (req) => {
@@ -401,7 +409,8 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     const note = cap(b.note, 300);
     if (!b.approve) {
       if (!note) throw new HttpError(400, 'Say why you are rejecting it', 'bad_content');
-      await ctx.db.query(`UPDATE expenses SET status='rejected', approver=$2, approver_name=$3, approved_at=$4, decision_note=$5, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), note]);
+      const rej = await ctx.db.query<any>(`UPDATE expenses SET status='rejected', approver=$2, approver_name=$3, approved_at=$4, decision_note=$5, updated_at=$4 WHERE id=$1 AND status IN ('submitted','awaiting_second') RETURNING id`, [e.id, uid, req.session!.name, nowIso(), note]);
+      if (!rej[0]) throw new HttpError(409, 'This was already decided', 'already_decided');
       await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.rejected', entity: 'expense', entityId: e.id, summary: `Rejected ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code})`, reason: note });
       await addNotification(ctx, { orgId: e.org_id, userId: e.recorded_by, kind: 'announcement', title: e.kind === 'claim' ? 'Your claim was not approved' : 'An expense was not approved', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}): ${note}`, link: e.kind === 'claim' ? 'staff:my-claims' : `staff:expenses?open=${e.id}`, audience: 'staff' });
       return { id: e.id, status: 'rejected' };
@@ -423,7 +432,8 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     const settings = await settingsOf(e.org_id);
     const needsTwo = settings.two_approver_limit !== null && Number(e.amount) > settings.two_approver_limit;
     if (needsTwo && e.status === 'submitted') {
-      await ctx.db.query(`UPDATE expenses SET status='awaiting_second', first_approver=$2, first_approver_name=$3, first_approved_at=$4, override_by=$5, override_reason=$6, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), overrideBy, overrideReason]);
+      const first = await ctx.db.query<any>(`UPDATE expenses SET status='awaiting_second', first_approver=$2, first_approver_name=$3, first_approved_at=$4, override_by=$5, override_reason=$6, updated_at=$4 WHERE id=$1 AND status='submitted' RETURNING id`, [e.id, uid, req.session!.name, nowIso(), overrideBy, overrideReason]);
+      if (!first[0]) throw new HttpError(409, 'This was already decided', 'already_decided');
       await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.first_approval', entity: 'expense', entityId: e.id, summary: `First approval of ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}); a second person must approve` });
       for (const u of await staffWith(ctx, e.org_id, e.branch_id, 'expenses.approve')) {
         if (u.id === uid || u.id === e.recorded_by) continue;
@@ -432,7 +442,8 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
       return { id: e.id, status: 'awaiting_second' };
     }
     if (needsTwo && e.first_approver === uid) throw new HttpError(403, 'A different person must give the second approval', 'same_person');
-    await ctx.db.query(`UPDATE expenses SET status='approved', approver=$2, approver_name=$3, approved_at=$4, decision_note=$5, override_by=$6, override_reason=$7, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), note || null, overrideBy, overrideReason]);
+    const done = await ctx.db.query<any>(`UPDATE expenses SET status='approved', approver=$2, approver_name=$3, approved_at=$4, decision_note=$5, override_by=$6, override_reason=$7, updated_at=$4 WHERE id=$1 AND status=$8 RETURNING id`, [e.id, uid, req.session!.name, nowIso(), note || null, overrideBy, overrideReason, e.status]);
+    if (!done[0]) throw new HttpError(409, 'This was already decided', 'already_decided');
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.approved', entity: 'expense', entityId: e.id, summary: `Approved ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code})${overrideReason ? ', restricted fund overridden' : ''}`, reason: overrideReason ?? undefined });
     await addNotification(ctx, { orgId: e.org_id, userId: e.recorded_by, kind: 'announcement', title: e.kind === 'claim' ? 'Your claim was approved' : 'An expense was approved', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) was approved.${e.kind === 'claim' ? ' You will be told when it is paid.' : ''}`, link: e.kind === 'claim' ? 'staff:my-claims' : `staff:expenses?open=${e.id}`, audience: 'staff' });
     await budgetAlerts({ ...e, status: 'approved' });
@@ -451,7 +462,9 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     const withdrawing = e.recorded_by === uid && ['submitted', 'awaiting_second'].includes(e.status);
     if (!mayApprove && !withdrawing) throw new HttpError(404, 'not found', 'not_found');
     if (e.kind === 'claim' && e.paid_at) throw new HttpError(409, 'This claim was already paid. Record the correction as a new expense.', 'paid');
-    await ctx.db.query(`UPDATE expenses SET status='voided', voided_by=$2, voided_by_name=$3, voided_at=$4, void_reason=$5, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), reason]);
+    // One atomic step: a claim marked paid at the same moment cannot also be voided.
+    const voided = await ctx.db.query<any>(`UPDATE expenses SET status='voided', voided_by=$2, voided_by_name=$3, voided_at=$4, void_reason=$5, updated_at=$4 WHERE id=$1 AND status NOT IN ('voided','rejected') AND paid_at IS NULL RETURNING id`, [e.id, uid, req.session!.name, nowIso(), reason]);
+    if (!voided[0]) throw new HttpError(409, 'This is already closed or was already paid', 'wrong_state');
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.voided', entity: 'expense', entityId: e.id, summary: `Voided ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code})`, reason });
     if (e.recorded_by !== uid) await addNotification(ctx, { orgId: e.org_id, userId: e.recorded_by, kind: 'announcement', title: 'An expense was voided', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) was voided: ${reason}`, link: e.kind === 'claim' ? 'staff:my-claims' : `staff:expenses?open=${e.id}`, audience: 'staff' });
     return { id: e.id, status: 'voided' };
@@ -465,7 +478,8 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     if (e.paid_at) throw new HttpError(409, 'This claim was already marked paid', 'already_paid');
     const ref = cap((req.body as any)?.reference, 60);
     if (!ref) throw new HttpError(400, 'Enter the payment reference (for example the M-Pesa code)', 'bad_content');
-    await ctx.db.query(`UPDATE expenses SET paid_at=$2, paid_by=$3, paid_by_name=$4, paid_reference=$5, updated_at=$2 WHERE id=$1`, [e.id, nowIso(), req.session!.uid, req.session!.name, ref]);
+    const paidNow = await ctx.db.query<any>(`UPDATE expenses SET paid_at=$2, paid_by=$3, paid_by_name=$4, paid_reference=$5, updated_at=$2 WHERE id=$1 AND status='approved' AND paid_at IS NULL RETURNING id`, [e.id, nowIso(), req.session!.uid, req.session!.name, ref]);
+    if (!paidNow[0]) throw new HttpError(409, 'This claim was already paid or can no longer be paid', 'already_paid');
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: req.session!.uid, action: 'expense.claim_paid', entity: 'expense', entityId: e.id, summary: `Marked the claim ${e.code} (${kes(Number(e.amount))}) as paid, reference ${ref}` });
     const u = (await ctx.db.query<any>(`SELECT phone FROM users WHERE id=$1`, [e.recorded_by]))[0];
     if (u) await notify(ctx, { orgId: e.org_id, branchId: e.branch_id, phone: u.phone, kind: 'receipt', title: 'Your claim was paid', body: `Your claim of ${kes(Number(e.amount))} (${e.code}) was paid. Reference ${ref}.`, idemKey: `claimpaid:${e.id}`, sms: true, link: 'staff:my-claims', audience: 'staff' });

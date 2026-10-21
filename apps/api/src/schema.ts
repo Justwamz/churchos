@@ -1533,6 +1533,34 @@ CREATE TABLE IF NOT EXISTS attendance_report_runs (
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lat double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_lng double precision;
 ALTER TABLE branches ADD COLUMN IF NOT EXISTS geo_radius_m int;
+-- Slice 32 (security): atomic reversal claim, branch-scoped credit refunds, payment held for an amount mismatch.
+ALTER TABLE reversal_requests ADD COLUMN IF NOT EXISTS claim_token text;
+ALTER TABLE credit_refunds ADD COLUMN IF NOT EXISTS branch_id text;
+ALTER TABLE credit_refunds ADD COLUMN IF NOT EXISTS phone_revealed_at text;
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id text PRIMARY KEY,
+  phone text NOT NULL,
+  code_hash text NOT NULL,
+  salt text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  attempts int NOT NULL DEFAULT 0,
+  used_at timestamptz,
+  created_at timestamptz NOT NULL,
+  ip text
+);
+CREATE INDEX IF NOT EXISTS otp_codes_phone ON otp_codes(phone, created_at);
+CREATE TABLE IF NOT EXISTS sessions (
+  id text PRIMARY KEY,
+  user_id text NOT NULL,
+  created_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  last_seen_at timestamptz,
+  ip text,
+  user_agent text
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;

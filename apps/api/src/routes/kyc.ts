@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { maskAccount } from '@churchos/shared';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
+import { sendPrivateFile } from '../serve';
 
 export const KYC_TYPES = ['registration_certificate', 'kra_pin', 'signatory_id', 'payout_proof'] as const;
 const ORG_TYPES = ['registration_certificate', 'kra_pin', 'signatory_id'] as const;
@@ -155,8 +156,7 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
     const d = (await ctx.db.query<any>(`SELECT org_id, branch_id, type, filename, mime, data FROM kyc_documents WHERE id=$1`, [(req.params as any).id]))[0];
     if (!d) throw new HttpError(404, 'document not found', 'not_found');
     await ctx.ledger.audit({ orgId: d.org_id, branchId: d.branch_id, actor: req.session!.uid, action: 'access.view_file', category: 'access', entity: 'kyc_document', entityId: (req.params as any).id, summary: `Viewed a ${String(d.type).replace(/_/g, ' ')}` });
-    reply.header('content-type', d.mime).header('content-disposition', `inline; filename="${String(d.filename).replace(/"/g, '')}"`);
-    return reply.send(Buffer.from(d.data, 'base64'));
+    return sendPrivateFile(reply, { mime: d.mime, name: d.filename, data: Buffer.from(d.data, 'base64') });
   });
 
   app.post('/admin/kyc/documents/:id/decide', adm, async (req) => {

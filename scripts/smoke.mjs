@@ -193,7 +193,7 @@ const s6Dec = await call('POST', `/admin/sender-requests/${s6One?.id}/decide`, {
 step('A platform admin approves it and it becomes active', s6Dec.json.status === 'approved' && (await call('GET', '/integrations', undefined, daniel)).json.smsSenderId === 'GRACESMOKE');
 const s6Ads = await call('GET', '/me/adverts', undefined, janeTok);
 step('A member sees the church adverts on the home slider', s6Ads.status === 200 && s6Ads.json.some((a) => a.title === 'Christmas Carols Night'), s6Ads.json.map((a) => a.title).join(', '));
-const s6Img = await fetch(API + s6Ads.json[0].imageUrl + '?token=' + janeTok);
+const s6Img = await fetch(API + s6Ads.json[0].imageUrl, { headers: { authorization: 'Bearer ' + janeTok } });
 step('The advert artwork loads as an image', s6Img.status === 200 && (s6Img.headers.get('content-type') || '').startsWith('image/'));
 const s6Pend = await call('GET', '/adverts', undefined, daniel);
 const s6Bake = s6Pend.json.find((a) => a.title === 'Mothers Union Bake Sale');

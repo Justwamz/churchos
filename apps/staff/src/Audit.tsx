@@ -82,7 +82,7 @@ export function AuditPage() {
         </div>
       )}
       <div style={{ height: 12 }} />
-      <Toolbar end={canExport ? <a className="btn ghost small" href={api.url(`/audit/export?${query(null)}`)} target="_blank" rel="noreferrer">Download CSV</a> : undefined}>
+      <Toolbar end={canExport ? <button type="button" className="btn ghost small" onClick={() => { api.openDownload(`/audit/export?${query(null)}`).catch(() => undefined); }}>Download CSV</button> : undefined}>
         <input type="search" placeholder="Search what happened" value={filters.q} onChange={set('q')} aria-label="Search" />
         <select value={filters.category} onChange={set('category')} aria-label="Category">
           <option value="">Everything</option>

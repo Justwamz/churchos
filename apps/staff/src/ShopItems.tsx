@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { Button, ErrorNote, Field, kes, shortDate, useAsync, useToast } from '@churchos/ui';
+import { AuthImg, Button, ErrorNote, Field, kes, useBlobUrl, shortDate, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Loaded } from './money-bits';
 import { Card, EmptyState, SidePanel, Stat, StatTiles, StatusChip, Toolbar } from './ui';
@@ -25,7 +25,7 @@ const MOVE: Record<string, string> = { received: 'Received', adjusted: 'Adjusted
 export function ItemThumb({ item, size = 40 }: { item: any; size?: number }) {
   const st = { width: size, height: size, fontSize: Math.round(size * 0.45) };
   return item.hasImage && item.imageUrl
-    ? <img className="sp-thumb" style={st} src={api.url(item.imageUrl)} alt="" loading="lazy" />
+    ? <AuthImg api={api} className="sp-thumb" style={st} src={item.imageUrl} alt="" loading="lazy" />
     : <span className="sp-thumb tile" style={st} aria-hidden="true">{(item.name?.trim()?.[0] ?? '?').toUpperCase()}</span>;
 }
 
@@ -72,7 +72,8 @@ function ItemForm({ branch, item, categories, onClose, onSaved }: { branch: stri
     setPicErr('');
     try { setPic(await readPicture(f)); setRemovePic(false); } catch (e: any) { setPicErr(e.message); }
   };
-  const shownPic = pic?.preview ?? (item?.hasImage && !removePic ? api.url(item.imageUrl) : undefined);
+  const savedPic = useBlobUrl(api, item?.hasImage && !removePic ? item.imageUrl : null);
+  const shownPic = pic?.preview ?? savedPic;
   const save = async () => {
     setErr('');
     if (!name.trim()) return setErr('Write a name.');

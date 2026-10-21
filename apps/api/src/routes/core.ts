@@ -5,17 +5,15 @@ import { bookingPaid } from './bookings';
 import { shopPaid } from './shop';
 import { ticketsPaid } from './tickets';
 import type { FastifyInstance } from 'fastify';
-import { buildReference, maskPhone } from '@churchos/shared';
-import { normalizePhone, signToken } from '../auth';
+import { buildReference } from '@churchos/shared';
+import { normalizePhone } from '../auth';
+import { authRoutes } from './auth-routes';
 import { HttpError, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
 import { notify } from '../sms';
 import { checkLowBalance } from '../wallets';
-
-const DEV_OTP = '123456';
-const MAX_ATTEMPTS = 5;
-const LOCK_MS = 15 * 60_000;
-const attempts = new Map<string, { n: number; until: number }>();
+import { checkPayment } from '../payment-check';
+import { isMock } from '@churchos/payments';
 
 /** Called for every inbound PSP notification: verify, post to the ledger, link to member and project, notify live dashboards. */
 export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<string, string | undefined>) {
@@ -87,7 +85,10 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
     } else {
       await appendGift(ctx, result.paymentId);
     }
-    if (String(p.purpose ?? '').startsWith('CERT-')) {
+    // LG-01: an order is fulfilled only when what was paid covers it. A short payment stays on the books, is recorded and announced, and the
+    // order keeps waiting (see payment-check.ts).
+    const gate = await checkPayment(ctx, result.paymentId);
+    if (gate.fulfil && String(p.purpose ?? '').startsWith('CERT-')) {
       const rec = (await ctx.db.query<any>(`SELECT id, subject_name FROM sacramental_records WHERE serial=$1`, [String(p.purpose).slice(5)]))[0];
       const issue = rec ? (await ctx.db.query<any>(`SELECT id, requested_by FROM record_issues WHERE record_id=$1 AND status='awaiting_payment' ORDER BY created_at DESC LIMIT 1`, [rec.id]))[0] : null;
       if (issue) {
@@ -95,10 +96,10 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
         await addNotification(ctx, { orgId: p.org_id, userId: issue.requested_by, kind: 'announcement', title: 'Your certificate copy is ready', body: `Payment received. The copy of the certificate for ${rec.subject_name} is ready to print.` });
       }
     }
-    if (String(p.purpose ?? '').startsWith('TKT-')) await ticketsPaid(ctx, String(p.purpose).slice(4), result.paymentId);
-    if (String(p.purpose ?? '').startsWith('SHOP-')) await shopPaid(ctx, String(p.purpose).slice(5), result.paymentId);
-    if (String(p.purpose ?? '').startsWith('BK-')) await bookingPaid(ctx, String(p.purpose).slice(3), result.paymentId);
-    if (String(p.purpose ?? '').startsWith('AD-')) await advertPaid(ctx, String(p.purpose).slice(3), result.paymentId);
+    if (gate.fulfil && String(p.purpose ?? '').startsWith('TKT-')) await ticketsPaid(ctx, String(p.purpose).slice(4), result.paymentId);
+    if (gate.fulfil && String(p.purpose ?? '').startsWith('SHOP-')) await shopPaid(ctx, String(p.purpose).slice(5), result.paymentId);
+    if (gate.fulfil && String(p.purpose ?? '').startsWith('BK-')) await bookingPaid(ctx, String(p.purpose).slice(3), result.paymentId);
+    if (gate.fulfil && String(p.purpose ?? '').startsWith('AD-')) await advertPaid(ctx, String(p.purpose).slice(3), result.paymentId);
     // Receipt by in-app notification, and by SMS when the church's wallet can pay for it (L56, L59).
     const info = (await ctx.db.query<any>(`SELECT b.name AS church, p.amount_paid, p.provider_tx_id FROM payments p JOIN branches b ON b.id=p.branch_id WHERE p.id=$1`, [result.paymentId]))[0];
     try {
@@ -107,6 +108,7 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
         title: 'Gift received',
         body: `Received KES ${(Number(info.amount_paid) / 100).toLocaleString('en-KE')} for ${String(p.purpose ?? 'OFFERING').toLowerCase().replace('proj-', 'project ')} at ${info.church}. Ref ${info.provider_tx_id}. God bless you.`,
         link: 'member:give?sub=history',
+        sms: !anon, // an anonymous gift: the in-app receipt stays, but no SMS row or reference carries the giver's number (LG-09)
       });
     } catch (e) {
       console.error('receipt notification failed', e);
@@ -125,44 +127,20 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
 }
 
 export function coreRoutes(app: FastifyInstance, ctx: Ctx) {
-  app.get('/health', async () => ({ ok: true, time: ctx.clock.now().toISOString(), clockOffsetHours: ctx.clock.offsetHours }));
+  app.get('/health', async () => (process.env.NODE_ENV === 'production' ? { ok: true } : { ok: true, time: ctx.clock.now().toISOString() }));
 
-  app.post('/auth/otp/request', async (req) => {
-    const phone = normalizePhone((req.body as any)?.phone);
-    if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
-    const user = (await ctx.db.query<any>(`SELECT id FROM users WHERE phone = $1`, [phone]))[0];
-    // The response is identical whether or not the number is registered, so numbers cannot be probed.
-    return { sent: true, ...(process.env.NODE_ENV === 'production' ? {} : { devCode: DEV_OTP, known: !!user }) };
-  });
-
-  app.post('/auth/otp/verify', async (req) => {
-    const body = (req.body ?? {}) as any;
-    const phone = normalizePhone(body.phone);
-    if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
-    const lock = attempts.get(phone);
-    if (lock && lock.until > Date.now() && lock.n >= MAX_ATTEMPTS) {
-      await ctx.ledger.audit({ action: 'security.login_locked', category: 'security', summary: 'Too many wrong codes, sign-in locked for 15 minutes', meta: { phone: maskPhone(phone) } });
-      throw new HttpError(429, 'Too many attempts, try again in 15 minutes', 'rate_limited');
-    }
-    // Real sign-in codes by SMS are not built yet. In production the fixed development code is refused unless someone switches it on on purpose.
-    if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEV_OTP !== '1') throw new HttpError(503, 'Sign-in is not switched on yet', 'signin_off');
-    const user = (await ctx.db.query<any>(`SELECT * FROM users WHERE phone = $1`, [phone]))[0];
-    if (String(body.code) !== DEV_OTP || !user) {
-      const cur = lock && lock.until > Date.now() ? lock : { n: 0, until: Date.now() + LOCK_MS };
-      attempts.set(phone, { n: cur.n + 1, until: cur.until });
-      await ctx.ledger.audit({ action: 'security.login_failed', category: 'security', summary: user ? 'Wrong sign-in code' : 'Sign-in with an unknown number', actorType: 'system', meta: { phone: maskPhone(phone), attempt: cur.n + 1, knownNumber: !!user } });
-      throw new HttpError(401, 'That code is not correct', 'bad_code');
-    }
-    attempts.delete(phone);
-    await ctx.ledger.audit({ action: 'security.login', category: 'security', actorId: user.id, actorName: user.name, actorType: user.is_platform_admin ? 'admin' : 'user', summary: `${user.name} signed in`, meta: { phone: maskPhone(phone) } });
-    const token = signToken({ uid: user.id, phone, name: user.name, isAdmin: user.is_platform_admin });
-    return { token, user: { id: user.id, name: user.name, phone, isAdmin: user.is_platform_admin } };
-  });
+  // Sign-in, sessions and download tickets live in auth-routes.ts.
+  authRoutes(app, ctx);
 
   // Raw body is needed to verify the PSP signature.
+  // The simulator's own endpoint: it exists only while the provider is the simulator. With a live provider this route is gone (404), and the
+  // caller can never choose which provider checks the request: x-psp, x-psp-token and x-psp-ip are only set by the /webhooks/* routes.
   app.post('/psp/webhook', { config: { rawBody: true } }, async (req, reply) => {
+    if (!isMock(ctx.provider)) throw new HttpError(404, 'Not found', 'not_found');
     const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-    const result = await handleWebhook(ctx, (req as any).rawBody ?? raw, req.headers as any);
+    const headers: Record<string, string | undefined> = { ...(req.headers as any) };
+    for (const h of ['x-psp', 'x-psp-token', 'x-psp-ip']) delete headers[h];
+    const result = await handleWebhook(ctx, (req as any).rawBody ?? raw, headers);
     return reply.send({ ok: true, status: result.status });
   });
 }

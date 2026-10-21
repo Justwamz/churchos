@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { AuthImg } from '@churchos/ui';
 import { api } from './api';
 import { Icon, Sheet } from './ui';
 import { TicketBuy } from './Tickets';
@@ -7,7 +8,6 @@ import type { ShopIntent, ShopItem } from './Shop';
 type Advert = { id: string; title: string; body?: string; link?: string | null; sponsor?: string | null; church?: string | null; imageUrl?: string | null; width?: number; height?: number; action?: null | { kind: 'shop' } | { kind: 'item'; itemId: string; qty?: number; item: ShopItem } | { kind: 'checkout'; itemId: string; qty?: number; item: ShopItem } | { kind: 'event'; eventId: string; event: null | { id: string; code: string; title: string; startsAt: string; from: number; available: boolean; posterUrl?: string | null } } };
 
 const viewed = new Set<string>(); // one view per advert per session
-const img = (a: Advert) => (a.imageUrl ? api.url(a.imageUrl) : '');
 const safeLink = (l?: string | null) => (l && /^https?:\/\//i.test(l) ? l : null);
 
 export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
@@ -80,7 +80,7 @@ export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
         onMouseEnter={() => { paused.current = true; }} onMouseLeave={() => { paused.current = false; }}>
         {ads.map((a, i) => (
           <button type="button" key={a.id} data-i={i} data-id={a.id} className="ad-slide" aria-label={`${a.title}. Tap for details`} onClick={() => tap(a)}>
-            {a.imageUrl ? <img src={img(a)} alt="" loading="lazy" draggable={false} /> : <span className="ad-fallback" aria-hidden="true" />}
+            {a.imageUrl ? <AuthImg api={api} src={a.imageUrl} alt="" loading="lazy" draggable={false} /> : <span className="ad-fallback" aria-hidden="true" />}
             {(a.action?.kind === 'item' || a.action?.kind === 'checkout') && <span className="ad-buy">Buy</span>}
             {a.action?.kind === 'event' && <span className="ad-buy">Tickets</span>}
             <span className="ad-pill">{a.sponsor ? `Sponsored by ${a.sponsor}` : 'From your church'}</span>
@@ -103,7 +103,7 @@ export function AdvertSlider({ onShop }: { onShop?: (i: ShopIntent) => void }) {
       <Sheet open={!!open} onClose={() => setOpen(null)} title={open?.title}>
         {open && (
           <div className="stack">
-            {open.imageUrl && <img className="ad-full" src={img(open)} alt="" />}
+            {open.imageUrl && <AuthImg api={api} className="ad-full" src={open.imageUrl} alt="" />}
             <div className="tiny">{open.sponsor ? `Sponsored by ${open.sponsor}` : 'From your church'}{open.church ? ` · ${open.church}` : ''}</div>
             {open.body && <p className="ad-text">{open.body}</p>}
             {link && <a className="btn primary pill" href={link} target="_blank" rel="noopener noreferrer"><Icon name="link" size={18} /> Open link</a>}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, ErrorNote, Field, Note, Table, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, Table, useAsync, useBlobUrl, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Card, EmptyState, PageHeader, Section, Skeleton, StatusChip } from './ui';
 
@@ -42,6 +42,7 @@ function EventForm({ event, seed, onClose, onSaved, onCopy }: { event?: any; see
   const [reason, setReason] = useState('');
   useEffect(() => { if (existing.data) setRefund(existing.data.refundDaysBefore != null ? { on: true, days: String(existing.data.refundDaysBefore) } : { on: false, days: '30' }); }, [existing.data]);
   const hasSales = !!event?.ticketed && ((existing.data?.totals?.sold ?? 0) + (existing.data?.totals?.held ?? 0) > 0 || (existing.data?.totals?.orders ?? 0) > 0);
+  const savedPoster = useBlobUrl(api, existing.data?.hasPoster ? existing.data.posterUrl : null);
   const origQty = new Map<string, number>((existing.data?.types ?? []).map((t: any) => [t.id, t.quantity]));
   const askReason = hasSales && ticketed && rows.some((r) => r.id && origQty.has(r.id) && Number(r.quantity) !== origQty.get(r.id));
   const [busy, setBusy] = useState(false);
@@ -107,7 +108,7 @@ function EventForm({ event, seed, onClose, onSaved, onCopy }: { event?: any; see
           {ticketed ? (
             <>
               {existing.loading && !existing.data && event?.ticketed ? <div className="tiny">Loading your tickets...</div> : null}
-              <TicketsEditor rows={rows} setRows={setRows} poster={poster} setPoster={setPoster} existingPoster={existing.data?.hasPoster ? api.url(existing.data.posterUrl) : undefined} refund={refund} setRefund={setRefund} askReason={askReason} reason={reason} setReason={setReason} />
+              <TicketsEditor rows={rows} setRows={setRows} poster={poster} setPoster={setPoster} existingPoster={savedPoster} refund={refund} setRefund={setRefund} askReason={askReason} reason={reason} setReason={setReason} />
             </>
           ) : (
             <>

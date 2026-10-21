@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Cents, PaymentMethod } from '@churchos/shared';
 import type { InboundPayment, PayoutDestination, Provider } from './provider';
 
@@ -27,7 +27,8 @@ export class MockProvider implements Provider {
   readonly payoutsSent: { payoutId: string; amount: Cents; destination: PayoutDestination }[] = [];
 
   constructor(opts: MockOptions = {}) {
-    this.secret = opts.secret ?? 'dev-psp-secret';
+    // Never a published constant: MOCK_PSP_SECRET, or a random value per process. The simulator signs its own deliveries with it.
+    this.secret = opts.secret ?? process.env.MOCK_PSP_SECRET ?? randomBytes(32).toString('hex');
     this.stkDelayMs = opts.stkDelayMs ?? 3000;
     this.deliver = opts.deliver;
   }

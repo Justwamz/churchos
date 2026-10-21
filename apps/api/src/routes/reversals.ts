@@ -47,6 +47,11 @@ export async function createReversalRequest(
   if (a.source === 'staff' && payment.stage !== 'suspense' && !(a.branchIds ?? []).includes(payment.branch_id)) {
     throw new HttpError(403, 'That payment is outside the branches you manage', 'forbidden');
   }
+  // Unclaimed (suspense) money belongs to no church yet: church staff cannot ask for it back (AZ-05). Platform admins and the payer can.
+  if (a.source === 'staff' && payment.stage === 'suspense') {
+    const who = (await ctx.db.query<any>(`SELECT is_platform_admin FROM users WHERE id=$1`, [a.requestedBy]))[0];
+    if (!who?.is_platform_admin) throw new HttpError(403, 'That payment has not been claimed by any church. Ask ChurchOS support.', 'forbidden');
+  }
   if (payment.stage === 'reversed' || payment.stage === 'refunded') throw new HttpError(409, 'That payment has already been reversed', 'already_reversed');
   const open = (await ctx.db.query<any>(`SELECT id FROM reversal_requests WHERE payment_id=$1 AND status IN ('pending','awaiting_second')`, [payment.id]))[0];
   if (open) throw new HttpError(409, 'A reversal request for this payment is already open', 'duplicate_request');
@@ -72,6 +77,32 @@ export async function decideReversal(ctx: Ctx, requestId: string, adminId: strin
   if (!r) throw new HttpError(404, 'request not found', 'not_found');
   if (r.status !== 'pending' && r.status !== 'awaiting_second') throw new HttpError(409, 'This request was already decided', 'already_decided');
   const payment = (await ctx.db.query<any>(`SELECT * FROM payments WHERE id=$1`, [r.payment_id]))[0];
+
+  // The person who asked can never approve (AUTH-08): not the requester, and not the admin whose own phone or anonymous gift made the payment.
+  if (approve) {
+    const me = (await ctx.db.query<any>(`SELECT phone FROM users WHERE id=$1`, [adminId]))[0];
+    const anonOwner = payment.anonymous ? (await ctx.db.query<any>(`SELECT user_id FROM anonymous_gifts WHERE payment_id=$1`, [payment.id]))[0]?.user_id : null;
+    if (r.requested_by === adminId || (me?.phone && payment.payer_phone && me.phone === payment.payer_phone) || (anonOwner && anonOwner === adminId)) {
+      throw new HttpError(403, 'You asked for this reversal or paid this money yourself, so a different admin must decide it', 'same_person');
+    }
+  }
+  // Claim the request in one atomic step: only one caller can go on to the provider (LG-03).
+  const claimed = await ctx.db.query<any>(
+    `UPDATE reversal_requests SET claim_token=$2 WHERE id=$1 AND status IN ('pending','awaiting_second') AND claim_token IS NULL RETURNING id, status, first_approver`,
+    [requestId, ctx.newId('clm')],
+  );
+  if (!claimed[0]) throw new HttpError(409, 'This request is already being decided', 'already_decided');
+  const release = () => ctx.db.query(`UPDATE reversal_requests SET claim_token=NULL WHERE id=$1 AND status IN ('pending','awaiting_second')`, [requestId]);
+  r.status = claimed[0].status;
+  r.first_approver = claimed[0].first_approver;
+  try {
+    return await decideClaimed(ctx, r, payment, requestId, adminId, approve, reason);
+  } finally {
+    await release();
+  }
+}
+
+async function decideClaimed(ctx: Ctx, r: any, payment: any, requestId: string, adminId: string, approve: boolean, reason?: string) {
 
   if (!approve) {
     await ctx.db.query(`UPDATE reversal_requests SET status='rejected', first_approver=COALESCE(first_approver,$2) WHERE id=$1`, [requestId, adminId]);

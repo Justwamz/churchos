@@ -25,7 +25,7 @@ export function Collections() {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const csv = () => window.open(api.url('/collections' + params(applied) + '&format=csv'), '_blank');
+  const csv = () => api.openDownload('/collections' + params(applied) + '&format=csv').catch(() => undefined);
 
   const submit = async () => {
     if (!report) return;

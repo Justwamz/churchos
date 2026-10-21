@@ -241,15 +241,18 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     let providerTxId: string | null = null;
     let checkoutUrl: string | null = null;
     const fee = method === 'cash' ? null : computeFee(org.fee_schedule, method, total, 'church');
+    // LG-14: the sale and its stock reservation are written first; the prompt is sent after, never before.
+    let startPrompt: (() => Promise<string>) | null = null;
     if (method !== 'cash' && fee) {
       const reference = buildReference(branch.code, `SHOP-${code}`);
-      if (method === 'card') {
-        const card = await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined });
-        providerTxId = card.providerTxId;
-        checkoutUrl = checkoutLink(ctx, card);
-      } else {
-        providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
-      }
+      startPrompt = async () => {
+        if (method === 'card') {
+          const card = await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined });
+          checkoutUrl = checkoutLink(ctx, card);
+          return card.providerTxId;
+        }
+        return (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
+      };
     }
     const id = ctx.newId('sal');
     const now = nowIso();
@@ -276,6 +279,19 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
           [ctx.newId('int'), providerTxId, sc.orgId, b.branchId, `SHOP-${code}`, phone ?? '', method, total, fee.amountPaid, JSON.stringify(fee), now]);
       }
     });
+    if (startPrompt) {
+      try {
+        providerTxId = await startPrompt();
+        await ctx.db.query(`UPDATE shop_sales SET provider_tx_id=$2 WHERE id=$1`, [id, providerTxId]);
+        await ctx.db.query(`UPDATE give_intents SET provider_tx_id=$2 WHERE purpose=$1 AND provider_tx_id IS NULL`, [`SHOP-${code}`, providerTxId]);
+      } catch (err) {
+        await ctx.db.tx(async (q) => {
+          await q.query(`UPDATE shop_sales SET status='lapsed', void_reason='The payment prompt could not be sent', hold_until=NULL WHERE id=$1 AND status='awaiting_payment'`, [id]);
+          await releaseStock(q, { id, org_id: sc.orgId, branch_id: b.branchId }, 'released', req.session!.uid, 'Payment prompt could not be sent');
+        });
+        throw err;
+      }
+    }
     await ctx.ledger.audit({ orgId: sc.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'shop.sale', entity: 'shop_sale', entityId: id, summary: `${cash ? 'Sold' : 'Started a sale of'} ${lines.map((l) => `${l.qty} x ${l.item.name}`).join(', ')} for ${kesText(total)} by ${cash ? 'cash' : method}, receipt ${receiptNo}`, meta: { total, method, receipt: receiptNo, lines: lines.length } });
     const sale = (await ctx.db.query<any>(`${SALE_SELECT} WHERE s.id=$1`, [id]))[0];
     return { ...(await saleView(sale, await canManage(req, b.branchId))), checkoutUrl, message: cash ? 'Sale complete.' : method === 'card' ? 'Open the card page and let the buyer pay.' : `Ask the buyer to check their phone and enter their PIN. The items are held for ${HOLD_MINUTES} minutes.` };
@@ -498,9 +514,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     const fee = computeFee(org.fee_schedule, method, total, 'church');
     const code = newCode();
     const reference = buildReference(branch.code, `SHOP-${code}`);
-    let providerTxId: string;
-    if (method === 'card') providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId; // payUrl is rebuilt from the id on later views
-    else providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
+    let providerTxId: string | null = null;
     const id = ctx.newId('sal');
     const now = nowIso();
     let receiptNo = '';
@@ -523,6 +537,19 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
       await q.query(`INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11)`,
         [ctx.newId('int'), providerTxId, branch.org_id, branch.id, `SHOP-${code}`, phone ?? '', method, total, fee.amountPaid, JSON.stringify(fee), now]);
     });
+    // LG-14: the order and its stock reservation exist before the prompt is sent.
+    try {
+      if (method === 'card') providerTxId = (await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone: phone ?? undefined })).providerTxId; // payUrl is rebuilt from the id on later views
+      else providerTxId = (await ctx.provider.initiateStkPush({ phone: phone!, amount: fee.amountPaid, reference, method })).providerTxId;
+      await ctx.db.query(`UPDATE shop_sales SET provider_tx_id=$2 WHERE id=$1`, [id, providerTxId]);
+      await ctx.db.query(`UPDATE give_intents SET provider_tx_id=$2 WHERE purpose=$1 AND provider_tx_id IS NULL`, [`SHOP-${code}`, providerTxId]);
+    } catch (err) {
+      await ctx.db.tx(async (q) => {
+        await q.query(`UPDATE shop_sales SET status='lapsed', void_reason='The payment prompt could not be sent', hold_until=NULL WHERE id=$1 AND status='awaiting_payment'`, [id]);
+        await releaseStock(q, { id, org_id: branch.org_id, branch_id: branch.id }, 'released', uid, 'Payment prompt could not be sent');
+      });
+      throw err;
+    }
     await ctx.ledger.audit({ orgId: branch.org_id, branchId: branch.id, actor: uid, action: 'shop.order', entity: 'shop_sale', entityId: id, summary: `A member ordered ${lines.map((l) => `${l.qty} x ${l.item.name}`).join(', ')} for ${kesText(total)} from the app, receipt ${receiptNo}`, meta: { total, method, receipt: receiptNo, advert: advert?.id ?? null } });
     const sale = (await ctx.db.query<any>(`${SALE_SELECT} WHERE s.id=$1`, [id]))[0];
     return { ...(await orderView(sale)), message: method === 'card' ? 'Open the card page to pay. Your items are held for 30 minutes.' : 'Check your phone and enter your PIN. Your items are held for 30 minutes.' };

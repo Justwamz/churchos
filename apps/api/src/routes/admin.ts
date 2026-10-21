@@ -3,6 +3,7 @@ import { DEFAULT_FEE_SCHEDULE, toCents, type FeeSchedule } from '@churchos/share
 import { HttpError, mockOnly, requireAdmin, type Ctx } from '../ctx';
 import { decideReversal, listReversalRequests } from './reversals';
 import { handleWebhook } from './core';
+import { devToolsEnabled } from '../guards';
 import { maskPhoneSql } from './helpers';
 import { applyDuePayoutChanges } from './kyc';
 import { diff, FEE_SPECS, flattenFees, maskedSnapshot, recordVersion } from '../audit';
@@ -32,11 +33,11 @@ function validSchedule(s: any): s is FeeSchedule {
 
 export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
   const adm = { preHandler: requireAdmin };
-  // Testing tools exist only outside production.
+  // Testing tools exist only outside production, unless ENABLE_DEV_TOOLS=1 is set on purpose.
   const devOnly = async () => {
-    if (process.env.NODE_ENV === 'production') throw new HttpError(404, 'not found', 'not_found');
+    if (!devToolsEnabled()) throw new HttpError(404, 'not found', 'not_found');
   };
-  const devAdm = { preHandler: [requireAdmin, devOnly] };
+  const devAdm = { preHandler: [devOnly, requireAdmin] };
 
   app.get('/admin/tenants', adm, async () => {
     const orgs = await ctx.db.query<any>(`SELECT * FROM organisations ORDER BY name`);
@@ -130,11 +131,19 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
   );
 
   app.post('/admin/settlement/run', adm, async (req) => {
-    await applyDuePayoutChanges(ctx);
-    const expired = await ctx.ledger.expireSuspense();
-    const results = await ctx.ledger.runSettlement();
-    await ctx.ledger.audit({ actor: req.session!.uid, action: 'settlement.run', meta: { expired, results: results.length } });
-    return { expiredSuspense: expired, results };
+    // One run at a time (LG-02): a second concurrent call is refused, so only one payout set is ever created.
+    try {
+      return await ctx.ledger.exclusive(async () => {
+        await applyDuePayoutChanges(ctx);
+        const expired = await ctx.ledger.expireSuspense();
+        const results = await ctx.ledger.runSettlement(true);
+        await ctx.ledger.audit({ actor: req.session!.uid, action: 'settlement.run', meta: { expired, results: results.length } });
+        return { expiredSuspense: expired, results };
+      });
+    } catch (e: any) {
+      if (e?.code === 'settlement_running') throw new HttpError(409, 'A settlement run is already in progress', 'settlement_running');
+      throw e;
+    }
   });
 
   app.post('/admin/branches/:id/resume', adm, async (req) => {
