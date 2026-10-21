@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@churchos/ui';
+import { useBrand } from './Branding';
 
 const KEY = 'churchos:staff-install-dismissed';
 
@@ -43,11 +44,13 @@ export function useInstall() {
 
 export function InstallButton() {
   const i = useInstall();
-  if (i.installed) return <p className="tiny">The staff app is installed on this phone.</p>;
+  const n = useBrand().brand?.name;
+  const app = n ? `${n} staff app` : 'staff app';
+  if (i.installed) return <p className="tiny">The {app} is installed on this phone.</p>;
   if (!i.available) return null;
   return (
     <div className="install-box">
-      {i.ios ? <p className="muted">To install the staff app: Tap Share, then Add to Home Screen.</p> : <Button onClick={i.run}>Install the staff app</Button>}
+      {i.ios ? <p className="muted">To install the {app}: Tap Share, then Add to Home Screen.</p> : <Button onClick={i.run}>Install the {app}</Button>}
     </div>
   );
 }

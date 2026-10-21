@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ApiError, API_URL, Button, Card, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
+import type { BrandInfo } from '@churchos/ui';
+import { usePageBranding } from './brand';
+import { BrandMark, ApiError, API_URL, Button, Card, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import './tickets.css';
 
 const api = createApi('churchos:giving:tickets');
 
 interface TType { id: string; name: string; description?: string | null; price: number; perOrderMax: number; onSale: boolean; soldOut: boolean; left?: number | null }
-interface EventInfo { code: string; title: string; description?: string | null; location?: string | null; startsAt: string; endsAt?: string | null; church: string; status: string; refundDaysBefore?: number | null; postponed?: Postponed | null; cancelReason?: string | null; over: boolean; posterUrl?: string | null; types: TType[] }
+interface EventInfo { code: string; title: string; description?: string | null; location?: string | null; startsAt: string; endsAt?: string | null; church: string; status: string; refundDaysBefore?: number | null; postponed?: Postponed | null; cancelReason?: string | null; over: boolean; posterUrl?: string | null; types: TType[]; branding?: BrandInfo | null }
 interface Postponed { note?: string | null; from?: string | null; startsAt?: string | null; refundUntil?: string | null }
 interface Refund { allowed: boolean; freeCancel: boolean; until?: string | null; why?: string | null; request: null | { id: string; status: 'pending' | 'approved' | 'refunded' | 'declined' | 'failed'; note?: string | null; at?: string } }
 interface Quote { count: number; subtotal: number; serviceFee: number; total: number; free: boolean; credit?: number; creditUsed?: number; covered?: boolean }
 interface CreditInfo { allowed: boolean; amount: number; why?: string | null }
 interface OrderTicket { id: string; serial: string; type: string; holder: string; status: string; url: string; token: string }
 interface Order { id: string; secret: string; code: string; status: string; subtotal: number; serviceFee: number; total: number; method?: string; payUrl?: string | null; message?: string; event?: { title: string; code: string }; eventStatus?: string; refund?: Refund; credit?: CreditInfo; creditUsed?: number; creditIssued?: number; covered?: boolean; tickets: OrderTicket[] }
-interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; postponed?: boolean; movedFrom?: string | null; posterUrl?: string | null }; order?: { id: string; code: string; secret: string; refund?: Refund } }
+interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; postponed?: boolean; movedFrom?: string | null; posterUrl?: string | null; branding?: BrandInfo | null }; order?: { id: string; code: string; secret: string; refund?: Refund } }
 
 const METHODS: [string, string][] = [['mpesa', 'M-Pesa'], ['airtel', 'Airtel Money'], ['tkash', 'T-Kash'], ['card', 'Card']];
 const eat = (d: string, o: Intl.DateTimeFormatOptions) => new Date(d).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', ...o });
@@ -144,10 +146,11 @@ function CreditBox({ credit, issued, secret, onDone }: { credit?: CreditInfo; is
   );
 }
 
-function TkShell({ children }: { children: ReactNode }) {
+function TkShell({ children, branding, church }: { children: ReactNode; branding?: BrandInfo | null; church?: string }) {
+  usePageBranding(branding, church);
   return (
     <div className="mobile giving tk">
-      <div className="tk-brand no-print">Event tickets</div>
+      <div className="tk-brand no-print" style={branding?.hasLogo ? { display: 'flex', alignItems: 'center', gap: 10 } : undefined}>{branding?.hasLogo && <BrandMark brand={{ ...branding, name: church }} size={36} />}<span>Event tickets</span></div>
       {children}
     </div>
   );
@@ -244,7 +247,7 @@ export function EventPage({ code }: { code: string }) {
   };
 
   return (
-    <TkShell>
+    <TkShell branding={ev.branding} church={ev.church}>
       <div className="stack">
         <Poster url={ev.posterUrl} title={ev.title} />
         <div>
@@ -541,7 +544,7 @@ export function TicketPage() {
   const dim = cancelled || used;
   const manage = t.order?.secret && (t.order.refund?.allowed || t.order.refund?.request) ? t.order.secret : null;
   return (
-    <TkShell>
+    <TkShell branding={t.event.branding} church={t.event.church}>
       <article className="tk-ticket" aria-label={`Ticket for ${t.event.title}`}>
         <Poster url={t.event.posterUrl} title={t.event.title} />
         <div className="tk-body">

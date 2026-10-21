@@ -1,6 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { ApiError, Button, Card, ErrorNote, Field, Note, Spinner, createApi } from '@churchos/ui';
+import type { BrandInfo } from '@churchos/ui';
+import { usePageBranding } from './brand';
+import { BrandMark, ApiError, Button, Card, ErrorNote, Field, Note, Spinner, createApi } from '@churchos/ui';
 import './attend.css';
 
 const api = createApi('churchos:giving:attend');
@@ -26,6 +28,8 @@ interface Info {
   state: 'before' | 'open' | 'closed' | 'cancelled'; opensAt: string; closesAt: string;
   hasStream: boolean; reading: Reading | null; invitedBy?: string | null;
   code?: string; live?: boolean; startsInMin?: number;
+  /** Not sent by the API yet: shown and applied only when it is. */
+  branding?: BrandInfo | null;
 }
 interface Done { status: 'recorded' | 'already'; kind: 'member' | 'visitor'; name: string; first: boolean; returning: boolean; reading: Reading | null; streamUrl?: string }
 
@@ -38,9 +42,11 @@ const dayTime = (d: string) => (isToday(d) ? clock(d) : `${dayLabel(d)}, ${clock
 const errOf = (e: unknown) => (e instanceof ApiError && e.message ? e.message : 'Something went wrong. Please try again.');
 
 function Page({ info, children }: { info?: Info | null; children: ReactNode }) {
+  usePageBranding(info?.branding, info?.church);
   return (
     <div className="mobile giving at">
       <header className="at-head">
+        {info?.branding?.hasLogo && <div style={{ marginBottom: 8 }}><BrandMark brand={{ ...info.branding, name: info.church }} size={44} /></div>}
         <div className="at-church">{info ? `${info.church}${info.branch ? `, ${info.branch}` : ''}` : 'Welcome'}</div>
         {info && <h1>{info.name}</h1>}
         {info && <div className="at-when">{isToday(info.startsAt) ? 'Today' : dayLabel(info.startsAt)}, {clock(info.startsAt)}</div>}

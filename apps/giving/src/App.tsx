@@ -4,8 +4,10 @@ import { Checkout } from './Checkout';
 import { HerePage, LivePage } from './Attend';
 import { EventPage, OrderPage, TicketPage } from './Tickets';
 import { StatementPage } from './Statement';
-import { ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
+import { BrandMark, ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
 import { networkMismatch, phoneHint } from '@churchos/shared';
+import type { BrandInfo } from '@churchos/ui';
+import { usePageBranding } from './brand';
 
 const api = createApi('churchos:giving:token');
 
@@ -37,6 +39,7 @@ interface Church {
   projects: { code: string; name: string; description?: string; target: number | string | null; raised: number | string }[];
   methods: string[];
   paybill: { number: string; accountReference: string };
+  branding?: BrandInfo | null;
 }
 interface CertInfo { serial: string; kind: string; price: number; churchCode: string; church: string; purpose: string }
 interface AdInfo { code: string; title: string; advertiser: string; price: number; startsAt: string; endsAt: string | null; churchCode: string; church: string; purpose: string }
@@ -79,13 +82,15 @@ export function App() {
   );
 }
 
-function Shell({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+function Shell({ title, sub, branding, children }: { title: string; sub?: string; branding?: BrandInfo | null; children: React.ReactNode }) {
+  usePageBranding(branding, sub);
+  const logo = branding?.hasLogo && branding.orgId ? <BrandMark brand={{ ...branding, name: sub ?? title }} size={44} /> : null;
   return (
     <div className="mobile giving">
       <style>{CSS}</style>
       <HelpButton api={api} audience="member" screen="giving.home" />
       <header className="g-head">
-        <div className="brand">{sub ?? 'Giving'}</div>
+        {logo ? <div className="g-logo">{logo}<div className="brand">{sub ?? 'Giving'}</div></div> : <div className="brand">{sub ?? 'Giving'}</div>}
         <h1>{title}</h1>
       </header>
       {children}
@@ -144,7 +149,7 @@ function AdPage() {
     );
   }
   return (
-    <Shell title={church.name} sub={church.organisation}>
+    <Shell title={church.name} sub={church.organisation} branding={church.branding}>
       <GiveForm church={church} ad={ad} />
     </Shell>
   );
@@ -182,7 +187,7 @@ function BookingPage() {
     );
   }
   return (
-    <Shell title={church.name} sub={church.organisation}>
+    <Shell title={church.name} sub={church.organisation} branding={church.branding}>
       <GiveForm church={church} booking={booking} />
     </Shell>
   );
@@ -253,7 +258,7 @@ function GivePage() {
     );
   }
   return (
-    <Shell title={church.name} sub={church.organisation}>
+    <Shell title={church.name} sub={church.organisation} branding={church.branding}>
       {certSerial && !cert && <Note tone="warn">There is no certificate copy waiting to be paid for under that link</Note>}
       <GiveForm church={church} cert={cert && cert.churchCode === church.code ? cert : undefined} />
       <p className="tiny center">
@@ -628,6 +633,9 @@ function Verify() {
 const CSS = `
 .giving .g-head { padding: 22px 4px 18px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .giving .g-head .brand { font-size: .95rem; margin-bottom: 6px; }
+.giving .g-head .g-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.giving .g-head .g-logo .brand { margin-bottom: 0; }
+.giving .g-head .g-logo .brand::before { content: none; }
 .giving .g-head h1 { font-size: 2rem; }
 .giving { padding-bottom: 96px; }
 .giving .center { text-align: center; }

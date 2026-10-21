@@ -1,0 +1,62 @@
+/* Church setup > Logo and icons */
+.br-drop { display: grid; justify-items: center; gap: 6px; text-align: center; padding: 28px 20px; border: 2px dashed var(--line); border-radius: var(--r-card); background: var(--off-tint); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.br-drop:hover, .br-drop.over { border-color: var(--accent); background: var(--accent-tint); }
+.br-drop:focus-visible { outline: none; box-shadow: var(--ring); }
+.br-drop .tiny { max-width: 420px; color: var(--ink-3); }
+.br-drop-ico { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+
+.br-saved { display: flex; align-items: center; gap: 20px; }
+.br-saved-img { width: 96px; height: 96px; border-radius: 22px; box-shadow: var(--shadow); flex: none; object-fit: cover; }
+.br-saved-text { min-width: 0; }
+.br-dots { display: grid; gap: 6px; margin-top: 8px; font-size: 13px; color: var(--ink-2); }
+.br-dots span { display: flex; align-items: center; gap: 8px; }
+.br-dots i { width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+
+.br-form { display: flex; gap: 24px; align-items: flex-start; margin-bottom: 20px; }
+.br-form-fields { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.br-logo-prev { width: 140px; height: 140px; flex: none; display: grid; place-items: center; border-radius: var(--r-card); border: 1px solid var(--line-soft); background-color: var(--off-tint); background-image: linear-gradient(45deg, rgba(128,128,128,0.14) 25%, transparent 25%, transparent 75%, rgba(128,128,128,0.14) 75%), linear-gradient(45deg, rgba(128,128,128,0.14) 25%, transparent 25%, transparent 75%, rgba(128,128,128,0.14) 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.br-logo-prev img { max-width: 120px; max-height: 120px; }
+.br-colour { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.br-colour input[type=color] { width: 52px; height: 44px; padding: 4px; border-radius: 12px; cursor: pointer; }
+.br-colour code { font-size: 13px; color: var(--ink-2); }
+.br-sw { display: flex; gap: 8px; }
+.br-swatch { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); cursor: pointer; padding: 0; position: relative; }
+.br-swatch::before { content: ''; position: absolute; inset: -5px; }
+.br-swatch.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.br-swatch:focus-visible { outline: none; box-shadow: var(--ring); }
+
+.br-prev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.br-fig { margin: 0; display: grid; gap: 10px; justify-items: center; align-content: start; }
+.br-fig figcaption { font-size: 12.5px; font-weight: 600; color: var(--ink-3); text-align: center; }
+.br-tab { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 220px; padding: 9px 12px; border-radius: 12px 12px 0 0; background: var(--off-tint); border: 1px solid var(--line); border-bottom: 0; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.br-tab span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-tab i { font-style: normal; color: var(--ink-3); }
+.br-tab img { flex: none; }
+.br-phone { display: grid; place-items: center; width: 100%; max-width: 160px; height: 110px; border-radius: 18px; background: linear-gradient(160deg, #3a5f86, #1b2f4a); }
+.br-phone img { display: block; }
+.br-phone .circle { border-radius: 50%; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35); }
+.br-phone .round { border-radius: 22.5%; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35); }
+
+.br-heads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 20px; }
+.br-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line-soft); }
+.br-head img { border-radius: 7px; flex: none; }
+.br-head b { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-head.light { background: #ffffff; color: #1b1b1b; }
+.br-head.dark { background: #14171c; color: #f2f2f2; border-color: #14171c; }
+.br-actions { margin-top: 4px; }
+
+@media (max-width: 760px) {
+  .br-saved { align-items: flex-start; }
+  .br-saved-img { width: 72px; height: 72px; border-radius: 16px; }
+  .br-form { flex-direction: column-reverse; gap: 16px; }
+  .br-logo-prev { width: 100%; height: 120px; }
+  .br-prev { grid-template-columns: 1fr; }
+  .br-fig { grid-template-columns: 1fr; }
+  .br-heads { grid-template-columns: 1fr; }
+  .br-actions .btn, .br-actions button { flex: 1 1 auto; }
+}
+
+/* Church logo in the shell */
+.brand-row { display: flex; align-items: center; gap: 10px; }
+.rail-logo:has(img) { background: none; padding: 0; overflow: hidden; }
+.br-fig:first-child { align-self: center; }

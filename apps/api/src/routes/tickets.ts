@@ -1,3 +1,4 @@
+import { brandingInfo } from './branding';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import qrcode from 'qrcode-generator';
@@ -103,7 +104,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const branch = e.branch_id ? (await ctx.db.query<any>(`SELECT name FROM branches WHERE id=$1`, [e.branch_id]))[0]?.name : null;
     const over = e.status === 'cancelled' || Date.parse(e.ends_at ?? e.starts_at) < ctx.clock.now().getTime();
     return {
-      code: e.code, title: e.title, description: e.description, location: e.location, startsAt: e.starts_at, endsAt: e.ends_at, church: e.church, branch,
+      code: e.code, title: e.title, description: e.description, location: e.location, startsAt: e.starts_at, endsAt: e.ends_at, church: e.church, branding: await brandingInfo(ctx, e.org_id), branch,
       status: e.status, cancelReason: e.cancel_reason, over, refundDaysBefore: e.refund_days_before ?? null,
       postponed: e.postponed_at ? { note: e.postpone_note, from: e.postponed_from, startsAt: e.status === 'scheduled' ? e.starts_at : null, refundUntil: e.refund_open_until ?? null } : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null,
       types: types.filter((t) => t.row.active).map((t) => typeView(t, false)),
@@ -287,7 +288,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     return {
       order: { id: ord.id, code: ord.code, secret: ord.secret, refund: await refundStateFor(ctx, ord, e), credit: await creditStateFor(ctx, ord, e) },
       id: t.id, serial: t.serial, type: t.type_name, holder: t.holder_name, status: t.status, usedAt: t.checked_in_at, url: ticketUrl(t.token), token: t.token, qrSvg: qrSvg(ticketUrl(t.token)),
-      event: { id: e.id, code: e.code, title: e.title, startsAt: e.starts_at, endsAt: e.ends_at, location: e.location, church: e.church, cancelled: e.status === 'cancelled', postponed: e.status === 'postponed', movedFrom: e.postponed_from && e.status === 'scheduled' ? e.postponed_from : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null },
+      event: { id: e.id, code: e.code, title: e.title, startsAt: e.starts_at, endsAt: e.ends_at, location: e.location, church: e.church, branding: await brandingInfo(ctx, e.org_id), cancelled: e.status === 'cancelled', postponed: e.status === 'postponed', movedFrom: e.postponed_from && e.status === 'scheduled' ? e.postponed_from : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null },
     };
   }
 

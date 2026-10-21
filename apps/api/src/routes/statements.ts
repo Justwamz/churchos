@@ -1,3 +1,4 @@
+import { brandingInfo } from './branding';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { branchesFor } from '../auth';
@@ -220,11 +221,11 @@ export function statementRoutes(app: FastifyInstance, ctx: Ctx) {
   /** Anyone with a statement can check it is real: church, year, total and the member's initials. */
   app.get('/public/statement/:number', async (req) => {
     const n = String((req.params as any).number ?? '').toUpperCase().slice(0, 30);
-    const row = (await ctx.db.query<any>(`SELECT s.number, s.year, s.total, s.generated_at, s.snapshot, o.name AS church FROM giving_statements s JOIN organisations o ON o.id=s.org_id WHERE s.number=$1`, [n]))[0];
+    const row = (await ctx.db.query<any>(`SELECT s.number, s.year, s.total, s.generated_at, s.snapshot, s.org_id, o.name AS church FROM giving_statements s JOIN organisations o ON o.id=s.org_id WHERE s.number=$1`, [n]))[0];
     if (!row) return { valid: false };
     const snap = JSON.parse(row.snapshot) as Snapshot;
     const initials = snap.member.name.split(/\s+/).filter(Boolean).map((p) => `${p[0].toUpperCase()}.`).join(' ');
-    return { valid: true, church: row.church, year: row.year, total: Number(row.total), issued: eatDate(row.generated_at), memberInitials: initials };
+    return { valid: true, church: row.church, branding: await brandingInfo(ctx, row.org_id), year: row.year, total: Number(row.total), issued: eatDate(row.generated_at), memberInitials: initials };
   });
 
   // ======================= what appears on a statement =======================

@@ -1,3 +1,4 @@
+import { brandingInfo } from './branding';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor, normalizePhone, signData, verifyData, type Permission } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
@@ -650,7 +651,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function publicService(s: any, extra: Record<string, unknown> = {}) {
     const st = state(s);
-    return { words: await wordsFor(ctx, s.org_id), name: s.name, church: s.church, branch: s.branch_name, startsAt: s.starts_at, state: st, opensAt: s.opens_at, closesAt: s.closes_at, hasStream: !!s.stream_url, reading: readingOf(s, false), ...extra };
+    return { words: await wordsFor(ctx, s.org_id), branding: await brandingInfo(ctx, s.org_id), name: s.name, church: s.church, branch: s.branch_name, startsAt: s.starts_at, state: st, opensAt: s.opens_at, closesAt: s.closes_at, hasStream: !!s.stream_url, reading: readingOf(s, false), ...extra };
   }
 
   app.get('/public/here/:token', async (req) => {

@@ -1,7 +1,7 @@
 import { networkMismatch, phoneHint } from '@churchos/shared';
-import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
-import type { CertificatePayload } from '@churchos/ui';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { BrandMark, useChurchBranding, Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
+import type { BrandInfo, CertificatePayload } from '@churchos/ui';
 import { api, errText, useOnline } from './api';
 import { Inbox } from './Inbox';
 import { MessageChoices } from './Choices';
@@ -84,7 +84,16 @@ function parseHash(): Nav {
   return { tab: 'home', sub: 'give', k: 0 };
 }
 
+const BRAND_APP = { label: 'Member', description: 'Give, read messages from your church, join groups and keep your records.', defaultTheme: '#0e5a52' };
+const BrandCtx = createContext<BrandInfo | null>(null);
+/** The church's logo on a small white tile so it reads on the green bar and on the light desktop bar; nothing when there is no logo. */
+function ChurchLogo({ brand, size = 36 }: { brand: BrandInfo | null; size?: number }) {
+  if (!brand?.hasLogo || !brand.orgId) return null;
+  return <span className="church-logo" style={{ width: size, height: size }}><BrandMark brand={brand} size={size - 6} /></span>;
+}
+
 function Shell({ user, signOut }: { user: any; signOut: () => void }) {
+  const { brand } = useChurchBranding(api, BRAND_APP);
   const words = useWords();
   const [nav, setNav] = useState<Nav>(parseHash);
   const tab = nav.tab;
@@ -146,9 +155,10 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const name = String(m?.full_name ?? user?.name ?? '');
   const helpScreen = tab === 'give' && nav.sub === 'history' ? 'member.history' : tab === 'groups' || tab === 'me' ? 'member.church' : tab === 'inbox' ? 'member.inbox' : tab === 'give' ? 'member.give' : 'member.home';
   return (
-    <div className="app">
+    <BrandCtx.Provider value={brand}><div className="app">
       <header className="appbar">
         {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
+        {tab === 'home' && !homeSub && <ChurchLogo brand={brand} />}
         <div className="appbar-title">
           {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : homeSub === 'claims' ? 'Claim expenses' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
         </div>
@@ -178,7 +188,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
 
       <HelpButton api={api} audience="member" screen={helpScreen} />
       <nav className="tabbar" aria-label="Main">
-        <div className="rail-brand"><span className="rail-mark" aria-hidden="true">{'✚'}</span><span className="rail-name"><strong>ChurchOS</strong><span>{m?.branch_name ?? 'Welcome'}</span></span></div>
+        <div className="rail-brand">{brand?.hasLogo ? <ChurchLogo brand={brand} size={44} /> : <span className="rail-mark" aria-hidden="true">{'✚'}</span>}<span className="rail-name"><strong>ChurchOS</strong><span>{m?.branch_name ?? 'Welcome'}</span></span></div>
         {TABS.filter((t) => t.key !== 'kids' || hasKids).map((t) => (
           <button key={t.key} type="button" className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
             <span className="tab-ico"><Icon name={t.ico} filled={tab === t.key} />
@@ -188,7 +198,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           </button>
         ))}
       </nav>
-    </div>
+    </div></BrandCtx.Provider>
   );
 }
 
@@ -737,6 +747,7 @@ function Me({ claims, me, user, reload, signOut }: { claims?: boolean; me: any; 
 function InstallCard() {
   const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
   const [installed, setInstalled] = useState(false);
+  const brand = useContext(BrandCtx);
   const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
   useEffect(() => {
     const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
@@ -759,7 +770,7 @@ function InstallCard() {
     return (
       <Card title="Install the app">
         <div className="stack">
-          <p className="muted" style={{ margin: 0 }}>Add ChurchOS to your home screen to open it like any other app.</p>
+          <p className="muted" style={{ margin: 0 }}>Add {brand?.hasLogo && brand.name ? brand.name : 'ChurchOS'} to your home screen to open it like any other app.</p>
           <Button onClick={install}>Install app</Button>
         </div>
       </Card>

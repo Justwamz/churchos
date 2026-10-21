@@ -1,3 +1,4 @@
+import { brandingInfo } from './branding';
 import type { FastifyInstance } from 'fastify';
 import { networkMismatch } from '@churchos/shared';
 import { buildReference, computeFee, normalizeMethod, toCents } from './helpers';
@@ -31,6 +32,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
       code: b.code,
       name: b.name,
       organisation: b.org_name,
+      branding: await brandingInfo(ctx, b.org_id),
       feeBearer: b.fee_bearer,
       purposes: [
         { key: 'TITHE', label: 'Tithe' },

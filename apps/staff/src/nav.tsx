@@ -2,6 +2,7 @@ import { lazy, type ComponentType } from 'react';
 import type { IconName } from './icons';
 import { TodayPage } from './Today';
 import { WordingPage } from './Wording';
+import { BrandingPage } from './Branding';
 
 /**
  * The page registry and the six areas of the staff app. This is the one place that says which page lives where.
@@ -56,6 +57,7 @@ export const PAGES: PageDef[] = [
   { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: L(() => import('./Verification'), 'Verification'), keywords: 'kyc documents verify church', icon: 'shield' },
   { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: L(() => import('./Payout'), 'Payout'), keywords: 'bank mpesa till paybill withdraw', icon: 'wallet' },
   { id: 'wording', label: 'Wording', any: ['*'], el: WordingPage, keywords: 'service mass gathering name word call', icon: 'edit' },
+  { id: 'branding', label: 'Logo and icons', any: ['*'], el: BrandingPage, keywords: 'logo icon favicon brand picture image colour home screen install', icon: 'edit' },
   { id: 'profile', label: 'My profile', any: ['*'], el: L(() => import('./Profile'), 'Profile'), keywords: 'account me name email phone', icon: 'user' },
 ];
 

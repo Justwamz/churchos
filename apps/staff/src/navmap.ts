@@ -29,7 +29,7 @@ export const AREAS: Area[] = [
   ] },
   { id: 'setup', label: 'Church setup', icon: 'settings', groups: [
     { ids: ['team', 'verification', 'audit'] },
-    { title: 'Your church', ids: ['wording', 'profile'] },
+    { title: 'Your church', ids: ['wording', 'branding', 'profile'] },
   ] },
 ];
 

@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Button, Card, Field, Spinner, createApi, kes } from '@churchos/ui';
+import type { BrandInfo } from '@churchos/ui';
+import { usePageBranding } from './brand';
+import { BrandMark, Button, Card, Field, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:statement');
 
-type Result = { valid: false } | { valid: true; church: string; year: number; total: number; issued: string; memberInitials: string };
+type Result = { valid: false } | { valid: true; church: string; year: number; total: number; issued: string; memberInitials: string; branding?: BrandInfo | null };
 
 const longDate = (iso: string) => new Date(`${iso}T12:00:00+03:00`).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' });
 
@@ -33,6 +35,9 @@ export function StatementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [number]);
 
+  const branding = res && res.valid ? res.branding : null;
+  usePageBranding(branding, res && res.valid ? res.church : null);
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const n = text.trim().toUpperCase().replace(/\s+/g, '');
@@ -52,6 +57,7 @@ export function StatementPage() {
         .giving .btn { width: 100%; min-height: 50px; font-size: 1.05rem; }
       `}</style>
       <header className="st-head">
+        {branding?.hasLogo && res && res.valid ? <div style={{ marginBottom: 8 }}><BrandMark brand={{ ...branding, name: res.church }} size={44} /></div> : null}
         <div className="brand">Giving</div>
         <h1>Check a statement</h1>
       </header>

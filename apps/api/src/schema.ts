@@ -1171,6 +1171,21 @@ CREATE TABLE IF NOT EXISTS statement_settings (
   updated_at text,
   updated_by text
 );
+-- Slice 26: a church's own logo and the app icons made from it.
+CREATE TABLE IF NOT EXISTS church_branding (
+  org_id text PRIMARY KEY,
+  logo text,
+  icon_192 text,
+  icon_512 text,
+  icon_maskable text,
+  apple_180 text,
+  favicon_32 text,
+  bg_color text NOT NULL DEFAULT '#ffffff',
+  theme_color text NOT NULL DEFAULT '#123456',
+  version int NOT NULL DEFAULT 1,
+  updated_by text,
+  updated_at text
+);
 CREATE TABLE IF NOT EXISTS cash_entry_gifts (
   cash_entry_id text NOT NULL,
   org_id text NOT NULL,
@@ -1455,7 +1470,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','event_credits','event_credit_moves','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','giving_statements','statement_settings','lectionary_days','attendance_blocked','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','event_credits','event_credit_moves','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','giving_statements','statement_settings','lectionary_days','attendance_blocked','church_branding','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

@@ -946,3 +946,7 @@ h3 { font-size: 17px; }
 .inbox-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 .link-btn.danger { color: var(--bad); }
 .link-btn.danger:disabled { color: var(--ink-3); }
+
+/* Church logo (Slice 26) */
+.church-logo { flex: none; display: grid; place-items: center; background: #fff; border-radius: 11px; margin-right: 10px; box-shadow: 0 0 0 1px rgba(0,0,0,0.06); }
+@media (min-width: 900px) { .rail-brand .church-logo { margin-right: 0; } .appbar > .church-logo { display: none; } }

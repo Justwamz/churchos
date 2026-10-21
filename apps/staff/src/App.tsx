@@ -1,6 +1,7 @@
 import { Suspense, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
-import { Badge, Button, ErrorNote, HelpButton, LoginGate } from '@churchos/ui';
+import { Badge, BrandMark, Button, ErrorNote, HelpButton, LoginGate, useChurchBranding } from '@churchos/ui';
+import { BrandCtx } from './Branding';
 import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
 import { EmailGate } from './EmailGate';
 import { WalletNotice, useWalletAlert } from './WalletBanner';
@@ -19,11 +20,12 @@ import './shell.css';
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop', checkin: 'staff.checkin', today: 'staff.dashboard', children: 'staff.dashboard', prayer: 'staff.dashboard', lectionary: 'staff.dashboard', boundaries: 'staff.dashboard', suggestions: 'staff.dashboard', wording: 'staff.dashboard',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop', checkin: 'staff.checkin', today: 'staff.dashboard', children: 'staff.dashboard', prayer: 'staff.dashboard', lectionary: 'staff.dashboard', boundaries: 'staff.dashboard', suggestions: 'staff.dashboard', wording: 'staff.dashboard', branding: 'staff.dashboard',
 };
 
 const APPROVAL_PAGES = ['expenses', 'cash', 'events'];
 const APPROVAL_RIGHT: Record<string, string> = { expenses: 'expenses.approve', cash: 'cash.approve', events: 'events.manage' };
+const BRAND_APP = { label: 'Staff', description: 'Run your church from your phone: check people in, approve, count and follow up.', defaultTheme: '#123456' };
 const COLLAPSE_KEY = 'churchos:staff-nav-collapsed';
 
 /** phone <= 760px, tablet 761-1099px (rail only, flyout), desktop >= 1100px (rail + second panel). */
@@ -70,6 +72,8 @@ function Shell({ signOut }: { signOut: () => void }) {
     return () => window.removeEventListener('popstate', on);
   }, []);
 
+  const { brand, reload: reloadBrand } = useChurchBranding(api, BRAND_APP);
+  const brandCtx = useMemo(() => ({ brand, reload: reloadBrand }), [brand, reloadBrand]);
   const [gate, setGate] = useState(false);
   const [tick, setTick] = useState(0);
   const [kyc, setKyc] = useState<KycSummary | null>(null);
@@ -129,9 +133,11 @@ function Shell({ signOut }: { signOut: () => void }) {
 
   return (
     <SessionCtx.Provider value={session}>
+      <BrandCtx.Provider value={brandCtx}>
       <WordsProvider orgId={grant.org.id} multiOrg={me.orgs.length > 1}>
         <Frame me={me} orgIdx={orgIdx} setOrgIdx={setOrgIdx} page={page} setPage={setPage} kyc={kyc} gateOpen={gate} reloadMe={reloadMe} tick={tick} signOut={signOut} />
       </WordsProvider>
+      </BrandCtx.Provider>
     </SessionCtx.Provider>
   );
 }
@@ -160,6 +166,7 @@ function AccountMenu({ me, orgName, onProfile, signOut, onClose }: { me: any; or
 /** The signed-in frame: navigation (rail, second panel, flyout, phone tabs and menu), top bar, command bar, and the current page. */
 function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, tick, signOut }: FrameProps) {
   const w = useWords();
+  const { brand } = useContext(BrandCtx);
   const layout = useLayout();
   const phone = layout === 'phone';
   const online = useOnline();
@@ -294,7 +301,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
 
       {phone ? (
         <header className="topbar">
-          <div className="topbar-title"><span className="brand-name">{orgLabel}</span></div>
+          <div className="topbar-title brand-row"><BrandMark brand={brand} size={30} /><span className="brand-name">{orgLabel}</span></div>
           {searchBtn}
           <Notifications />
           {account}
@@ -302,7 +309,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
       ) : (
         <>
           <nav className="rail" aria-label="Areas">
-            <button type="button" className="rail-logo" aria-label="ChurchOS: go to Today" onClick={() => setPage('today')}><Icon name="worship" size={22} /></button>
+            <button type="button" className="rail-logo" aria-label={`${orgLabel}: go to Today`} onClick={() => setPage('today')}><BrandMark brand={brand} size={44} fallback={<Icon name="worship" size={22} />} /></button>
             {areas.map((a) => {
               const on = activeArea?.id === a.id;
               return (
