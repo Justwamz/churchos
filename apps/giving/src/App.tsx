@@ -8,6 +8,7 @@ import { BrandMark, ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, 
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import type { BrandInfo } from '@churchos/ui';
 import { usePageBranding } from './brand';
+import { ChurchPicker, lastChurch } from './ChurchPicker';
 
 const api = createApi('churchos:giving:token');
 
@@ -82,7 +83,7 @@ export function App() {
   );
 }
 
-function Shell({ title, sub, branding, children }: { title: string; sub?: string; branding?: BrandInfo | null; children: React.ReactNode }) {
+function Shell({ title, sub, branding, onChange, children }: { title: string; sub?: string; branding?: BrandInfo | null; onChange?: () => void; children: React.ReactNode }) {
   usePageBranding(branding, sub);
   const logo = branding?.hasLogo && branding.orgId ? <BrandMark brand={{ ...branding, name: sub ?? title }} size={44} /> : null;
   return (
@@ -92,28 +93,11 @@ function Shell({ title, sub, branding, children }: { title: string; sub?: string
       <header className="g-head">
         {logo ? <div className="g-logo">{logo}<div className="brand">{sub ?? 'Giving'}</div></div> : <div className="brand">{sub ?? 'Giving'}</div>}
         <h1>{title}</h1>
+        {onChange && <a href="/" className="g-change" onClick={(e) => { e.preventDefault(); onChange(); }}>Change church</a>}
       </header>
       {children}
       <footer className="tiny g-foot">Secure giving by ChurchOS. We never see your M-Pesa PIN.</footer>
     </div>
-  );
-}
-
-function CodeBox({ onGo, initial = '', error }: { onGo: (c: string) => void; initial?: string; error?: string }) {
-  const [code, setCode] = useState(initial);
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    const c = code.trim().toUpperCase();
-    if (c) onGo(c);
-  };
-  return (
-    <form onSubmit={submit} className="stack">
-      <Field label="Church code" hint="You can find it on your church notice board or bulletin.">
-        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="GRC001, GRC002 or HPC001" autoCapitalize="characters" autoComplete="off" autoFocus />
-      </Field>
-      {error && <ErrorNote>{error}</ErrorNote>}
-      <Button type="submit" disabled={!code.trim()}>Continue</Button>
-    </form>
   );
 }
 
@@ -199,13 +183,11 @@ function Home() {
   if (homeSearch.get('event')) return <EventPage code={homeSearch.get('event')!} />;
   if (homeSearch.get('ad')) return <AdPage />;
   if (homeSearch.get('booking')) return <BookingPage />;
-  const saved = store.get(CHURCH_KEY);
-  if (saved) return <Navigate to={`/${encodeURIComponent(saved)}`} replace />;
   return (
     <Shell title="Find your church">
       <Card>
-        <p className="muted">Enter your church code to give your tithe, offering or support a project.</p>
-        <CodeBox onGo={(c) => nav(`/${encodeURIComponent(c)}`)} />
+        <p className="muted">Find your church to give your tithe, offering or support a project.</p>
+        <ChurchPicker last={lastChurch.get()} onChoose={(c) => nav(`/${encodeURIComponent(c)}`)} />
       </Card>
     </Shell>
   );
@@ -220,6 +202,7 @@ function GivePage() {
   const [church, setChurch] = useState<Church | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
+  const changeChurch = () => { store.del(CHURCH_KEY); nav('/'); };
 
   useEffect(() => {
     let alive = true;
@@ -229,6 +212,7 @@ function GivePage() {
         if (!alive) return;
         setChurch(c);
         store.set(CHURCH_KEY, c.code);
+        lastChurch.set({ code: c.code, name: c.name });
       })
       .catch((e) => alive && setError(errMsg(e)))
       .finally(() => alive && setLoading(false));
@@ -251,19 +235,19 @@ function GivePage() {
       <Shell title="Find your church">
         <Card>
           <ErrorNote>{error ?? 'We could not load this church.'}</ErrorNote>
-          <p className="muted">Check the code and try again.</p>
-          <CodeBox onGo={(c) => nav(`/${encodeURIComponent(c)}`)} />
+          <p className="muted">Search for your church by name instead.</p>
+          <ChurchPicker onChoose={(c) => nav(`/${encodeURIComponent(c)}`)} />
         </Card>
       </Shell>
     );
   }
   return (
-    <Shell title={church.name} sub={church.organisation} branding={church.branding}>
+    <Shell title={church.name} sub={church.organisation} branding={church.branding} onChange={changeChurch}>
       {certSerial && !cert && <Note tone="warn">There is no certificate copy waiting to be paid for under that link</Note>}
       <GiveForm church={church} cert={cert && cert.churchCode === church.code ? cert : undefined} />
       <p className="tiny center">
         Not your church?{' '}
-        <a href="/" onClick={(e) => { e.preventDefault(); store.del(CHURCH_KEY); nav('/'); }}>Change</a>
+        <a href="/" onClick={(e) => { e.preventDefault(); changeChurch(); }}>Change</a>
       </p>
     </Shell>
   );
@@ -637,6 +621,8 @@ const CSS = `
 .giving .g-head .g-logo .brand { margin-bottom: 0; }
 .giving .g-head .g-logo .brand::before { content: none; }
 .giving .g-head h1 { font-size: 2rem; }
+.giving .g-change { display: inline-block; margin-top: 8px; font-size: 13px; min-height: 24px; }
+.giving .g-change:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 45%, transparent); outline-offset: 2px; border-radius: 4px; }
 .giving { padding-bottom: 96px; }
 .giving .center { text-align: center; }
 .giving .g-label { margin-bottom: 8px; }

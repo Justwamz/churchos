@@ -8,6 +8,8 @@ import { MemberRecords } from './Records';
 import { GivingRecordModal } from './GivingRecord';
 import { ConsentDialog } from './ConsentDialog';
 import { usePrefill } from './prefill';
+import { useLinkParams } from './links';
+import { JoinRequests } from './JoinRequests';
 import { MemberNumberSettings, type NumberSettings } from './MemberNumberSettings';
 import { Icon } from './icons';
 import { Card, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip, Toolbar } from './ui';
@@ -20,7 +22,7 @@ export const birthdayText = (b: string | null | undefined) => {
   return m ? `${Number(m[2])} ${MONTHS[Number(m[1]) - 1] ?? ''}` : '-';
 };
 
-type Tab = 'all' | 'households' | 'birthdays' | 'attention' | 'numbers';
+type Tab = 'all' | 'households' | 'birthdays' | 'attention' | 'requests' | 'numbers';
 
 function Avatar({ m, sm }: { m: any; sm?: boolean }) {
   return <span className={`pp-avatar ${m.category === 'child' ? 'child' : ''} ${sm ? 'sm' : ''}`} aria-hidden="true">{initials(m.full_name)}</span>;
@@ -134,6 +136,10 @@ export function Members() {
   const settings = useAsync<NumberSettings>(() => api.get('/members/settings' + s.qs({ branch: undefined })), [s.qs()]);
   const canEdit = s.can('members.edit');
   const [tab, setTab] = useState<Tab>('all');
+  const link = useLinkParams('members');
+  useEffect(() => { if (link?.tab === 'requests') setTab('requests'); }, [link]);
+  const joins = useAsync<{ pending: number }>(() => api.get('/members/join-requests' + s.qs({ status: 'pending' })), [s.qs()]);
+  const pendingJoins = joins.data?.pending ?? 0;
   const [sel, setSel] = useState<any>(null);
   const [modal, setModal] = useState<{ kind: 'form' | 'household' | 'consent' | 'records' | 'giving'; member?: any } | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -171,10 +177,10 @@ export function Members() {
     <>
       <PageHeader title="Members" subtitle="Your church family, by person and by household."
         actions={canEdit && <Button onClick={() => setModal({ kind: 'form' })}>Add member</Button>}
-        tabs={[{ id: 'all', label: 'All' }, { id: 'households', label: 'Households' }, { id: 'birthdays', label: 'Birthdays', badge: bdays.length + eighteen.length }, { id: 'attention', label: 'Needs attention', badge: attention.length }, { id: 'numbers', label: 'Member numbers' }]}
+        tabs={[{ id: 'all', label: 'All' }, { id: 'households', label: 'Households' }, { id: 'birthdays', label: 'Birthdays', badge: bdays.length + eighteen.length }, { id: 'attention', label: 'Needs attention', badge: attention.length }, { id: 'requests', label: 'Join requests', badge: pendingJoins }, { id: 'numbers', label: 'Member numbers' }]}
         tab={tab} onTab={(v) => setTab(v as Tab)} />
 
-      {tab !== 'numbers' && (
+      {tab !== 'numbers' && tab !== 'requests' && (
         <StatTiles>
           <Stat label="People" value={t ? t.members : '-'} onClick={() => setTab('all')} />
           <Stat label="Households" value={t ? t.households : '-'} onClick={() => setTab('households')} />
@@ -276,6 +282,8 @@ export function Members() {
           ))}
         </Gate>
       )}
+
+      {tab === 'requests' && <JoinRequests onChanged={() => { joins.reload(); d.reload(); insights.reload(); }} onOpenMember={(name) => { setQ(name); setTab('all'); }} />}
 
       {tab === 'numbers' && <MemberNumberSettings settings={settings} reload={refresh} />}
 

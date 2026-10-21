@@ -20,6 +20,7 @@ import { HomeServices, ServicesPage } from './Services';
 import { HomePrayer, PrayerPage } from './Prayer';
 import { HomeSaid, SuggestionsPage } from './Suggestions';
 import { WordsProvider, useWords } from './Words';
+import { LinkHome, Locked, VisitorGiveTab } from './LinkChurch';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
@@ -153,6 +154,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const openLink = (link: string) => {
     const l = parseLink(link);
     if (!l) return;
+    if (unlinked && l.page !== 'give') { go('home'); return; }
     const subs: Record<string, HomeSub> = { tickets: 'tickets', credit: 'credit', bookings: 'bookings', book: 'book', events: 'events', notices: 'notices', prayer: 'prayer', suggestions: 'suggestions' };
     if (l.page === 'give') { const sub = (['give', 'pledges', 'history', 'regular'] as GiveSub[]).find((x) => x === l.params.sub); go('give', { sub: sub ?? 'give' }); }
     else if (l.page === 'shop') openShop();
@@ -165,15 +167,17 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   useEffect(() => { if (!api.getToken()) signOut(); }, [me.error]); // eslint-disable-line
 
   const m = me.data?.memberships?.[0];
+  const unlinked = !!me.data && !me.data.memberships?.length;
+  const onLinked = () => { me.reload(); fams.reload(); notif.reload(); setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; };
   const name = String(m?.full_name ?? user?.name ?? '');
   const helpScreen = tab === 'give' && nav.sub === 'history' ? 'member.history' : tab === 'groups' || tab === 'me' ? 'member.church' : tab === 'inbox' ? 'member.inbox' : tab === 'give' ? 'member.give' : 'member.home';
   return (
     <BrandCtx.Provider value={brand}><div className="app">
       <header className="appbar">
-        {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
-        {tab === 'home' && !homeSub && <ChurchLogo brand={brand} />}
+        {tab === 'home' && homeSub && !unlinked && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
+        {tab === 'home' && (!homeSub || unlinked) && <ChurchLogo brand={brand} />}
         <div className="appbar-title">
-          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'credit' ? 'Event credit' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
+          {tab === 'home' && homeSub && !unlinked ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'credit' ? 'Event credit' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
@@ -188,13 +192,15 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
-              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
-              {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
-              {tab === 'services' && <ServicesPage hasMembership={!!me.data?.memberships?.length} />}
-              {tab === 'kids' && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
+              {tab === 'home' && unlinked && <LinkHome user={user} first={String(user?.name ?? '').split(' ')[0]} onLinked={onLinked} />}
+              {tab === 'home' && !unlinked && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
+              {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} unlinked={unlinked} />}
+              {tab === 'services' && (unlinked ? <Locked onLink={() => go('home')} /> : <ServicesPage hasMembership={!!me.data?.memberships?.length} />)}
+              {tab === 'kids' && unlinked && <Locked onLink={() => go('home')} />}
+              {tab === 'kids' && !unlinked && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
-              {tab === 'groups' && <Groups />}
-              {tab === 'me' && <Me me={me.data} user={user} reload={me.reload} signOut={signOut} />}
+              {tab === 'groups' && (unlinked ? <Locked onLink={() => go('home')} /> : <Groups />)}
+              {tab === 'me' && <Me me={me.data} user={user} reload={me.reload} signOut={signOut} onLink={() => go('home')} />}
             </>
           )}
         </div>
@@ -204,7 +210,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
       <HelpButton api={api} audience="member" screen={helpScreen} />
       <nav className="tabbar" aria-label="Main">
         <div className="rail-brand">{brand?.hasLogo ? <ChurchLogo brand={brand} size={44} /> : <span className="rail-mark" aria-hidden="true">{'✚'}</span>}<span className="rail-name"><strong>ChurchOS</strong><span>{m?.branch_name ?? 'Welcome'}</span></span></div>
-        {TABS.filter((t) => t.key !== 'kids' || hasKids).map((t) => (
+        {TABS.filter((t) => t.key !== 'kids' || (hasKids && !unlinked)).map((t) => (
           <button key={t.key} type="button" className={tab === t.key ? 'active' : ''} aria-current={tab === t.key ? 'page' : undefined} onClick={() => go(t.key)}>
             <span className="tab-ico"><Icon name={t.ico} filled={tab === t.key} />
               {t.key === 'inbox' && unread > 0 && <span className="tab-badge" aria-label={`${unread} unread`}>{unread > 9 ? '9+' : unread}</span>}
@@ -338,13 +344,14 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
 
 type Receipt = { status: string; church: string; purpose: string; amountPaid: number; receipt: string | null };
 
-function GiveTab({ me, user, online, nav, go }: { me: any; user: any; online: boolean; nav: Nav; go: Go }) {
+function GiveTab({ me, user, online, nav, go, unlinked }: { me: any; user: any; online: boolean; nav: Nav; go: Go; unlinked?: boolean }) {
   const m = me?.memberships?.[0];
   const code: string | undefined = m?.branch_code;
   const church = useAsync<any>(() => (code ? api.get(`/public/church/${encodeURIComponent(code)}`) : Promise.resolve(undefined)), [code]);
   const [sub, setSub] = useState<GiveSub>(nav.sub);
   useEffect(() => { setSub(nav.sub); }, [nav.k]); // eslint-disable-line
   const SUBS: { key: GiveSub; label: string }[] = [{ key: 'give', label: 'Give' }, { key: 'pledges', label: 'Pledges' }, { key: 'history', label: 'History' }, { key: 'regular', label: 'Regular' }];
+  if (unlinked) return <VisitorGiveTab onLink={() => go('home')} renderGive={(vcode, vchurch, back) => <Give visitorCode={vcode} back={back} me={me} user={user} online={online} church={vchurch} nav={nav} go={go} />} />;
   return (
     <div className="stack">
       <div className="seg" role="tablist" aria-label="Giving">
@@ -358,10 +365,11 @@ function GiveTab({ me, user, online, nav, go }: { me: any; user: any; online: bo
   );
 }
 
-function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; user: any; online: boolean; church: any; initPurpose?: string; nav: Nav; go: Go }) {
-  const m = me?.memberships?.[0];
-  const code: string | undefined = m?.branch_code;
+function Give({ me, user, online, church, initPurpose, nav, go, visitorCode, back }: { me: any; user: any; online: boolean; church: any; initPurpose?: string; nav: Nav; go: Go; visitorCode?: string; back?: () => void }) {
+  const m = visitorCode ? undefined : me?.memberships?.[0];
+  const code: string | undefined = visitorCode ?? m?.branch_code;
   const [purpose, setPurpose] = useState(initPurpose ?? 'TITHE');
+  useEffect(() => { const ps: any[] = church.data?.purposes ?? []; if (visitorCode && ps.length && !ps.some((p) => p.key === purpose)) setPurpose(ps[0].key); }, [church.data]); // eslint-disable-line
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('mpesa');
   const [phone, setPhone] = useState(phonePretty(user?.phone));
@@ -426,7 +434,7 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
     setBusy(false);
   };
 
-  if (!m) return <Card title="Give"><Empty>You are not linked to a church yet, so we cannot show where to give. Open the Me tab to request a move.</Empty></Card>;
+  if (!m && !visitorCode) return <Card title="Give"><Empty>You are not linked to a church yet, so we cannot show where to give. Open the Me tab to request a move.</Empty></Card>;
   if (church.loading) return <Loading />;
   if (church.error || !church.data) return <Failed error={church.error ?? 'We could not load your church.'} retry={church.reload} />;
 
@@ -461,7 +469,7 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
   return (
     <div className="stack">
       {!online && <Note tone="warn">You are offline. You can look around, but you need a connection to give.</Note>}
-      <Card title={`Give to ${church.data.name}`}>
+      <Card title={`Give to ${church.data.name}`} action={back ? <Button kind="ghost" small onClick={back}>Change church</Button> : undefined}>
         <div className="stack">
           <div>
             <div className="field-label" id="purpose-l">What is it for?</div>
@@ -496,11 +504,11 @@ function Give({ me, user, online, church, initPurpose, nav, go }: { me: any; use
           {error && <ErrorNote>{error}</ErrorNote>}
         </div>
       </Card>
-      <button type="button" className="rg-entry" onClick={() => go('give', { sub: 'regular' })}>
+      {!visitorCode && <button type="button" className="rg-entry" onClick={() => go('give', { sub: 'regular' })}>
         <span className="rg-home-ico"><Icon name="refresh" size={22} /></span>
         <span className="rg-home-text"><strong>Give regularly</strong><span className="tiny">Set up a weekly or monthly tithe or offering</span></span>
         <Icon name="chev" size={20} />
-      </button>
+      </button>}
       <div className="sticky-cta">
         <Button disabled={!online || busy || !valid || phone.trim().length < 9 || !!mismatch} onClick={give}>{busy ? (method === 'card' ? 'Opening card page…' : 'Sending…') : valid ? `${method === 'card' ? 'Pay by card' : anonNow ? 'Give anonymously' : 'Give'} ${kes(Math.round(n * 100))}` : 'Give'}</Button>
       </div>
@@ -651,7 +659,7 @@ function History() {
 
 const REL: Record<string, string> = { Adult: 'Adult', Child: 'Child' };
 
-function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => void; signOut: () => void }) {
+function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload: () => void; signOut: () => void; onLink: () => void }) {
   const ms: any[] = me?.memberships ?? [];
   const m = ms[0];
   const household: any[] = me?.household ?? [];
@@ -663,6 +671,7 @@ function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => v
   const [helpOpen, setHelpOpen] = useState(false);
   const toast = useToast();
   const name = String(m?.full_name ?? user?.name ?? '');
+  const linked = ms.length > 0;
 
   const request = async () => {
     setBusy(true); setError(undefined);
@@ -689,7 +698,8 @@ function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => v
 
       <InstallCard />
 
-      <Card title="My membership">
+      {!linked && <Card title="My church"><Locked onLink={onLink}>Your membership, records and certificates show here once your church has approved you.</Locked></Card>}
+      {linked && <Card title="My membership">
         {!ms.length ? <Empty>You are not linked to a church yet.</Empty> : (
           <ul className="list">
             {ms.map((x) => (
@@ -700,13 +710,13 @@ function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => v
             ))}
           </ul>
         )}
-      </Card>
+      </Card>}
 
-      <MyRecords />
+      {linked && <MyRecords />}
 
-      <MessageChoices />
+      {linked && <MessageChoices />}
 
-      <Card title="My household">
+      {linked && <Card title="My household">
         {!household.length ? <Empty>No household recorded yet.</Empty> : (
           <ul className="list">
             {household.map((h) => (
@@ -717,9 +727,9 @@ function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => v
             ))}
           </ul>
         )}
-      </Card>
+      </Card>}
 
-      {transfers.length > 0 && (
+      {linked && transfers.length > 0 && (
         <Card title="My requests">
           <ul className="list">
             {transfers.map((t) => (
@@ -733,10 +743,10 @@ function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => v
       )}
 
       <div className="menu">
-        <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-tickets'))}><Icon name="ticket" /><span>My tickets</span><Icon name="chev" size={18} /></button>
+        {linked && <><button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-tickets'))}><Icon name="ticket" /><span>My tickets</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-prayer'))}><Icon name="heart" /><span>Prayer requests</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-suggestions'))}><Icon name="megaphone" /><span>Suggestion box</span><Icon name="chev" size={18} /></button>
-        <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button>
+        <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button></>}
         <button type="button" onClick={() => setHelpOpen(true)}><Icon name="help" /><span>Help and payment issues</span><Icon name="chev" size={18} /></button>
         <button type="button" className="danger" onClick={signOut}><Icon name="logout" /><span>Sign out</span></button>
       </div>

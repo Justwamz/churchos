@@ -31,6 +31,7 @@ import { staffTodayRoutes } from './routes/staff-today';
 import { wordsRoutes } from './routes/words';
 import { brandingRoutes } from './routes/branding';
 import { creditExtraRoutes } from './routes/credit-extras';
+import { joinRoutes } from './routes/join';
 import { givingPlanRoutes } from './routes/giving-plans';
 import { attendanceRoutes } from './routes/attendance';
 import { givingLedgerRoutes } from './routes/giving-ledger';
@@ -154,6 +155,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   wordsRoutes(app, ctx);
   brandingRoutes(app, ctx);
   creditExtraRoutes(app, ctx);
+  joinRoutes(app, ctx);
   givingPlanRoutes(app, ctx);
   attendanceRoutes(app, ctx);
   givingLedgerRoutes(app, ctx);

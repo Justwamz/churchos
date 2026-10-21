@@ -98,7 +98,7 @@ export function TodayPage() {
             ) : (
               <div className="today-grid">
                 {cards.map((c) => (
-                  <button key={c.key} type="button" className={`today-card ${c.count > 0 ? 'on' : 'calm'}`} onClick={() => s.go(c.page)}>
+                  <button key={c.key} type="button" className={`today-card ${c.count > 0 ? 'on' : 'calm'}`} onClick={() => (c.key === 'joins' ? openLink('staff:members?tab=requests') : s.go(c.page))}>
                     <span className="today-count">{c.count > 0 ? c.count : <Icon name="check" size={22} />}</span>
                     <span className="today-title">{c.title}</span>
                     <span className="today-hint">{c.count > 0 ? c.hint : 'All clear'}</span>

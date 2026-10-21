@@ -996,3 +996,29 @@ h3 { font-size: 17px; }
 .lnk-row:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .lnk-cta { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: 4px; padding: 0 14px; border: 1px solid var(--brand); border-radius: 999px; background: var(--brand-tint); color: var(--brand); font: inherit; font-weight: 600; cursor: pointer; }
 .lnk-cta:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* lk- link your church */
+.lk-search { display: grid; gap: 12px; }
+.lk-search input { width: 100%; }
+.lk-hits, .lk-reqs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.lk-hits li { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: var(--r-md); border: 1px solid var(--line); }
+.lk-hit-text { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.lk-hit-text strong { overflow-wrap: anywhere; }
+.lk-ico { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--brand-tint); color: var(--brand); }
+.lk-ico.big { width: 48px; height: 48px; border-radius: 50%; }
+.lk-staff { display: grid; gap: 12px; padding: 18px; border-radius: var(--r-card); background: var(--brand-tint); border: 1px solid var(--brand); }
+.lk-staff-text { display: grid; gap: 2px; }
+.lk-staff-text strong { font-size: 18px; }
+.lk-reqs li { display: grid; gap: 6px; justify-items: start; padding: 12px; border-radius: var(--r-md); border: 1px solid var(--line); }
+.lk-req-top { display: flex; justify-content: space-between; gap: 12px; width: 100%; align-items: center; }
+.lk-more { margin-top: 12px; }
+.lk-consent { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; font-size: 16px; }
+.lk-consent input { width: 22px; height: 22px; margin-top: 2px; flex: none; accent-color: var(--brand); }
+.lk-locked { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 48px 20px; max-width: 420px; margin: 0 auto; }
+.lk-locked strong { font-size: 20px; }
+.lk-locked p { margin: 0; color: var(--ink-2); }
+.lk-lock { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--brand-tint); color: var(--brand); }
+.card .lk-locked { padding: 16px 4px; }
+@media (min-width: 700px) { .lk { max-width: 640px; margin: 0 auto; width: 100%; } }
+.lk-staff-top { display: flex; gap: 12px; align-items: center; }
+.lk-staff .lk-ico.big { background: var(--card, #fff); color: var(--brand); }

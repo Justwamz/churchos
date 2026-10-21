@@ -27,6 +27,8 @@ if (process.env.SEED_DEMO !== '0') {
   await seedAttendanceDemo(app, ctx);
   await seedPastoralDemo(ctx);
   await seedExpensesDemo(app, ctx);
+  // Someone with a login but no church yet, to try 'Link your church' (member app, phone 0733000001).
+  await ctx.db.query(`INSERT INTO users (id, phone, name, is_platform_admin, created_at) VALUES ('u_newcomer','254733000001','Neema Newcomer',false,$1) ON CONFLICT DO NOTHING`, [ctx.clock.now().toISOString()]);
 }
 await runMemberHousekeeping(ctx);
 // Graduation and birthday wishes run hourly. The platform clock can be advanced in development, so this uses it too.
@@ -46,4 +48,5 @@ if (!listenEarly) await app.listen({ port, host: '0.0.0.0' });
 console.log(`\nChurchOS API listening on http://localhost:${port}`);
 console.log(`Dev one-time code for every login: ${DEV_OTP}`);
 console.log('Seeded logins:');
+if (process.env.SEED_DEMO !== '0') console.log('  0733000001  Member app       Neema Newcomer, not linked to a church yet');
 for (const l of SEED_LOGINS) console.log(`  ${l.phone}  ${l.app.padEnd(16)} ${l.who}`);
