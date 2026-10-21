@@ -23,6 +23,7 @@ export const PAGES: PageDef[] = [
   { id: 'collections', label: 'Collections', any: ['collections.view'], el: L(() => import('./Collections'), 'Collections'), keywords: 'giving offering tithe payments', icon: 'money' },
   { id: 'giving-records', label: 'Giving records', any: ['giving.ledger'], el: L(() => import('./GivingRecord'), 'GivingRecords'), keywords: 'ledger statements members giving', icon: 'book' },
   { id: 'expenses', label: 'Expenses', any: ['expenses.view', 'expenses.record', 'expenses.approve'], el: L(() => import('./Expenses'), 'Expenses'), keywords: 'spending claims receipts budget approve', icon: 'receipt' },
+  { id: 'my-claims', label: 'My expense claims', any: ['expenses.claim'], el: L(() => import('./MyClaims'), 'MyClaims'), keywords: 'claim back reimburse receipt spent my own money', icon: 'receipt' },
   { id: 'regular-giving', label: 'Regular giving', any: ['collections.view'], el: L(() => import('./RegularGiving'), 'RegularGiving'), keywords: 'pledges standing recurring', icon: 'heart' },
   { id: 'settlements', label: 'Settlements', any: ['settlements.view'], el: L(() => import('./Settlements'), 'Settlements'), keywords: 'payouts bank paid out', icon: 'wallet' },
   { id: 'cash', label: 'Cash', any: ['cash.count', 'cash.approve'], el: L(() => import('./Cash'), 'Cash'), keywords: 'count envelope offering', icon: 'money' },

@@ -19,7 +19,7 @@ export const AREAS: Area[] = [
   ] },
   { id: 'money', label: 'Money', icon: 'money', groups: [
     { title: 'Giving', ids: ['dashboard', 'collections', 'regular-giving', 'giving-records', 'cash'] },
-    { title: 'Spending', ids: ['expenses', 'projects'] },
+    { title: 'Spending', ids: ['my-claims', 'expenses', 'projects'] },
     { title: 'Payouts', ids: ['settlements', 'payout', 'help'] },
     { title: 'Selling', ids: ['shop'] },
   ] },
@@ -40,6 +40,7 @@ export type QuickAction = { id: string; label: string; page: string; right: stri
 export const QUICK_ACTIONS: QuickAction[] = [
   { id: 'add-member', label: 'Add a member', page: 'members', right: 'members.edit', icon: 'people', keywords: 'new person register', action: 'add' },
   { id: 'record-expense', label: 'Record an expense', page: 'expenses', right: 'expenses.record', icon: 'receipt', keywords: 'spend claim receipt', action: 'record' },
+  { id: 'claim-expense', label: 'Claim an expense', page: 'my-claims', right: 'expenses.claim', icon: 'receipt', keywords: 'reimburse spent my own money receipt back', action: 'new' },
   { id: 'make-booking', label: 'Make a booking', page: 'bookings', right: 'bookings.manage', icon: 'today', keywords: 'room hall reserve', action: 'new' },
   { id: 'send-message', label: 'Send a message', page: 'messages', right: 'messages.send', icon: 'message', keywords: 'sms email announce', action: 'compose' },
 ];

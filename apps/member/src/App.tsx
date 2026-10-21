@@ -19,12 +19,11 @@ import { AnonSwitch, GivingRecord } from './GivingRecord';
 import { HomeServices, ServicesPage } from './Services';
 import { HomePrayer, PrayerPage } from './Prayer';
 import { HomeSaid, SuggestionsPage } from './Suggestions';
-import { ClaimsPage, useClaimSetup } from './Claims';
 import { WordsProvider, useWords } from './Words';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
-type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets' | 'credit' | 'prayer' | 'suggestions' | 'claims';
+type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets' | 'credit' | 'prayer' | 'suggestions';
 type GiveSub = 'give' | 'pledges' | 'history' | 'regular';
 type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
 type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
@@ -105,10 +104,9 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const showTickets = () => { setNav((p) => ({ tab: 'home', sub: 'give', k: p.k + 1 })); setHomeSub('tickets'); try { history.replaceState(null, '', '#home'); } catch { /* ignore */ } if (mainRef.current) mainRef.current.scrollTop = 0; };
   useEffect(() => { window.addEventListener('churchos:open-tickets', showTickets); return () => window.removeEventListener('churchos:open-tickets', showTickets); }, []); // eslint-disable-line
   const showSub = (s: HomeSub) => { setNav((p) => ({ tab: 'home', sub: 'give', k: p.k + 1 })); setHomeSub(s); try { history.replaceState(null, '', '#home'); } catch { /* ignore */ } if (mainRef.current) mainRef.current.scrollTop = 0; };
-  useEffect(() => { const a = () => showSub('prayer'); const b = () => showSub('suggestions'); const c = () => showSub('claims'); window.addEventListener('churchos:open-claims', c); window.addEventListener('churchos:open-prayer', a); window.addEventListener('churchos:open-suggestions', b); return () => { window.removeEventListener('churchos:open-claims', c); window.removeEventListener('churchos:open-prayer', a); window.removeEventListener('churchos:open-suggestions', b); }; }, []); // eslint-disable-line
+  useEffect(() => { const a = () => showSub('prayer'); const b = () => showSub('suggestions');  window.addEventListener('churchos:open-prayer', a); window.addEventListener('churchos:open-suggestions', b); return () => { window.removeEventListener('churchos:open-prayer', a); window.removeEventListener('churchos:open-suggestions', b); }; }, []); // eslint-disable-line
   useEffect(() => { const c = () => showSub('credit'); const ev = () => showSub('events'); window.addEventListener('churchos:open-credit', c); window.addEventListener('churchos:open-events', ev); return () => { window.removeEventListener('churchos:open-credit', c); window.removeEventListener('churchos:open-events', ev); }; }, []); // eslint-disable-line
   const me = useAsync<any>(() => api.get('/me'));
-  const claim = useClaimSetup();
   const online = useOnline();
   const fams = useFamilies();
   const hasKids = fams.families.length > 0;
@@ -162,7 +160,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
         {tab === 'home' && !homeSub && <ChurchLogo brand={brand} />}
         <div className="appbar-title">
-          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'credit' ? 'Event credit' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : homeSub === 'claims' ? 'Claim expenses' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
+          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'credit' ? 'Event credit' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
@@ -176,13 +174,13 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
-              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'claims' ? <ClaimsPage setup={claim.setup} /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home claims={claim.allowed} me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
+              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
               {tab === 'services' && <ServicesPage hasMembership={!!me.data?.memberships?.length} />}
               {tab === 'kids' && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
               {tab === 'groups' && <Groups />}
-              {tab === 'me' && <Me claims={claim.allowed} me={me.data} user={user} reload={me.reload} signOut={signOut} />}
+              {tab === 'me' && <Me me={me.data} user={user} reload={me.reload} signOut={signOut} />}
             </>
           )}
         </div>
@@ -211,7 +209,7 @@ function greeting() {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
-function Home({ claims, me, user, go, families, notif, openSub, openShop }: { claims?: boolean; me: any; families: any[]; user: any; go: Go; notif: any; openSub: (s: HomeSub) => void; openShop: (i?: ShopIntent) => void }) {
+function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; families: any[]; user: any; go: Go; notif: any; openSub: (s: HomeSub) => void; openShop: (i?: ShopIntent) => void }) {
   const m = me?.memberships?.[0];
   const giving = useAsync<any>(() => api.get('/me/giving'));
   const first = String(m?.full_name ?? user?.name ?? '').split(' ')[0];
@@ -233,7 +231,6 @@ function Home({ claims, me, user, go, families, notif, openSub, openShop }: { cl
     { ico: 'ticket', label: 'My tickets', on: () => openSub('tickets') },
     { ico: 'heart', label: 'Prayer', on: () => openSub('prayer') },
     { ico: 'megaphone', label: 'Suggestion box', on: () => openSub('suggestions') },
-    ...(claims ? [{ ico: 'receipt', label: 'Claim expenses', on: () => openSub('claims') }] : []),
   ];
   return (
     <div className="stack home">
@@ -638,7 +635,7 @@ function History() {
 
 const REL: Record<string, string> = { Adult: 'Adult', Child: 'Child' };
 
-function Me({ claims, me, user, reload, signOut }: { claims?: boolean; me: any; user: any; reload: () => void; signOut: () => void }) {
+function Me({ me, user, reload, signOut }: { me: any; user: any; reload: () => void; signOut: () => void }) {
   const ms: any[] = me?.memberships ?? [];
   const m = ms[0];
   const household: any[] = me?.household ?? [];
@@ -723,7 +720,6 @@ function Me({ claims, me, user, reload, signOut }: { claims?: boolean; me: any; 
         <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-tickets'))}><Icon name="ticket" /><span>My tickets</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-prayer'))}><Icon name="heart" /><span>Prayer requests</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-suggestions'))}><Icon name="megaphone" /><span>Suggestion box</span><Icon name="chev" size={18} /></button>
-        {claims && <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-claims'))}><Icon name="receipt" /><span>Claim expenses</span><Icon name="chev" size={18} /></button>}
         <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => setHelpOpen(true)}><Icon name="help" /><span>Help and payment issues</span><Icon name="chev" size={18} /></button>
         <button type="button" className="danger" onClick={signOut}><Icon name="logout" /><span>Sign out</span></button>

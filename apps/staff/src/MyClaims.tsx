@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, ErrorNote, Field, Note, dateOnly, kes, useAsync } from '@churchos/ui';
-import { api, errText } from './api';
-import { Icon, Sheet, Skeleton } from './ui';
+import { api, friendly } from './session';
+import { Icon } from './icons';
+import { Card, EmptyState, PageHeader, Section, SidePanel, Skeleton, StatusChip } from './ui';
+import { useAction } from './prefill';
+import './my-claims.css';
 
 const MAX_FILES = 3;
 const MAX_BYTES = 1.2 * 1024 * 1024;
@@ -50,61 +53,62 @@ async function shrink(file: File): Promise<Blob> {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function statusOf(c: any): { tone: string; label: string; line?: string } {
-  if (c.status === 'voided') return { tone: 'muted', label: 'Cancelled' };
+function statusOf(c: any): { tone: 'wait' | 'done' | 'bad' | 'off'; label: string; line?: string } {
+  if (c.status === 'voided') return { tone: 'off', label: 'Cancelled' };
   if (c.status === 'rejected') return { tone: 'bad', label: 'Not approved' };
   if (c.status === 'approved') {
     return c.paid
-      ? { tone: 'good', label: 'Paid', line: `Paid on ${dateOnly(c.paidAt)}${c.paidReference ? `, reference ${c.paidReference}` : ''}` }
-      : { tone: 'good', label: 'Approved', line: 'Waiting to be paid' };
+      ? { tone: 'done', label: `Paid on ${dateOnly(c.paidAt)}`, line: c.paidReference ? `Reference ${c.paidReference}` : undefined }
+      : { tone: 'done', label: 'Approved: waiting to be paid' };
   }
-  return { tone: 'warn', label: 'Waiting for approval' };
+  return { tone: 'wait', label: 'Waiting for approval' };
 }
 
-/** Asks once whether this member may claim expenses. The feature stays hidden until the answer is yes. */
-export function useClaimSetup() {
-  const s = useAsync<any>(() => api.get('/me/claims/setup'));
-  return { allowed: s.data?.allowed === true, setup: s.data };
-}
-
-export function ClaimsPage({ setup }: { setup: any }) {
+export function MyClaims() {
+  const setup = useAsync<any>(() => api.get('/me/claims/setup'));
   const list = useAsync<any>(() => api.get('/me/claims'));
   const [open, setOpen] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
   const rows: any[] = list.data?.claims ?? [];
+  const ready = setup.data?.allowed === true;
+  const start = () => { setSent(null); setOpen(true); };
+  useAction('my-claims', (a) => { if (a === 'new') start(); });
   return (
-    <div className="stack">
-      <div className="block cl-intro">
-        <p style={{ margin: 0 }}>Spent your own money for the church? Claim it back here with a photo of the receipt. Someone else approves it, and you are told when it is paid.</p>
-        <Button onClick={() => { setSent(null); setOpen(true); }}>New claim</Button>
-      </div>
+    <div className="mc">
+      <PageHeader title="My expense claims" subtitle="Get back money you spent for the church." actions={<Button onClick={start} disabled={!ready}>New claim</Button>} />
+      <Card>
+        <p className="mc-intro">Spent your own money for the church? Claim it back here with a photo of the receipt. Someone else approves it, and you are told when it is paid.</p>
+      </Card>
+      {setup.data && !ready && <Note tone="warn">You cannot make claims right now. Ask the person who looks after your access.</Note>}
       {sent && <Note tone="good">{sent}</Note>}
-      <h3 style={{ margin: '4px 2px 0' }}>My claims</h3>
-      {list.loading && !list.data ? <div className="card"><Skeleton lines={3} /></div> : list.error && !list.data ? (
-        <div className="stack"><ErrorNote>{list.error}</ErrorNote><Button kind="ghost" onClick={list.reload}>Try again</Button></div>
-      ) : !rows.length ? (
-        <div className="empty-state"><Icon name="receipt" size={40} /><strong>You have not made any claims yet.</strong></div>
-      ) : (
-        <ul className="notice-list pr-list">
-          {rows.map((c) => {
-            const st = statusOf(c);
-            return (
-              <li key={c.id} className="block pr-card cl-card">
-                <div className="pr-top-row"><strong className="ell">{c.payee}</strong><span className={`badge ${st.tone}`}>{st.label}</span></div>
-                <div className="cl-amt">{kes(c.amount)}</div>
-                <div className="tiny">{c.code} · {dateOnly(c.date)} · {c.category}{c.project ? ` · ${c.project}` : ''}</div>
-                <div className="tiny">Paid by {String(c.methodLabel ?? c.method).toLowerCase()}{c.reference ? ` (${c.reference})` : ''} · {c.files} receipt{c.files === 1 ? '' : 's'}</div>
-                {st.line && <div className={`cl-line ${st.tone}`}>{st.line}</div>}
-                {c.status === 'rejected' && c.decisionNote && <blockquote className="pr-quote">{c.decisionNote}</blockquote>}
-                {c.status === 'voided' && c.voidReason && <blockquote className="pr-quote cl-grey">{c.voidReason}</blockquote>}
-              </li>
-            );
-          })}
-        </ul>
+      <Section title="My claims">
+        {list.loading && !list.data ? <Card><Skeleton lines={3} /></Card> : list.error && !list.data ? (
+          <div className="mc-err"><ErrorNote>{friendly(list.error)}</ErrorNote><Button kind="ghost" onClick={list.reload}>Try again</Button></div>
+        ) : !rows.length ? (
+          <Card><EmptyState icon="receipt" title="You have not made any claims yet" text="Choose New claim when you have spent your own money for the church." /></Card>
+        ) : (
+          <ul className="mc-list">
+            {rows.map((c) => {
+              const st = statusOf(c);
+              return (
+                <li key={c.id} className="mc-card">
+                  <div className="mc-top"><strong className="mc-payee">{c.payee}</strong><span className="mc-amt">{kes(c.amount)}</span></div>
+                  <div className="mc-chips"><StatusChip tone={st.tone}>{st.label}</StatusChip>{st.line && <span className="tiny">{st.line}</span>}</div>
+                  <div className="tiny">{c.code} · {dateOnly(c.date)} · {c.category}{c.project ? ` · ${c.project}` : ''}</div>
+                  <div className="tiny">Paid by {String(c.methodLabel ?? c.method).toLowerCase()}{c.reference ? ` (${c.reference})` : ''} · {c.files} receipt{c.files === 1 ? '' : 's'}</div>
+                  {c.status === 'rejected' && c.decisionNote && <blockquote className="mc-quote">{c.decisionNote}</blockquote>}
+                  {c.status === 'voided' && c.voidReason && <blockquote className="mc-quote grey">{c.voidReason}</blockquote>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Section>
+      {open && ready && (
+        <SidePanel title="New claim" subtitle="Tell us what you spent and add the receipt." onClose={() => setOpen(false)}>
+          <ClaimForm setup={setup.data} onDone={(code) => { setOpen(false); setSent(`Claim sent. ${code}. Someone will approve it and you will be told.`); list.reload(); }} />
+        </SidePanel>
       )}
-      <Sheet open={open} onClose={() => setOpen(false)} title="New claim">
-        {open && <ClaimForm setup={setup} onDone={(code) => { setOpen(false); setSent(`Claim sent. ${code}. Someone will approve it and you will be told.`); list.reload(); }} />}
-      </Sheet>
     </div>
   );
 }
@@ -158,7 +162,7 @@ function ClaimForm({ setup, onDone }: { setup: any; onDone: (code: string) => vo
           next.push({ id: `${Date.now()}${next.length}`, name: f.name.replace(/\.[^.]+$/, '') + '.jpg', mime: 'image/jpeg', data: await toBase64(b), preview: URL.createObjectURL(b) });
         } else setFileError('Please add a photo or a PDF.');
       }
-    } catch (e) { setFileError(errText(e)); }
+    } catch (e: any) { setFileError(friendly(e?.message)); }
     setPics(next); setPrep(false);
     if (cam.current) cam.current.value = '';
     if (pick.current) pick.current.value = '';
@@ -176,17 +180,17 @@ function ClaimForm({ setup, onDone }: { setup: any; onDone: (code: string) => vo
       });
       onDone(r.code);
       return;
-    } catch (e) { setError(errText(e)); }
+    } catch (e: any) { setError(friendly(e?.message)); }
     setBusy(false);
   };
 
   return (
-    <div className="stack">
+    <div className="mc-form">
       {branches.length > 1 && (
         <Field label="Which church branch?"><select value={branchId} onChange={(e) => { setBranchId(e.target.value); setProjectId(''); }}>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
       )}
       <Field label="Date you spent it"><input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} /></Field>
-      <Field label="Amount (KES)"><input className="amount-input" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 450" /></Field>
+      <Field label="Amount (KES)"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="e.g. 450" /></Field>
       <Field label="What was it spent on?"><input value={payee} maxLength={120} onChange={(e) => setPayee(e.target.value)} placeholder="e.g. Bus fare to the printers" /></Field>
       <Field label="Category"><select value={categoryId} onChange={(e) => setCategoryId(e.target.value)}><option value="">Choose a category</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
       {projs.length > 0 && (
@@ -196,24 +200,24 @@ function ClaimForm({ setup, onDone }: { setup: any; onDone: (code: string) => vo
       <Field label="Reference (optional)" hint="For example the M-Pesa code"><input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. SGH7K2L9" /></Field>
       <Field label="Note (optional)"><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
 
-      <div className="cl-receipts">
-        <div className="field-label">Receipts</div>
+      <div className="mc-receipts">
+        <div className="mc-label">Receipts</div>
         {needReceipt && <Note tone="info">{pics.length ? 'Receipt added. Thank you.' : `Above ${kes(Math.round(limit * 100))} a receipt is needed. Add a receipt, or say why there is none.`}</Note>}
-        <input ref={cam} type="file" accept="image/*,application/pdf" capture="environment" hidden aria-label="Take a photo of the receipt" onChange={(e) => add(e.target.files)} />
-        <input ref={pick} type="file" accept="image/*,application/pdf" multiple hidden aria-label="Add receipt from your files" onChange={(e) => add(e.target.files)} />
+        <input ref={cam} type="file" accept="image/*,application/pdf" capture="environment" hidden aria-label="Take a photo of the receipt" data-testid="receipt-camera" onChange={(e) => add(e.target.files)} />
+        <input ref={pick} type="file" accept="image/*,application/pdf" multiple hidden aria-label="Add receipt from your files" data-testid="receipt-input" onChange={(e) => add(e.target.files)} />
         {pics.length < MAX_FILES && (
-          <>
-            <button type="button" className="cl-photo" disabled={prep} onClick={() => cam.current?.click()}><Icon name="receipt" size={28} /><span>{prep ? 'Getting the photo ready…' : 'Take a photo of the receipt'}</span></button>
+          <div className="mc-add">
+            <button type="button" className="mc-photo" disabled={prep} onClick={() => cam.current?.click()}><Icon name="receipt" size={22} /><span>{prep ? 'Getting the photo ready...' : 'Take a photo of the receipt'}</span></button>
             <Button kind="ghost" disabled={prep} onClick={() => pick.current?.click()}>Add from your files</Button>
-          </>
+          </div>
         )}
         {fileError && <ErrorNote>{fileError}</ErrorNote>}
         {pics.length > 0 && (
-          <ul className="cl-thumbs">
+          <ul className="mc-thumbs">
             {pics.map((p) => (
               <li key={p.id}>
-                {p.preview ? <img src={p.preview} alt={`Receipt ${p.name}`} /> : <span className="cl-pdf">PDF<small>{p.name}</small></span>}
-                <button type="button" className="cl-x" aria-label={`Remove ${p.name}`} onClick={() => remove(p.id)}><Icon name="close" size={16} /></button>
+                {p.preview ? <img src={p.preview} alt={`Receipt ${p.name}`} /> : <span className="mc-pdf">PDF<small>{p.name}</small></span>}
+                <button type="button" className="mc-x" aria-label={`Remove ${p.name}`} onClick={() => remove(p.id)}><Icon name="close" size={16} /></button>
               </li>
             ))}
           </ul>
@@ -226,7 +230,7 @@ function ClaimForm({ setup, onDone }: { setup: any; onDone: (code: string) => vo
         )}
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <Button disabled={!ok || busy} onClick={send}>{busy ? 'Sending…' : 'Send claim'}</Button>
+      <Button disabled={!ok || busy} onClick={send}>{busy ? 'Sending...' : 'Send claim'}</Button>
     </div>
   );
 }

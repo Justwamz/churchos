@@ -1,0 +1,26 @@
+/* My expense claims (staff). Tokens only. */
+.mc { display: grid; gap: 20px; }
+.mc-intro { margin: 0; color: var(--ink-2); line-height: 1.5; max-width: 62ch; }
+.mc-err { display: grid; gap: 10px; justify-items: start; }
+.mc-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.mc-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow); padding: 16px 18px; display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.mc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.mc-payee { font-size: 16px; min-width: 0; }
+.mc-amt { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mc-quote { margin: 4px 0 0; padding: 8px 12px; border-left: 3px solid var(--bad); background: var(--bad-tint); border-radius: 8px; color: var(--ink); font-size: 14px; }
+.mc-quote.grey { border-left-color: var(--line); background: var(--off-tint); color: var(--ink-2); }
+.mc-form { display: grid; gap: 16px; }
+.mc-form select, .mc-form input:not([type=file]), .mc-form textarea { width: 100%; }
+.mc-receipts { display: grid; gap: 10px; }
+.mc-label { font-size: 12.5px; font-weight: 600; color: var(--ink-3); }
+.mc-add { display: grid; gap: 8px; }
+.mc-photo { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 64px; padding: 10px 16px; border: 2px dashed var(--accent); border-radius: var(--r-card); background: var(--accent-tint); color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; }
+.mc-photo:disabled { opacity: 0.6; cursor: default; }
+.mc-thumbs { list-style: none; margin: 0; padding: 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.mc-thumbs li { position: relative; width: 96px; height: 96px; border-radius: 12px; overflow: hidden; background: var(--line); }
+.mc-thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mc-pdf { display: grid; place-items: center; height: 100%; font-weight: 700; color: var(--ink); text-align: center; padding: 4px; }
+.mc-pdf small { font-weight: 400; font-size: 10px; overflow: hidden; text-overflow: ellipsis; max-width: 88px; white-space: nowrap; }
+.mc-x { position: absolute; top: 4px; right: 4px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, 0.65); color: #fff; display: grid; place-items: center; cursor: pointer; }
+@media (max-width: 700px) { .mc-list { grid-template-columns: minmax(0, 1fr); } }
