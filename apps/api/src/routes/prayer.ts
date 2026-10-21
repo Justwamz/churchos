@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { grantsFor, inStaffScope } from '../scope';
 
 /**
@@ -183,7 +184,7 @@ export function prayerRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`UPDATE prayer_requests SET status=$2, hidden_by=$3, updated_at=$4 WHERE id=$1`, [r.id, hide ? 'hidden' : 'open', hide ? req.session!.uid : null, nowIso()]);
     await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: hide ? 'prayer.hidden' : 'prayer.restored', entity: 'prayer_request', entityId: r.id, summary: hide ? 'Hid a prayer request from the shared lists' : 'Showed a prayer request again', reason: hide ? reason : undefined });
     const owner = (await ctx.db.query<any>(`SELECT user_id FROM prayer_owners WHERE prayer_id=$1`, [r.id]))[0];
-    if (hide && owner) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), r.org_id, owner.user_id, 'Your prayer request was taken off the shared list', `The prayer team took your request off the shared list: ${reason}. They will still pray for you. You can speak to a pastor by booking a time in the app.`, nowIso()]);
+    if (hide && owner) await addNotification(ctx, { orgId: r.org_id, userId: owner.user_id, kind: 'announcement', title: 'Your prayer request was taken off the shared list', body: `The prayer team took your request off the shared list: ${reason}. They will still pray for you. You can speak to a pastor by booking a time in the app.`, link: 'member:prayer' });
     return { ok: true };
   });
 

@@ -19,7 +19,7 @@ const OWNER = '0700000001', TREAS = '0700000002', ADMIN = '0700000003', COAST = 
 const AUDITOR = '0700000007', VOL = '0700000558';
 const PETER = '0711000002';
 const JANE = '0711000001';
-const inbox = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows as any[];
+const inbox = async (who: string, app: 'member' | 'staff' = 'member') => (await call(who, 'GET', `/me/notifications?app=${app}`)).json().rows as any[];
 const png = () => ({ name: 'receipt.png', mime: 'image/png', data: gradientPng(40, 40, [200, 200, 200], [20, 20, 20]) });
 const today = () => new Date(ctx.clock.now().getTime() + 3 * 3600_000).toISOString().slice(0, 10);
 let cats: Record<string, string> = {};
@@ -82,8 +82,8 @@ describe('recording an expense (L235, L237, L239)', () => {
     expect(big.json()).toMatchObject({ status: 'submitted', autoApproved: false });
     const list = (await call(TREAS, 'GET', '/expenses')).json().expenses;
     expect(list.find((e: any) => e.id === small.json().id)).toMatchObject({ status: 'approved', autoApproved: true, approver: 'Approved automatically (under the limit)', recordedBy: 'Esther Njeri' });
-    expect((await inbox(ADMIN)).some((n) => /needs approval/.test(n.title) && /Esther Njeri/.test(n.body))).toBe(true);
-    expect((await inbox(TREAS)).some((n) => /needs approval/.test(n.title))).toBe(false);
+    expect((await inbox(ADMIN, 'staff')).some((n) => /needs approval/.test(n.title) && /Esther Njeri/.test(n.body))).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => /needs approval/.test(n.title))).toBe(false);
   });
 
   it('asks for approval on every expense when the owner says so', async () => {
@@ -159,14 +159,14 @@ describe('approving, rejecting and voiding (L237, L238)', () => {
     expect((await call(TREAS, 'GET', '/expenses?status=submitted')).json().expenses.find((e: any) => e.id === id).mayApprove).toBe(false);
     expect(list.summary.toApprove).toBeGreaterThanOrEqual(1);
     expect((await call(ADMIN, 'POST', `/expenses/${id}/decide`, { approve: true, note: 'Checked the invoice' })).json()).toMatchObject({ status: 'approved' });
-    expect((await inbox(TREAS)).some((n) => n.title === 'An expense was approved')).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => n.title === 'An expense was approved')).toBe(true);
     expect((await call(ADMIN, 'POST', `/expenses/${id}/decide`, { approve: true })).json().code).toBe('already_decided');
   });
 
   it('rejects with a reason the recorder is told', async () => {
     const r = (await rec(TREAS, { amount: 12000, noReceiptReason: 'None' })).json().id;
     expect((await call(ADMIN, 'POST', `/expenses/${r}/decide`, { approve: false, note: 'This was already paid last month' })).json().status).toBe('rejected');
-    expect((await inbox(TREAS)).some((n) => n.title === 'An expense was not approved' && /already paid last month/.test(n.body))).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => n.title === 'An expense was not approved' && /already paid last month/.test(n.body))).toBe(true);
     expect((await call(TREAS, 'GET', `/expenses/${r}`)).json()).toMatchObject({ status: 'rejected', decisionNote: 'This was already paid last month' });
   });
 
@@ -179,7 +179,7 @@ describe('approving, rejecting and voiding (L237, L238)', () => {
     expect((await call(ADMIN, 'POST', `/expenses/${id}/void`, { reason: 'Again please' })).json().code).toBe('wrong_state');
     const row = (await call(TREAS, 'GET', `/expenses/${id}`)).json();
     expect(row).toMatchObject({ status: 'voided', amount: 900000, voidReason: 'Recorded twice by mistake', voidedBy: 'Samuel Kiptoo' });
-    expect((await inbox(TREAS)).some((n) => n.title === 'An expense was voided')).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => n.title === 'An expense was voided')).toBe(true);
   });
 
   it('lets the recorder withdraw one that is waiting', async () => {
@@ -193,7 +193,7 @@ describe('approving, rejecting and voiding (L237, L238)', () => {
     expect((await call(ADMIN, 'POST', `/expenses/${e}/decide`, { approve: true })).json().status).toBe('awaiting_second');
     expect((await call(ADMIN, 'POST', `/expenses/${e}/decide`, { approve: true })).json().code).toBe('same_person');
     expect((await call(TREAS, 'POST', `/expenses/${e}/decide`, { approve: true })).statusCode).toBeGreaterThanOrEqual(403);
-    expect((await inbox(OWNER)).some((n) => n.title === 'A second approval is needed')).toBe(true);
+    expect((await inbox(OWNER, 'staff')).some((n) => n.title === 'A second approval is needed')).toBe(true);
     expect((await call(OWNER, 'POST', `/expenses/${e}/decide`, { approve: true })).json().status).toBe('approved');
     expect((await call(OWNER, 'GET', `/expenses/${e}`)).json()).toMatchObject({ firstApprover: 'Samuel Kiptoo', approver: 'Daniel Mwangi', status: 'approved' });
     await rules();
@@ -254,7 +254,7 @@ describe('budgets and alerts (L241)', () => {
   it('tells the people who manage expenses once at 80% and once at 100%', async () => {
     const util = cats['Utilities'];
     const spend = async (amount: number) => { const e = await rec(ADMIN, { amount, categoryId: util, noReceiptReason: 'Bill paid online' }); expect(e.statusCode).toBe(200); expect(e.json().status).toBe('approved'); };
-    const alerts = async (who = TREAS) => (await inbox(who)).filter((n) => /Utilities/.test(n.title) && /Budget alert|Over budget/.test(n.title));
+    const alerts = async (who = TREAS) => (await inbox(who, 'staff')).filter((n) => /Utilities/.test(n.title) && /Budget alert|Over budget/.test(n.title));
     await spend(4000); // 40% of KES 10,000
     expect(await alerts()).toHaveLength(0);
     await spend(4000); // 80%
@@ -281,9 +281,9 @@ describe('budgets and alerts (L241)', () => {
     const p = (await setup(TREAS)).projects.find((x: any) => x.name === 'Choir robes');
     await call(TREAS, 'PUT', '/expenses/project-budget', { projectId: p.id, amount: 1000 });
     expect((await rec(ADMIN, { amount: 900, projectId: p.id })).json().status).toBe('approved');
-    expect((await inbox(TREAS)).some((n) => /Budget alert: the project Choir robes/.test(n.title))).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => /Budget alert: the project Choir robes/.test(n.title))).toBe(true);
     expect((await rec(ADMIN, { amount: 200, projectId: p.id })).json().status).toBe('approved');
-    expect((await inbox(TREAS)).some((n) => /Over budget: the project Choir robes/.test(n.title))).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => /Over budget: the project Choir robes/.test(n.title))).toBe(true);
     const row = (await call(TREAS, 'GET', '/projects')).json().find((x: any) => x.name === 'Choir robes');
     expect(row).toMatchObject({ budget: 100000, spent: 110000 });
   });
@@ -307,7 +307,7 @@ describe('claims from the app (L240)', () => {
     expect(r.json()).toMatchObject({ status: 'submitted', autoApproved: false });
     id = r.json().id;
     expect((await call(VOL, 'GET', '/me/claims')).json().claims.find((c: any) => c.id === id)).toMatchObject({ kind: 'claim', status: 'submitted', amount: 80000, recordedBy: 'Volunteer Vera', paid: false });
-    expect((await inbox(ADMIN)).some((n) => n.title === 'An expense claim needs approval')).toBe(true);
+    expect((await inbox(ADMIN, 'staff')).some((n) => n.title === 'An expense claim needs approval')).toBe(true);
     expect((await claim(VOL, { amount: 2500, files: [png()] })).statusCode).toBe(200);
   });
 
@@ -315,7 +315,7 @@ describe('claims from the app (L240)', () => {
     expect((await call(VOL, 'POST', `/expenses/${id}/decide`, { approve: true })).statusCode).toBe(404);
     expect((await call(ADMIN, 'POST', `/expenses/${id}/paid`, { reference: 'ABC1' })).json().code).toBe('wrong_state'); // not approved yet
     expect((await call(ADMIN, 'POST', `/expenses/${id}/decide`, { approve: true })).json().status).toBe('approved');
-    expect((await inbox(VOL)).some((n) => n.title === 'Your claim was approved')).toBe(true);
+    expect((await inbox(VOL, 'staff')).some((n) => n.title === 'Your claim was approved')).toBe(true);
     expect((await call(TREAS, 'GET', '/expenses?unpaid=1')).json().expenses.map((e: any) => e.id)).toContain(id);
     expect((await call(AUDITOR, 'POST', `/expenses/${id}/paid`, { reference: 'ABC1' })).statusCode).toBeGreaterThanOrEqual(403);
     expect((await call(TREAS, 'POST', `/expenses/${id}/paid`, {})).json().code).toBe('bad_content');
@@ -323,7 +323,7 @@ describe('claims from the app (L240)', () => {
     expect((await call(TREAS, 'POST', `/expenses/${id}/paid`, { reference: 'SGH7K2L9' })).json().paid).toBe(true);
     expect((await call(TREAS, 'POST', `/expenses/${id}/paid`, { reference: 'AGAIN' })).json().code).toBe('already_paid');
     expect((await call(VOL, 'GET', '/me/claims')).json().claims.find((c: any) => c.id === id)).toMatchObject({ paid: true, paidReference: 'SGH7K2L9', paidBy: 'Esther Njeri' });
-    expect((await inbox(VOL)).some((n) => n.title === 'Your claim was paid')).toBe(true);
+    expect((await inbox(VOL, 'staff')).some((n) => n.title === 'Your claim was paid')).toBe(true);
     expect(ctx.messaging.sent.some((m) => m.to === '254700000558' && /SGH7K2L9/.test(m.body))).toBe(true);
     expect((await call(TREAS, 'GET', '/expenses?unpaid=1')).json().expenses.map((e: any) => e.id)).not.toContain(id);
     expect((await call(ADMIN, 'POST', `/expenses/${id}/void`, { reason: 'Voiding after it was paid' })).json().code).toBe('paid');

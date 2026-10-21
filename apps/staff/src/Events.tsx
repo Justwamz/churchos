@@ -13,6 +13,7 @@ import { AudiencePicker, audienceValue, explainCommunity as explain, initialAudi
 import { TicketsEditor, blankType, explainTickets, rowFromType, typesPayload, type Poster, type RefundPolicy, type TypeRow } from './TicketsEditor';
 import { PostponeDialog } from './Postpone';
 import { TicketPanel } from './TicketPanel';
+import { useLinkParams } from './links';
 import './community.css';
 import './tickets.css';
 import './worship.css';
@@ -239,6 +240,15 @@ export function Events() {
   const [postponing, setPostponing] = useState<any>(null);
   const [seed, setSeed] = useState<any>(null);
   const canManage = s.can('events.manage');
+  // A notification link: ?open=<event id> opens that event's tickets and sales panel (refund requests are in it).
+  const link = useLinkParams('events');
+  useEffect(() => {
+    if (!link?.open) return;
+    api.get('/events' + s.qs({ branch: undefined, past: undefined }))
+      .then(async (up: any[]) => up.find((e) => e.id === link.open) ?? (await api.get('/events' + s.qs({ branch: undefined, past: '1' }))).find((e: any) => e.id === link.open))
+      .then((ev: any) => { if (ev) setTickets(ev); })
+      .catch(() => {});
+  }, [link]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (mode === 'form') {
     return (

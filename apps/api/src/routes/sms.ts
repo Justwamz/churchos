@@ -22,7 +22,7 @@ export function smsRoutes(app: FastifyInstance, ctx: Ctx) {
       const left = Number(r.amount) - Number(r.paid);
       if (left <= 0) { none++; continue; }
       const body = `Hello ${String(r.full_name).split(' ')[0]}, your pledge to ${p.name} has KES ${(left / 100).toLocaleString('en-KE')} remaining. Give at churchos.app/${p.branch_code}. Thank you.`;
-      const res = await notify(ctx, { orgId: p.org_id, branchId: p.branch_id, phone: r.phone, kind: 'reminder', title: `Pledge reminder: ${p.name}`, body, idemKey: `reminder:${r.id}:${ctx.clock.now().toISOString().slice(0, 13)}` });
+      const res = await notify(ctx, { orgId: p.org_id, branchId: p.branch_id, phone: r.phone, kind: 'reminder', title: `Pledge reminder: ${p.name}`, body, idemKey: `reminder:${r.id}:${ctx.clock.now().toISOString().slice(0, 13)}`, link: 'member:give?sub=pledges' });
       if (res.sms === 'sent') sent++; else skipped++;
     }
     return { pledges: rows.length, smsSent: sent, smsSkippedNoBalance: skipped, alreadyPaid: none };
@@ -30,13 +30,19 @@ export function smsRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // ---------- member notifications (in-app inbox, L56, L121) ----------
 
+  /** ?app=member (default) or staff: staff tasks sit in the staff app, a person's own messages in the member app. */
+  const audienceOf = (req: any) => ((req.query as any)?.app === 'staff' ? 'staff' : 'member');
+
   app.get('/me/notifications', auth, async (req) => {
-    const rows = await ctx.db.query<any>(`SELECT id, kind, title, body, message_id, member_id, for_name, read, created_at FROM notifications WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100`, [req.session!.uid]);
+    const rows = await ctx.db.query<any>(`SELECT id, kind, title, body, message_id, member_id, for_name, link, audience, read, created_at FROM notifications WHERE user_id=$1 AND audience=$2 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100`, [req.session!.uid, audienceOf(req)]);
     return { unread: rows.filter((r) => !r.read).length, rows };
   });
 
   app.post('/me/notifications/read', auth, async (req) => {
-    await ctx.db.query(`UPDATE notifications SET read=true WHERE user_id=$1`, [req.session!.uid]);
+    // With ids, only those messages are marked read (opening one message); without, every message of the chosen audience.
+    const ids = Array.isArray((req.body as any)?.ids) ? ((req.body as any).ids as unknown[]).map(String).slice(0, 200) : null;
+    if (ids) await ctx.db.query(`UPDATE notifications SET read=true WHERE user_id=$1 AND audience=$2 AND id = ANY($3::text[])`, [req.session!.uid, audienceOf(req), ids]);
+    else await ctx.db.query(`UPDATE notifications SET read=true WHERE user_id=$1 AND audience=$2`, [req.session!.uid, audienceOf(req)]);
     return { ok: true };
   });
 

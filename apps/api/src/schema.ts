@@ -748,6 +748,10 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS member_id text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS for_name text;
 -- Members can delete messages from their own inbox (kept, hidden, so it can be undone).
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+-- Where the message points ("<app>:<page>?key=value") and which app shows it: staff tasks stay out of the member inbox.
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link text;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience text NOT NULL DEFAULT 'member' CHECK (audience IN ('member','staff'));
+CREATE INDEX IF NOT EXISTS notifications_user_audience_idx ON notifications (user_id, audience, created_at);
 
 -- Certificates and sacramental records (L98 to L103).
 CREATE TABLE IF NOT EXISTS certificate_templates (

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification, type NotificationAudience } from '../notifications';
 import { sendEmail } from '../wallets';
 import { showCode } from './event-credit';
 
@@ -80,8 +81,8 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
     return rows.map((r) => r.user_id as string);
   }
 
-  const note = (orgId: string | null, userId: string, title: string, body: string) =>
-    ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), orgId, userId, title, body, nowIso()]);
+  const note = (orgId: string | null, userId: string, title: string, body: string, link: string = 'member:credit', audience: NotificationAudience = 'member') =>
+    addNotification(ctx, { orgId, userId, kind: 'announcement', title, body, link, audience });
 
   // ======================= ask for the credit back as money =======================
 
@@ -108,7 +109,7 @@ export function creditExtraRoutes(app: FastifyInstance, ctx: Ctx) {
       for (const t of taken) await q.query(`INSERT INTO credit_refund_holds (org_id, refund_id, credit_id, amount) VALUES ($1,$2,$3,$4)`, [orgId, id, t.id, t.take]);
     });
     await ctx.ledger.audit({ orgId, actor: uid, action: 'credit.refund_requested', entity: 'credit_refund', entityId: id, summary: `${name} asked for ${kesText(amount)} of their event credit back as money`, reason: reason ?? undefined });
-    for (const u of await churchPeople(orgId)) await note(orgId, u, 'Event credit refund request', `${name} asked for ${kesText(amount)} of their event credit back. Open Events > Event credit to decide.`);
+    for (const u of await churchPeople(orgId)) await note(orgId, u, 'Event credit refund request', `${name} asked for ${kesText(amount)} of their event credit back. Open Events > Event credit to decide.`, 'staff:credit?tab=refunds', 'staff');
     return { id, amount, status: 'pending' };
   });
 
@@ -274,7 +275,7 @@ export async function runCreditReminders(ctx: Ctx): Promise<{ members: number; g
     const coming = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM events WHERE org_id=$1 AND ticketed AND status='scheduled' AND starts_at > $2`, [w.orgId, nowIso]))[0].n);
     const body = `You have ${kesText(w.total)} of event credit at ${org?.name ?? 'your church'}. ${coming ? `${coming} ticketed event${coming === 1 ? ' is' : 's are'} coming up: it is used automatically when you buy tickets.` : 'It never expires and is used on your next ticketed event.'}`;
     if (w.userId) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'reminder',$4,$5,$6)`, [ctx.newId('ntf'), w.orgId, w.userId, 'You have event credit', body, nowIso]);
+      await addNotification(ctx, { orgId: w.orgId, userId: w.userId, kind: 'reminder', title: 'You have event credit', body, link: 'member:credit' });
       members++;
     } else if (w.email) {
       if (await sendEmail(ctx, w.orgId, w.email, 'You have event credit', `Hello,\n\n${body}\n\nYour credit code: ${showCode(w.secret)}\n`)) guests++;

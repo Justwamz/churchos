@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { grantsFor, inStaffScope } from '../scope';
 import { csv } from './helpers';
 
@@ -55,7 +56,7 @@ export function suggestionRoutes(app: FastifyInstance, ctx: Ctx) {
     const users = await ctx.db.query<any>(`SELECT DISTINCT user_id FROM role_assignments WHERE org_id=$1`, [m.org_id]);
     for (const u of users) {
       if (!(await branchesFor(ctx.db, u.user_id, 'suggestions.view')).some((x) => x.orgId === m.org_id && x.branchId === m.branch_id)) continue;
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), m.org_id, u.user_id, 'New suggestion', `A new suggestion in the box: ${CATEGORIES[category]}. Open Suggestions in the staff app.`, nowIso()]);
+      await addNotification(ctx, { orgId: m.org_id, userId: u.user_id, kind: 'announcement', title: 'New suggestion', body: `A new suggestion in the box: ${CATEGORIES[category]}. Open Suggestions in the staff app.`, link: `staff:suggestions?open=${id}`, audience: 'staff' });
     }
     return { id, anonymous };
   });
@@ -109,7 +110,7 @@ export function suggestionRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.ledger.audit({ orgId: s.org_id, branchId: s.branch_id, actor: req.session!.uid, action: 'suggestion.updated', entity: 'suggestion', entityId: s.id, summary: `Suggestion marked ${STATUS_LABEL[status].toLowerCase()}${publish && !s.published ? ' and shared with the church' : ''}` });
     if (replied) {
       const owner = (await ctx.db.query<any>(`SELECT user_id FROM suggestion_owners WHERE suggestion_id=$1`, [s.id]))[0];
-      if (owner) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), s.org_id, owner.user_id, 'Your suggestion has an answer', `Your suggestion is now "${STATUS_LABEL[status]}".${response ? ` ${response}` : ''}`, nowIso()]);
+      if (owner) await addNotification(ctx, { orgId: s.org_id, userId: owner.user_id, kind: 'announcement', title: 'Your suggestion has an answer', body: `Your suggestion is now "${STATUS_LABEL[status]}".${response ? ` ${response}` : ''}`, link: 'member:suggestions' });
     }
     return { ok: true };
   });

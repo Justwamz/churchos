@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLinkParams } from './links';
 import { Button, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Modal } from './MemberForm';
@@ -169,6 +170,8 @@ export function EventCredit() {
   const toast = useToast();
   const x = d.data;
   const todo = x ? Number(x.refunded.toDecide) + Number(x.refunded.toPay) : 0;
+  const link = useLinkParams('credit');
+  useEffect(() => { if (link?.tab && (link.tab === 'overview' || (manage && (link.tab === 'refunds' || link.tab === 'holders')))) setTab(link.tab); }, [link]); // eslint-disable-line react-hooks/exhaustive-deps
   const tabs = [
     { id: 'overview', label: 'Overview' },
     ...(manage ? [{ id: 'refunds', label: 'Refund requests', badge: todo }, { id: 'holders', label: 'Who holds credit' }] : []),

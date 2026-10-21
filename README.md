@@ -259,3 +259,9 @@ Going live with real SMS (Onfon) and email (Resend): see [docs/going-live-messag
 - **Send to another member:** enter their number, check the name that appears, send. It is instant, within the same church, and both people are told.
 - **What the church is holding:** Event credit page > Overview (outstanding amount, how many people hold it, how old it is, issued, used and paid back). Names of holders only for people who manage events. The treasurer sees the totals. The Money Overview has a card too.
 - **Reminders:** members get an in-app reminder once a month while they hold unused credit (guests by email with their code), and Home shows a card with the balance.
+
+## Messages that take you to the right page (Slice 28)
+
+- **Staff messages stay in the staff app.** Things staff must act on (an expense waiting for approval, a refund or credit-refund request, a booking request, a new suggestion, low messaging credit, claim decisions for a volunteer who claims) appear in the staff app's bell and on Today, and no longer in the member inbox, even for a staff member who is also a member.
+- **Messages with a call to action have a button.** In the staff app the button reads for example "Review expense" and opens Expenses with that expense open; others open Event credit, Events (tickets and refunds), Bookings, Suggestions, Adverts, My claims and so on. A message pointing at a page you cannot open sends you to Today with a note. In the member app the button reads for example "View ticket", "See credit" or "Open giving history" and opens that screen.
+- **Opening a message marks just that message read.**

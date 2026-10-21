@@ -990,3 +990,9 @@ h3 { font-size: 17px; }
 .crd-use-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .crd-use-line input { width: 110px; min-height: 44px; text-align: right; }
 .crd-use input[type=range] { width: 100%; min-height: 32px; accent-color: var(--brand); }
+
+/* lnk- message call-to-action */
+.lnk-row { cursor: pointer; }
+.lnk-row:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.lnk-cta { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin-top: 4px; padding: 0 14px; border: 1px solid var(--brand); border-radius: 999px; background: var(--brand-tint); color: var(--brand); font: inherit; font-weight: 600; cursor: pointer; }
+.lnk-cta:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }

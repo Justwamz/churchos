@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { BrandMark, useChurchBranding, Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
 import type { BrandInfo, CertificatePayload } from '@churchos/ui';
 import { api, errText, useOnline } from './api';
-import { Inbox } from './Inbox';
+import { Inbox, LinkCtx, parseLink, useOpenMessage } from './Inbox';
 import { MessageChoices } from './Choices';
 import { Groups } from './Groups';
 import { EventsPage, HomeEvents, HomeNotices, NoticesPage } from './Community';
@@ -149,6 +149,19 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
     if (mainRef.current) mainRef.current.scrollTop = 0;
   };
 
+  /** Message links: member:<page>?params -> the screen the app really has. Unknown pages go Home. */
+  const openLink = (link: string) => {
+    const l = parseLink(link);
+    if (!l) return;
+    const subs: Record<string, HomeSub> = { tickets: 'tickets', credit: 'credit', bookings: 'bookings', book: 'book', events: 'events', notices: 'notices', prayer: 'prayer', suggestions: 'suggestions' };
+    if (l.page === 'give') { const sub = (['give', 'pledges', 'history', 'regular'] as GiveSub[]).find((x) => x === l.params.sub); go('give', { sub: sub ?? 'give' }); }
+    else if (l.page === 'shop') openShop();
+    else if (subs[l.page]) showSub(subs[l.page]);
+    else if (l.page === 'kids') go(hasKids ? 'kids' : 'home');
+    else if (l.page === 'groups') go('groups');
+    else go('home');
+  };
+
   useEffect(() => { if (!api.getToken()) signOut(); }, [me.error]); // eslint-disable-line
 
   const m = me.data?.memberships?.[0];
@@ -169,6 +182,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         <button type="button" className="avatar" aria-label="My profile" onClick={() => go('me')}>{initials(name)}</button>
       </header>
 
+      <LinkCtx.Provider value={openLink}>
       <main className="app-main" ref={mainRef} id="main">
         <div className="page" key={tab}>
           {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
@@ -185,6 +199,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           )}
         </div>
       </main>
+      </LinkCtx.Provider>
 
       <HelpButton api={api} audience="member" screen={helpScreen} />
       <nav className="tabbar" aria-label="Main">
@@ -218,6 +233,7 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
   const recent: any[] = (giving.data?.rows ?? []).slice(0, 3);
   const latest: any[] = (notif.data?.rows ?? []).slice(0, 2);
   const unread = Number(notif.data?.unread ?? 0);
+  const openMsg = useOpenMessage(notif.reload);
   const actions: { ico: string; label: string; on: () => void }[] = [
     { ico: 'give', label: 'Give tithe', on: () => go('give', { purpose: 'TITHE' }) },
     { ico: 'coin', label: 'Give offering', on: () => go('give', { purpose: 'OFFERING' }) },
@@ -270,7 +286,7 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
           <ul className="plain-list">
             {latest.map((r) => (
               <li key={r.id}>
-                <button type="button" className={`mini-msg ${r.read ? '' : 'unread'}`} onClick={() => go('inbox')}>
+                <button type="button" className={`mini-msg ${r.read ? '' : 'unread'}`} onClick={() => (parseLink(r.link) ? openMsg(r) : go('inbox'))}>
                   <span className={`msg-ico ${isReceipt(r) ? 'good' : r.kind === 'announcement' ? 'announce' : ''}`}><Icon name={isReceipt(r) ? 'check' : r.kind === 'announcement' ? 'megaphone' : 'chat'} size={18} /></span>
                   <span className="mini-text"><strong>{r.title}</strong><span className="clamp2">{r.body}</span></span>
                 </button>

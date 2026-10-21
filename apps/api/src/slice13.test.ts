@@ -19,7 +19,7 @@ const call = async (phone: string | null, method: 'GET' | 'POST' | 'PATCH' | 'PU
 const OWNER = '0700000001', LUCY = '0700000008', TREAS = '0700000002', HOPE = '0700000005';
 const JANE = '0711000001', DAVID = '0711000004', PETER = '0711000002';
 const MIN = 60_000;
-const inbox = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows as any[];
+const inbox = async (who: string, app: 'member' | 'staff' = 'member') => (await call(who, 'GET', `/me/notifications?app=${app}`)).json().rows as any[];
 const smsTo = (phone: string) => ctx.messaging.sent.filter((m) => m.channel === 'sms' && m.to === phone);
 let maryCode = '';
 const lastCode = (phone: string) => /(\d{6})/.exec(smsTo(phone).at(-1)!.body)![1];
@@ -244,12 +244,12 @@ describe('not collected (L184)', () => {
     expect(['alerted', 'escalated']).toContain(state);
   });
   it('alerts staff after the longer wait', async () => {
-    const before = (await inbox(OWNER)).length;
+    const before = (await inbox(OWNER, 'staff')).length;
     ctx.clock.advance(30 * MIN);
     const j = await runKidsJobs(ctx);
     expect(j.escalated).toBe(1);
-    expect((await inbox(OWNER)).length).toBeGreaterThan(before);
-    expect((await inbox(OWNER)).some((n) => /Child not collected: Joy Wanjiku/.test(n.title))).toBe(true);
+    expect((await inbox(OWNER, 'staff')).length).toBeGreaterThan(before);
+    expect((await inbox(OWNER, 'staff')).some((n) => /Child not collected: Joy Wanjiku/.test(n.title))).toBe(true);
     expect((await runKidsJobs(ctx)).escalated).toBe(0);
   });
   it('lets a teacher escalate by hand and call the guardians', async () => {

@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { toCents } from '@churchos/shared';
 import { branchesFor, type Permission } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { grantsFor, inStaffScope, staffWith } from '../scope';
 import { notify } from '../sms';
 import { csv } from './helpers';
@@ -146,7 +147,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
         const claimed = await ctx.db.query<any>(`INSERT INTO expense_budget_alerts (scope, level, at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING scope`, [c.scope, level, nowIso()]);
         if (!claimed[0]) continue;
         for (const u of await staffWith(ctx, e.org_id, e.branch_id, 'expenses.manage')) {
-          await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, u.id, level >= 100 ? `Over budget: ${c.label}` : `Budget alert: ${c.label}`, `${c.label} has used ${Math.round(pct)}% of its budget (${kes(c.spent)} of ${kes(c.budget)}).`, nowIso()]);
+          await addNotification(ctx, { orgId: e.org_id, userId: u.id, kind: 'announcement', title: level >= 100 ? `Over budget: ${c.label}` : `Budget alert: ${c.label}`, body: `${c.label} has used ${Math.round(pct)}% of its budget (${kes(c.spent)} of ${kes(c.budget)}).`, link: 'staff:expenses?tab=budgets', audience: 'staff' });
         }
       }
     }
@@ -297,7 +298,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     else {
       for (const u of await staffWith(ctx, g.orgId, branchId, 'expenses.approve')) {
         if (u.id === uid) continue;
-        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), g.orgId, u.id, kind === 'claim' ? 'An expense claim needs approval' : 'An expense needs approval', `${req.session!.name} ${kind === 'claim' ? 'claimed' : 'recorded'} ${kes(amount)} for ${cat.name.toLowerCase()} (${payee}). Open Expenses to approve it.`, nowIso()]);
+        await addNotification(ctx, { orgId: g.orgId, userId: u.id, kind: 'announcement', title: kind === 'claim' ? 'An expense claim needs approval' : 'An expense needs approval', body: `${req.session!.name} ${kind === 'claim' ? 'claimed' : 'recorded'} ${kes(amount)} for ${cat.name.toLowerCase()} (${payee}). Open Expenses to approve it.`, link: `staff:expenses?open=${id}`, audience: 'staff' });
       }
     }
     return { id, code: e.code, status: e.status, autoApproved: auto };
@@ -402,7 +403,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
       if (!note) throw new HttpError(400, 'Say why you are rejecting it', 'bad_content');
       await ctx.db.query(`UPDATE expenses SET status='rejected', approver=$2, approver_name=$3, approved_at=$4, decision_note=$5, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), note]);
       await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.rejected', entity: 'expense', entityId: e.id, summary: `Rejected ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code})`, reason: note });
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, e.recorded_by, e.kind === 'claim' ? 'Your claim was not approved' : 'An expense was not approved', `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}): ${note}`, nowIso()]);
+      await addNotification(ctx, { orgId: e.org_id, userId: e.recorded_by, kind: 'announcement', title: e.kind === 'claim' ? 'Your claim was not approved' : 'An expense was not approved', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}): ${note}`, link: e.kind === 'claim' ? 'staff:my-claims' : `staff:expenses?open=${e.id}`, audience: 'staff' });
       return { id: e.id, status: 'rejected' };
     }
     let overrideBy = e.override_by as string | null;
@@ -426,14 +427,14 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
       await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.first_approval', entity: 'expense', entityId: e.id, summary: `First approval of ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}); a second person must approve` });
       for (const u of await staffWith(ctx, e.org_id, e.branch_id, 'expenses.approve')) {
         if (u.id === uid || u.id === e.recorded_by) continue;
-        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, u.id, 'A second approval is needed', `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) is above ${kes(settings.two_approver_limit!)} and needs a second approver.`, nowIso()]);
+        await addNotification(ctx, { orgId: e.org_id, userId: u.id, kind: 'announcement', title: 'A second approval is needed', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) is above ${kes(settings.two_approver_limit!)} and needs a second approver.`, link: `staff:expenses?open=${e.id}`, audience: 'staff' });
       }
       return { id: e.id, status: 'awaiting_second' };
     }
     if (needsTwo && e.first_approver === uid) throw new HttpError(403, 'A different person must give the second approval', 'same_person');
     await ctx.db.query(`UPDATE expenses SET status='approved', approver=$2, approver_name=$3, approved_at=$4, decision_note=$5, override_by=$6, override_reason=$7, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), note || null, overrideBy, overrideReason]);
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.approved', entity: 'expense', entityId: e.id, summary: `Approved ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code})${overrideReason ? ', restricted fund overridden' : ''}`, reason: overrideReason ?? undefined });
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, e.recorded_by, e.kind === 'claim' ? 'Your claim was approved' : 'An expense was approved', `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) was approved.${e.kind === 'claim' ? ' You will be told when it is paid.' : ''}`, nowIso()]);
+    await addNotification(ctx, { orgId: e.org_id, userId: e.recorded_by, kind: 'announcement', title: e.kind === 'claim' ? 'Your claim was approved' : 'An expense was approved', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) was approved.${e.kind === 'claim' ? ' You will be told when it is paid.' : ''}`, link: e.kind === 'claim' ? 'staff:my-claims' : `staff:expenses?open=${e.id}`, audience: 'staff' });
     await budgetAlerts({ ...e, status: 'approved' });
     return { id: e.id, status: 'approved' };
   });
@@ -452,7 +453,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     if (e.kind === 'claim' && e.paid_at) throw new HttpError(409, 'This claim was already paid. Record the correction as a new expense.', 'paid');
     await ctx.db.query(`UPDATE expenses SET status='voided', voided_by=$2, voided_by_name=$3, voided_at=$4, void_reason=$5, updated_at=$4 WHERE id=$1`, [e.id, uid, req.session!.name, nowIso(), reason]);
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: uid, action: 'expense.voided', entity: 'expense', entityId: e.id, summary: `Voided ${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code})`, reason });
-    if (e.recorded_by !== uid) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, e.recorded_by, 'An expense was voided', `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) was voided: ${reason}`, nowIso()]);
+    if (e.recorded_by !== uid) await addNotification(ctx, { orgId: e.org_id, userId: e.recorded_by, kind: 'announcement', title: 'An expense was voided', body: `${kes(Number(e.amount))} for ${e.category_name.toLowerCase()} (${e.code}) was voided: ${reason}`, link: e.kind === 'claim' ? 'staff:my-claims' : `staff:expenses?open=${e.id}`, audience: 'staff' });
     return { id: e.id, status: 'voided' };
   });
 
@@ -467,7 +468,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`UPDATE expenses SET paid_at=$2, paid_by=$3, paid_by_name=$4, paid_reference=$5, updated_at=$2 WHERE id=$1`, [e.id, nowIso(), req.session!.uid, req.session!.name, ref]);
     await ctx.ledger.audit({ orgId: e.org_id, branchId: e.branch_id, actor: req.session!.uid, action: 'expense.claim_paid', entity: 'expense', entityId: e.id, summary: `Marked the claim ${e.code} (${kes(Number(e.amount))}) as paid, reference ${ref}` });
     const u = (await ctx.db.query<any>(`SELECT phone FROM users WHERE id=$1`, [e.recorded_by]))[0];
-    if (u) await notify(ctx, { orgId: e.org_id, branchId: e.branch_id, phone: u.phone, kind: 'receipt', title: 'Your claim was paid', body: `Your claim of ${kes(Number(e.amount))} (${e.code}) was paid. Reference ${ref}.`, idemKey: `claimpaid:${e.id}`, sms: true });
+    if (u) await notify(ctx, { orgId: e.org_id, branchId: e.branch_id, phone: u.phone, kind: 'receipt', title: 'Your claim was paid', body: `Your claim of ${kes(Number(e.amount))} (${e.code}) was paid. Reference ${ref}.`, idemKey: `claimpaid:${e.id}`, sms: true, link: 'staff:my-claims', audience: 'staff' });
     return { id: e.id, paid: true };
   });
 

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { maskPhone } from '@churchos/shared';
 import { branchesFor, normalizePhone, PERMISSIONS, PERMISSION_INFO, ROLE_TEMPLATES, type Permission } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { grantsFor } from '../scope';
 
 const OWNER_ROLE = 'Organisation Owner';
@@ -109,7 +110,7 @@ export function teamRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`INSERT INTO role_assignments (id, org_id, user_id, role_id, scope_type, scope_id) VALUES ($1,$2,$3,$4,$5,$6)`, [id, orgId, userId, roleId, scope.type, scope.type === 'org' ? orgId : scope.id]);
     const who = (await ctx.db.query<any>(`SELECT name FROM users WHERE id=$1`, [userId]))[0]?.name ?? 'someone';
     await ctx.ledger.audit({ orgId, actor: uid, action: 'team.assign', entity: 'team', entityId: userId, summary: `Gave ${who} the role ${role.name} for ${label}`, changes: [{ field: 'role', label: 'Role', before: null, after: `${role.name}, ${label}` }], links: { assignmentId: id } });
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), orgId, userId, `You now have the role ${role.name}`, `Your access applies to ${label}. Sign in to the staff app to start.`, ctx.clock.now().toISOString()]);
+    await addNotification(ctx, { orgId, userId, kind: 'announcement', title: `You now have the role ${role.name}`, body: `Your access applies to ${label}. Sign in to the staff app to start.`, link: 'staff:today', audience: 'staff' });
     const needsEmail = (role.permissions as string[]).includes('wallets.view');
     return { id, roleName: role.name, scope: label, needsEmail };
   }

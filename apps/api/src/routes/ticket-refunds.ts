@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { diff, type FieldSpec } from '../audit';
 import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { inStaffScope, staffWith } from '../scope';
 import { notify } from '../sms';
 import { sendEmail } from '../wallets';
@@ -67,12 +68,12 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     let inApp = false;
     let sms = false;
     if (o.buyer_phone) {
-      const r = await notify(ctx, { orgId: o.org_id, branchId: o.branch_id, phone: o.buyer_phone, kind: 'announcement', title, body: opts.link && opts.sms ? `${body} ${opts.link}` : body, idemKey: `tkt:${o.id}:${title}:${body.length}:${nowIso().slice(0, 16)}`, sms: !!opts.sms });
+      const r = await notify(ctx, { orgId: o.org_id, branchId: o.branch_id, phone: o.buyer_phone, kind: 'announcement', title, body: opts.link && opts.sms ? `${body} ${opts.link}` : body, idemKey: `tkt:${o.id}:${title}:${body.length}:${nowIso().slice(0, 16)}`, sms: !!opts.sms, link: 'member:tickets' });
       inApp = r.inApp;
       sms = r.sms === 'sent';
     }
     if (!inApp && o.buyer_user_id) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), o.org_id, o.buyer_user_id, title, body, nowIso()]);
+      await addNotification(ctx, { orgId: o.org_id, userId: o.buyer_user_id, kind: 'announcement', title, body, link: 'member:tickets' });
       inApp = true;
     }
     let email = false;
@@ -121,7 +122,7 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actor: actor.userId ?? undefined, actorType: actor.userId ? 'user' : 'system', action: 'ticket.refund_requested', entity: 'ticket_order', entityId: o.id, summary: `${actor.name} asked for a refund of ${kesText(Number(o.total))} for order ${o.code}, "${e.title}"`, reason: why ?? undefined, meta: { refund: id, kind } });
     await tell(o, `Refund request received: ${e.title}`, `We have your request for a refund of order ${o.code}. The church will look at it and tell you. Your tickets still work until then.`);
     for (const u of await officeStaff(o)) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), o.org_id, u.id, `Refund request: ${e.title}`, `${actor.name} asked for a refund of ${kesText(Number(o.total))} (order ${o.code}). Open Tickets and sales for the event to approve or decline.`, nowIso()]);
+      await addNotification(ctx, { orgId: o.org_id, userId: u.id, kind: 'announcement', title: `Refund request: ${e.title}`, body: `${actor.name} asked for a refund of ${kesText(Number(o.total))} (order ${o.code}). Open Tickets and sales for the event to approve or decline.`, link: `staff:events?open=${e.id}&tab=refunds`, audience: 'staff' });
     }
     return { status: 'requested', refund: true, id };
   }
@@ -305,7 +306,7 @@ export function ticketRefundRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const going = await ctx.db.query<any>(`SELECT r.user_id FROM event_rsvps r WHERE r.event_id=$1 AND r.response='going' AND r.user_id NOT IN (SELECT buyer_user_id FROM ticket_orders WHERE event_id=$1 AND buyer_user_id IS NOT NULL)`, [e.id]);
     for (const g of going) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, g.user_id, `Postponed: ${e.title}`, newStart ? `"${e.title}" has moved to ${when(newStart)}${place}.${note ? ` ${note}` : ''}` : `"${e.title}" has been postponed. The new date will be announced.${note ? ` ${note}` : ''}`, now.toISOString()]);
+      await addNotification(ctx, { orgId: e.org_id, userId: g.user_id, kind: 'announcement', title: `Postponed: ${e.title}`, body: newStart ? `"${e.title}" has moved to ${when(newStart)}${place}.${note ? ` ${note}` : ''}` : `"${e.title}" has been postponed. The new date will be announced.${note ? ` ${note}` : ''}`, link: 'member:events' });
     }
     return { id: e.id, status, startsAt: after.startsAt, refundUntil, told: { orders: orders.length, sms, email, app, rsvp: going.length } };
   });
@@ -325,7 +326,7 @@ export async function runRefundJobs(ctx: Ctx): Promise<{ refunded: number; faile
     const now = ctx.clock.now().toISOString();
     const title = ok ? `Your refund for ${o.title} was sent` : `Your refund for ${o.title} could not be sent`;
     const body = ok ? `Your refund of order ${o.code} has been sent back to the number or card you paid with.` : `We could not send your refund for order ${o.code} automatically. The church will contact you.`;
-    if (o.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), o.org_id, o.buyer_user_id, title, body, now]);
+    if (o.buyer_user_id) await addNotification(ctx, { orgId: o.org_id, userId: o.buyer_user_id, kind: 'announcement', title, body, link: 'member:tickets' });
     if (o.buyer_email) await sendEmail(ctx, o.org_id, o.buyer_email, title, `Hello ${String(o.buyer_name).split(' ')[0]},\n\n${body}\n`);
     await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actorType: 'system', action: ok ? 'ticket.refunded' : 'ticket.refund_failed', entity: 'ticket_order', entityId: o.id, summary: ok ? `The refund of order ${o.code} was sent to the buyer` : `The refund of order ${o.code} could not be sent`, meta: { refund: r.id } });
     if (ok) refunded++; else failed++;

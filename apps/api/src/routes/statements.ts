@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { buildPdf, textWidth, wrap, type PdfItem } from '../pdf';
 import { inStaffScope } from '../scope';
 import { REASONS } from './giving-ledger';
@@ -207,7 +208,7 @@ export function statementRoutes(app: FastifyInstance, ctx: Ctx) {
     const label = `${REASONS[reason]}${note ? `: ${note}` : ''}`;
     await ctx.db.query(`INSERT INTO giving_ledger_access (id, org_id, membership_id, at, staff_id, staff_name, action, reason, note) VALUES ($1,$2,$3,$4,$5,$6,'exported',$7,$8)`, [ctx.newId('gla'), m.org_id, m.id, nowIso(), req.session!.uid, req.session!.name, reason, `Statement ${s.number} for ${s.year}${note ? `. ${note}` : ''}`]);
     await ctx.ledger.audit({ orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'statement.staff', entity: 'membership', entityId: m.id, summary: `Made the ${s.year} giving statement (${s.number}) for ${m.full_name} (${m.member_number}), KES ${kes(s.total)}`, reason: label, meta: { number: s.number, total: s.total } });
-    if (m.user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), m.org_id, m.user_id, `A giving statement for ${s.year} was made`, `${req.session!.name} made your ${s.year} giving statement (${s.number}). Reason: ${label}. You can see it under Giving > My giving statements.`, nowIso()]);
+    if (m.user_id) await addNotification(ctx, { orgId: m.org_id, userId: m.user_id, kind: 'announcement', title: `A giving statement for ${s.year} was made`, body: `${req.session!.name} made your ${s.year} giving statement (${s.number}). Reason: ${label}. You can see it under Giving > My giving statements.`, link: 'member:give?sub=history' });
     return { id: s.id, number: s.number, year: s.year, total: s.total, gifts: s.gifts };
   });
 

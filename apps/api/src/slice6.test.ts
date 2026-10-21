@@ -250,7 +250,7 @@ describe('adverts: approval, audience and the member slider (L131, L132)', () =>
     expect((await call(OWNER, 'POST', `/adverts/${id}/decide`, { approve: true })).statusCode).toBe(409);
     expect(await titles(JANE)).toContain('Harvest Sunday');
     expect(await titles(AMINA)).not.toContain('Harvest Sunday'); // Amina belongs to the other branch
-    const note = (await call(ADMIN, 'GET', '/me/notifications')).json().rows.map((n: any) => n.title);
+    const note = (await call(ADMIN, 'GET', '/me/notifications?app=staff')).json().rows.map((n: any) => n.title);
     expect(note).toContain('Your advert is approved');
   });
 
@@ -301,7 +301,7 @@ describe('adverts: approval, audience and the member slider (L131, L132)', () =>
     expect(await titles(JANE)).not.toContain('Harvest Sunday 2');
     expect((await call(ADMIN, 'POST', `/adverts/${id}/resume`)).statusCode).toBe(409);
     expect((await call(ADMIN, 'PUT', `/adverts/${id}`, { title: 'Again' })).statusCode).toBe(409);
-    const note = (await call(ADMIN, 'GET', '/me/notifications')).json().rows.find((n: any) => n.title === 'An advert was taken down');
+    const note = (await call(ADMIN, 'GET', '/me/notifications?app=staff')).json().rows.find((n: any) => n.title === 'An advert was taken down');
     expect(note.body).toMatch(/logo we cannot verify/);
     expect((await call(PA1, 'GET', '/admin/adverts?status=taken_down')).json().map((a: any) => a.id)).toContain(id);
   });
@@ -337,7 +337,7 @@ describe('adverts: a third party pays to be on the slider (L131)', () => {
     expect(slide.sponsor).toBe('Mary and John Kamau');
     const events = (await call(PA1, 'GET', '/admin/audit/events?action=advert.paid')).json().events;
     expect(events).toHaveLength(1);
-    const note = (await call(ADMIN, 'GET', '/me/notifications')).json().rows.map((n: any) => n.title);
+    const note = (await call(ADMIN, 'GET', '/me/notifications?app=staff')).json().rows.map((n: any) => n.title);
     expect(note).toContain('Advert paid and live');
   });
 

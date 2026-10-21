@@ -5,6 +5,7 @@ import { branchesFor, type Permission } from '../auth';
 import { diff, maskedSnapshot, recordVersion, sha, type FieldSpec } from '../audit';
 import { validateArtwork } from '../artwork';
 import { HttpError, requireAdmin, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 
 const ADVERT_SPECS: FieldSpec[] = [
   { field: 'title', label: 'Headline' },
@@ -39,8 +40,10 @@ const eatDay = (d: Date) => new Date(d.getTime() + 3 * 3600_000).toISOString().s
 export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const adm = { preHandler: requireAdmin };
-  const notify = (orgId: string, userId: string | null, title: string, body: string) =>
-    userId ? ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), orgId, userId, title, body, ctx.clock.now().toISOString()]) : Promise.resolve();
+  // The people who make and approve adverts are staff, so these are staff-app messages.
+  const notify = async (orgId: string, userId: string | null, title: string, body: string, link?: string) => {
+    if (userId) await addNotification(ctx, { orgId, userId, kind: 'announcement', title, body, link, audience: 'staff' });
+  };
 
   const text = (v: unknown, max: number, label: string, required = false) => {
     const s = String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -298,7 +301,7 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
     const n = await reload(a.id);
     await record(n, req, approve ? 'advert.approve' : 'advert.reject', `${approve ? 'Approved' : 'Did not approve'} the advert "${a.title}"`, before, reason);
     await notify(a.org_id, a.created_by, approve ? (status === 'awaiting_payment' ? 'Advert approved, waiting for payment' : 'Your advert is approved') : 'Your advert needs changes',
-      approve ? (status === 'awaiting_payment' ? `"${a.title}" is approved. It goes live as soon as ${a.advertiser_name} pays.` : `"${a.title}" will show on the member app ${a.starts_at > now ? 'from its start date' : 'now'}.`) : `"${a.title}" was not approved: ${reason}`);
+      approve ? (status === 'awaiting_payment' ? `"${a.title}" is approved. It goes live as soon as ${a.advertiser_name} pays.` : `"${a.title}" will show on the member app ${a.starts_at > now ? 'from its start date' : 'now'}.`) : `"${a.title}" was not approved: ${reason}`, `staff:adverts?open=${a.id}`);
     return { id: a.id, status, payUrl: status === 'awaiting_payment' ? `${ctx.givingUrl}/?ad=${a.code}` : null };
   });
 
@@ -339,7 +342,7 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
     const before = flat(a, await audienceLabel(a));
     await ctx.db.query(`UPDATE adverts SET status='taken_down', taken_down_by=$2, reason=$3, updated_at=$4 WHERE id=$1`, [a.id, req.session!.uid, reason, ctx.clock.now().toISOString()]);
     await record(await reload(a.id), req, 'advert.takedown', `Took down the advert "${a.title}"`, before, reason);
-    await notify(a.org_id, a.created_by, 'An advert was taken down', `"${a.title}" was removed by ChurchOS: ${reason}`);
+    await notify(a.org_id, a.created_by, 'An advert was taken down', `"${a.title}" was removed by ChurchOS: ${reason}`, `staff:adverts?open=${a.id}`);
     return { id: a.id, status: 'taken_down' };
   });
 
@@ -409,5 +412,5 @@ export async function advertPaid(ctx: Ctx, code: string, paymentId: string): Pro
   if (!a) return;
   await ctx.db.query(`UPDATE adverts SET status='approved', payment_id=$2, updated_at=$3 WHERE id=$1`, [a.id, paymentId, ctx.clock.now().toISOString()]);
   await ctx.ledger.audit({ orgId: a.org_id, branchId: a.branch_id, actorType: 'psp', action: 'advert.paid', entity: 'advert', entityId: a.id, summary: `Payment received from ${a.advertiser_name} for the advert "${a.title}". It is now live.`, links: { advertId: a.id, paymentId } });
-  await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Advert paid and live',$4,$5)`, [ctx.newId('ntf'), a.org_id, a.created_by, `${a.advertiser_name} has paid. "${a.title}" is now on the member app.`, ctx.clock.now().toISOString()]);
+  await addNotification(ctx, { orgId: a.org_id, userId: a.created_by, kind: 'announcement', title: 'Advert paid and live', body: `${a.advertiser_name} has paid. "${a.title}" is now on the member app.`, link: `staff:adverts?open=${a.id}`, audience: 'staff' });
 }

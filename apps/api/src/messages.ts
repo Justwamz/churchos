@@ -1,4 +1,5 @@
 import { HttpError, type Ctx } from './ctx';
+import { addNotification } from './notifications';
 import { ageBand, ageOn } from './members';
 import { CHANNEL_LABEL, checkLowBalance, integrationSettings, walletFor, walletLabel, type Channel } from './wallets';
 import { activeBands, allocate, costOf, recordUnits, unitsUsed } from './pricing';
@@ -232,13 +233,9 @@ export async function sendMessage(ctx: Ctx, messageId: string): Promise<any> {
       const withUser = recipients.filter((r) => r.userId);
       for (let i = 0; i < withUser.length; i += 200) {
         const chunk = withUser.slice(i, i + 200);
-        const params: unknown[] = [];
-        const values = chunk.map((r, k) => {
-          params.push(ctx.newId('ntf'), m.org_id, r.userId, m.title, renderFor(m.body, r), m.id, now, r.forChildren?.length === 1 ? r.forChildren[0].id : null, r.forChildren?.length ? r.forChildren.map((c) => c.firstName).join(', ') : null);
-          const o = k * 9;
-          return `($${o + 1},$${o + 2},$${o + 3},'message',$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9})`;
-        });
-        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, message_id, created_at, member_id, for_name) VALUES ${values.join(',')}`, params);
+        for (const r of chunk) {
+          await addNotification(ctx, { orgId: m.org_id, userId: r.userId!, kind: 'message', title: m.title, body: renderFor(m.body, r), messageId: m.id, memberId: r.forChildren?.length === 1 ? r.forChildren[0].id : null, forName: r.forChildren?.length ? r.forChildren.map((c) => c.firstName).join(', ') : null });
+        }
       }
       for (const r of recipients) rows.push({ m: m.id, membership: r.membershipId, channel: 'inapp', status: r.userId ? 'sent' : 'skipped_no_account', cost: 0, wallet: null });
       summary.channels.inapp = { sent: withUser.length, noAccount: recipients.length - withUser.length };

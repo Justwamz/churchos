@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLinkParams } from './links';
 import { Button, ErrorNote, Field, Note, kes, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load } from './worship-bits';
@@ -174,6 +175,12 @@ export function Bookings() {
   const [deciding, setDeciding] = useState<{ b: any; it: any } | null>(null);
   const [cancelling, setCancelling] = useState<any>(null);
   const canManage = s.can('bookings.manage');
+  // A notification link: ?open=<booking id> opens that booking's panel.
+  const link = useLinkParams('bookings');
+  useEffect(() => {
+    if (!link?.open) return;
+    api.get(`/bookings/${link.open}` + s.qs({ branch: undefined })).then((b: any) => { if (b?.id) setOpen(b); }).catch(() => {});
+  }, [link]); // eslint-disable-line react-hooks/exhaustive-deps
   const resources = useAsync<any[]>(() => api.get('/resources' + s.qs({ branch: undefined })).catch(() => []), [s.grant.org.id]);
   const { from, to } = range(mode, month, dayStr);
   const statuses = picked.length ? FILTERS.filter((f) => picked.includes(f.key)).map((f) => f.statuses).join(',') : '';

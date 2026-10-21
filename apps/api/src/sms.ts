@@ -1,5 +1,6 @@
 import type { Ctx } from './ctx';
 import { activeBands, costOf, recordUnits, unitsUsed } from './pricing';
+import { addNotification, type NotificationAudience } from './notifications';
 import { checkLowBalance, integrationSettings, RATES, walletFor } from './wallets';
 
 /** Kept for callers that still think in terms of the SMS price. The price is set per channel in wallets.ts (L112). */
@@ -14,14 +15,12 @@ export type SmsKind = 'receipt' | 'reminder' | 'announcement';
  */
 export async function notify(
   ctx: Ctx,
-  a: { orgId: string; branchId?: string | null; phone: string; kind: SmsKind; title: string; body: string; idemKey: string; sms?: boolean },
+  a: { orgId: string; branchId?: string | null; phone: string; kind: SmsKind; title: string; body: string; idemKey: string; sms?: boolean; link?: string; audience?: NotificationAudience },
 ): Promise<{ sms: 'sent' | 'skipped_no_balance' | 'not_requested'; inApp: boolean }> {
   const now = ctx.clock.now().toISOString();
   const user = (await ctx.db.query<any>(`SELECT id FROM users WHERE phone=$1`, [a.phone]))[0];
   if (user) {
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [
-      ctx.newId('ntf'), a.orgId, user.id, a.kind, a.title, a.body, now,
-    ]);
+    await addNotification(ctx, { orgId: a.orgId, userId: user.id, kind: a.kind, title: a.title, body: a.body, link: a.link, audience: a.audience });
   }
   if (a.sms === false) return { sms: 'not_requested', inApp: !!user };
 

@@ -1,6 +1,7 @@
 import { maskEmail } from '@churchos/shared';
 import type { Db } from '@churchos/ledger';
 import { HttpError, type Ctx } from './ctx';
+import { addNotification } from './notifications';
 import { messagesBuyable, priceInfo } from './pricing';
 
 export type Channel = 'sms' | 'whatsapp';
@@ -162,7 +163,7 @@ export async function checkLowBalance(ctx: Ctx, walletId: string): Promise<'ok' 
   const now = ctx.clock.now().toISOString();
   let emailed = 0;
   for (const u of viewers) {
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), w.org_id, u.id, title, body, now]);
+    await addNotification(ctx, { orgId: w.org_id, userId: u.id, kind: 'announcement', title, body, link: 'staff:wallets', audience: 'staff' });
     if (u.email && u.email_verified && (await sendEmail(ctx, w.org_id, u.email, `ChurchOS: ${title}`, `Hello ${u.name.split(' ')[0]},\n\n${body}\n\nThis message was sent because you can view this wallet.`))) emailed++;
   }
   const extra = (await integrationSettings(ctx.db, w.org_id)).alertEmails;

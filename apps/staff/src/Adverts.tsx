@@ -4,6 +4,7 @@ import { api, friendly, useSession } from './session';
 import { Load } from './bits';
 import { Card as UCard, EmptyState, PageHeader, SidePanel, Skeleton, StatusChip } from './ui';
 import { useAction } from './prefill';
+import { useLinkParams } from './links';
 import { ItemThumb } from './ShopItems';
 import './adverts.css';
 import './comm.css';
@@ -358,6 +359,12 @@ export function Adverts() {
   const [deciding, setDeciding] = useState<any>(null);
   const [tab, setTab] = useState<string>('all');
   const canManage = s.can('adverts.manage');
+  // A notification link: ?open=<advert id> opens the decision box when it waits for you.
+  const link = useLinkParams('adverts');
+  useEffect(() => {
+    if (!link?.open) return;
+    api.get(`/adverts/${link.open}`).then((a: any) => { if (a?.canApprove) setDeciding(a); }).catch(() => {});
+  }, [link]);
   useAction('adverts', (a) => { if (a === 'new' && canManage) { setEditing(null); setMode('form'); } });
   const rows = list.data ?? [];
   const waiting = rows.filter((a) => a.canApprove);

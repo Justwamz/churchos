@@ -8,6 +8,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildReference, maskPhone } from '@churchos/shared';
 import { normalizePhone, signToken } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { notify } from '../sms';
 import { checkLowBalance } from '../wallets';
 
@@ -91,9 +92,7 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
       const issue = rec ? (await ctx.db.query<any>(`SELECT id, requested_by FROM record_issues WHERE record_id=$1 AND status='awaiting_payment' ORDER BY created_at DESC LIMIT 1`, [rec.id]))[0] : null;
       if (issue) {
         await ctx.db.query(`UPDATE record_issues SET status='issued', payment_id=$2 WHERE id=$1`, [issue.id, result.paymentId]);
-        await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Your certificate copy is ready',$4,$5)`, [
-          ctx.newId('ntf'), p.org_id, issue.requested_by, `Payment received. The copy of the certificate for ${rec.subject_name} is ready to print.`, ctx.clock.now().toISOString(),
-        ]);
+        await addNotification(ctx, { orgId: p.org_id, userId: issue.requested_by, kind: 'announcement', title: 'Your certificate copy is ready', body: `Payment received. The copy of the certificate for ${rec.subject_name} is ready to print.` });
       }
     }
     if (String(p.purpose ?? '').startsWith('TKT-')) await ticketsPaid(ctx, String(p.purpose).slice(4), result.paymentId);
@@ -107,6 +106,7 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
         orgId: p.org_id, branchId: result.branchId, phone: inb.phone, kind: 'receipt', idemKey: `receipt:${inb.providerTxId}`,
         title: 'Gift received',
         body: `Received KES ${(Number(info.amount_paid) / 100).toLocaleString('en-KE')} for ${String(p.purpose ?? 'OFFERING').toLowerCase().replace('proj-', 'project ')} at ${info.church}. Ref ${info.provider_tx_id}. God bless you.`,
+        link: 'member:give?sub=history',
       });
     } catch (e) {
       console.error('receipt notification failed', e);

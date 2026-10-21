@@ -8,6 +8,7 @@ import { assertEmail, checkEmail } from '../email-rules';
 import { diff, type FieldSpec } from '../audit';
 import { validateArtwork } from '../artwork';
 import { checkoutLink, HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { inStaffScope, grantsFor } from '../scope';
 import { sendEmail } from '../wallets';
 import { csv, normalizeMethod } from './helpers';
@@ -460,7 +461,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`UPDATE tickets SET status='cancelled', cancelled_by=$2, cancel_reason=$3 WHERE id=$1`, [t.id, req.session!.uid, reason]);
     await ctx.ledger.audit({ orgId: t.org_id, branchId: t.branch_id, actor: req.session!.uid, action: 'ticket.cancel', entity: 'ticket', entityId: t.id, summary: `Cancelled ticket ${t.serial} for "${t.title}"`, reason, meta: { order: t.order_code, paid: Number(t.total) > 0 } });
     const body = `Your ticket ${t.serial} for ${t.title} was cancelled: ${reason}.${Number(t.total) > 0 ? ' If you paid for it, the church will arrange your refund with you.' : ''}`;
-    if (t.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','A ticket was cancelled',$4,$5)`, [ctx.newId('ntf'), t.org_id, t.buyer_user_id, body, nowIso()]);
+    if (t.buyer_user_id) await addNotification(ctx, { orgId: t.org_id, userId: t.buyer_user_id, kind: 'announcement', title: 'A ticket was cancelled', body, link: 'member:tickets' });
     if (t.buyer_email) await sendEmail(ctx, t.org_id, t.buyer_email, `Your ticket for ${t.title} was cancelled`, body);
     return { id: t.id, status: 'cancelled', refundNeeded: Number(t.total) > 0 };
   });
@@ -586,10 +587,10 @@ export async function sendConfirmationFor(ctx: Ctx, orderId: string) {
   const lines: string[] = [];
   for (const t of tickets) lines.push(`${t.type_name} for ${t.holder_name}, ticket ${t.serial}: ${ticketUrlOf(ctx, t.token)}`);
   if (o.buyer_user_id) {
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'receipt',$4,$5,$6)`, [
-      ctx.newId('ntf'), o.org_id, o.buyer_user_id, `Your tickets for ${o.title}`,
-      `You have ${tickets.length} ticket${tickets.length === 1 ? '' : 's'} for ${o.title}, ${when(o.starts_at)}${o.location ? ` at ${o.location}` : ''}. Open My tickets to show the QR code at the door.`, ctx.clock.now().toISOString(),
-    ]);
+    await addNotification(ctx, {
+      orgId: o.org_id, userId: o.buyer_user_id, kind: 'receipt', title: `Your tickets for ${o.title}`,
+      body: `You have ${tickets.length} ticket${tickets.length === 1 ? '' : 's'} for ${o.title}, ${when(o.starts_at)}${o.location ? ` at ${o.location}` : ''}. Open My tickets to show the QR code at the door.`, link: 'member:tickets',
+    });
   }
   if (o.buyer_email) {
     const subject = `Your tickets for ${o.title}`;
@@ -617,7 +618,7 @@ export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminde
     for (const o of orders) {
       if (!o.n) continue;
       const body = `${e.title} is ${when(e.starts_at)}${e.location ? ` at ${e.location}` : ''}. Have your QR code ready at the door.`;
-      if (o.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), e.org_id, o.buyer_user_id, `Tomorrow: ${e.title}`, body, now]);
+      if (o.buyer_user_id) await addNotification(ctx, { orgId: e.org_id, userId: o.buyer_user_id, kind: 'announcement', title: `Tomorrow: ${e.title}`, body, link: 'member:tickets' });
       if (o.buyer_email) await sendEmail(ctx, e.org_id, o.buyer_email, `Tomorrow: ${e.title}`, `Hello ${o.buyer_name},\n\n${body}\n\nYour tickets are in the email we sent you when you bought them, or open them from My tickets in the app.\n`);
       reminders++;
     }
@@ -636,7 +637,7 @@ export async function notifyTicketBuyersOfCancel(ctx: Ctx, event: any, reason: s
     const paid = Number(o.total) > 0;
     if (paid) { ordersToRefund++; tickets += o.n; }
     const body = `"${event.title}" was cancelled.${reason ? ` ${reason}` : ''}${paid ? ' You can keep your money as event credit for another event from your ticket page, or the church will arrange your refund with you.' : ''}`;
-    if (o.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','An event was cancelled',$4,$5)`, [ctx.newId('ntf'), o.org_id, o.buyer_user_id, body, now]);
+    if (o.buyer_user_id) await addNotification(ctx, { orgId: o.org_id, userId: o.buyer_user_id, kind: 'announcement', title: 'An event was cancelled', body, link: 'member:tickets' });
     if (o.buyer_email) await sendEmail(ctx, o.org_id, o.buyer_email, `${event.title} was cancelled`, `Hello ${o.buyer_name},\n\n${body}\n`);
   }
   if (orders.length) await ctx.ledger.audit({ orgId: event.org_id, branchId: event.branch_id, actorType: 'system', action: 'ticket.event_cancelled', entity: 'event', entityId: event.id, summary: `"${event.title}" was cancelled. ${orders.length} ticket orders were told, ${ordersToRefund} paid orders need a refund.`, meta: { orders: orders.length, ordersToRefund, ticketsToRefund: tickets } });

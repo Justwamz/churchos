@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { inStaffScope } from '../scope';
 import { notify } from '../sms';
 import { sendEmail } from '../wallets';
@@ -105,10 +106,10 @@ export function eventCreditRoutes(app: FastifyInstance, ctx: Ctx) {
   async function tell(o: any, title: string, body: string) {
     let inApp = false;
     if (o.buyer_phone) {
-      const r = await notify(ctx, { orgId: o.org_id, branchId: o.branch_id, phone: o.buyer_phone, kind: 'announcement', title, body, idemKey: `ecr:${o.id}:${title}:${nowIso().slice(0, 16)}`, sms: false });
+      const r = await notify(ctx, { orgId: o.org_id, branchId: o.branch_id, phone: o.buyer_phone, kind: 'announcement', title, body, idemKey: `ecr:${o.id}:${title}:${nowIso().slice(0, 16)}`, sms: false, link: 'member:credit' });
       inApp = r.inApp;
     }
-    if (!inApp && o.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), o.org_id, o.buyer_user_id, title, body, nowIso()]);
+    if (!inApp && o.buyer_user_id) await addNotification(ctx, { orgId: o.org_id, userId: o.buyer_user_id, kind: 'announcement', title, body, link: 'member:credit' });
   }
 
   /** Cancels the tickets of the order and gives the buyer the ticket money as credit. */

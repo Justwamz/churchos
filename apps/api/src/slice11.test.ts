@@ -33,7 +33,7 @@ const item = async (name: string, who = JANE) => (await catalogue(who)).items.fi
 const stockOf = async (name: string) => ((await call(OWNER, 'GET', '/shop/items')).json().find((i: any) => i.name === name).stock) as number;
 const order = (who: string, lines: [string, number][], extra: any = {}) => call(who, 'POST', '/me/shop/orders', { branchId: BR, method: 'mpesa', lines: lines.map(([itemId, qty]) => ({ itemId, qty })), ...extra });
 const myOrders = async (who = JANE) => (await call(who, 'GET', '/me/shop/orders')).json() as any[];
-const inbox = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows as any[];
+const inbox = async (who: string, app: 'member' | 'staff' = 'member') => (await call(who, 'GET', `/me/notifications?app=${app}`)).json().rows as any[];
 
 beforeAll(async () => {
   const built = await buildApp({ stkDelayMs: 0 });
@@ -109,8 +109,8 @@ describe('ordering and paying from the app (L164, L165)', () => {
     expect(Number(p.platform_fee)).toBeGreaterThan(0); // the platform fee applies
     const note = (await inbox(JANE)).find((n) => n.title === 'Shop order paid');
     expect(note.body).toContain(mine.collectionCode);
-    expect((await inbox(TREAS)).some((n) => n.title === 'New shop order')).toBe(true); // the branch hears about it
-    expect((await inbox(OWNER)).some((n) => n.title === 'New shop order')).toBe(true);
+    expect((await inbox(TREAS, 'staff')).some((n) => n.title === 'New shop order')).toBe(true); // the branch hears about it
+    expect((await inbox(OWNER, 'staff')).some((n) => n.title === 'New shop order')).toBe(true);
   });
 
   it('refuses what cannot be ordered, and takes nothing when it does', async () => {

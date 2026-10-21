@@ -166,7 +166,7 @@ describe('thresholds, transfers and low-balance alerts (L113, L115)', () => {
     // Grace Mombasa has an empty wallet (and Fatuma, its finance lead, has no email on file).
     await call(OWNER, 'POST', '/wallets/transfer', { fromWalletId: SMS_MSA, toWalletId: SMS_ORG, amount: await bal(SMS_MSA) / 100 });
     expect(await bal(SMS_MSA)).toBe(0);
-    const mombasaAlerts = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows.filter((r: any) => /Grace Mombasa · SMS credit has run out/.test(r.title)).length;
+    const mombasaAlerts = async (who: string) => (await call(who, 'GET', '/me/notifications?app=staff')).json().rows.filter((r: any) => /Grace Mombasa · SMS credit has run out/.test(r.title)).length;
     const outboxAlerts = async () => (await call(PA1, 'GET', '/admin/outbox')).json().filter((e: any) => /Mombasa · SMS credit has run out/.test(e.subject)).length;
     const [ownerBefore, coastBefore, mailBefore] = [await mombasaAlerts(OWNER), await mombasaAlerts(COAST), await outboxAlerts()];
     const g = await call(null, 'POST', '/public/give', { code: 'GRC002', purpose: 'TITHE', phone: '0711000003', amount: 300 });
@@ -188,7 +188,7 @@ describe('thresholds, transfers and low-balance alerts (L113, L115)', () => {
     // Put some credit in Mombasa, then spend it all, and watch the alert go out.
     await call(OWNER, 'POST', '/wallets/transfer', { fromWalletId: SMS_ORG, toWalletId: SMS_MSA, amount: 1 });
     expect(await bal(SMS_MSA)).toBe(100);
-    const count = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows.filter((r: any) => /Grace Mombasa · SMS credit/.test(r.title)).length;
+    const count = async (who: string) => (await call(who, 'GET', '/me/notifications?app=staff')).json().rows.filter((r: any) => /Grace Mombasa · SMS credit/.test(r.title)).length;
     const [owner0, coast0] = [await count(OWNER), await count(COAST)];
     const mail0 = (await call(PA1, 'GET', '/admin/outbox')).json().length;
     const g = await call(null, 'POST', '/public/give', { code: 'GRC002', purpose: 'TITHE', phone: '0711000003', amount: 400 });
@@ -214,12 +214,12 @@ describe('thresholds, transfers and low-balance alerts (L113, L115)', () => {
     };
     await ctx.db.query(`INSERT INTO users (id, phone, name, created_at) VALUES ('u_hopegiver','254722000111','Hope Giver',$1) ON CONFLICT DO NOTHING`, [ctx.clock.now().toISOString()]);
     await gift(300); // the receipt SMS takes the balance to KES 99, below the warning level of KES 99.50
-    const low = (await call(HOPE, 'GET', '/me/notifications')).json().rows.filter((r: any) => /credit is low/.test(r.title));
+    const low = (await call(HOPE, 'GET', '/me/notifications?app=staff')).json().rows.filter((r: any) => /credit is low/.test(r.title));
     expect(low).toHaveLength(1);
     expect(low[0].body).toMatch(/KES 99\.00/);
     expect((await call(PA1, 'GET', '/admin/outbox')).json().some((e: any) => /credit is low/.test(e.subject) && e.to_email.startsWith('g•••@hope'))).toBe(true);
     await gift(200);
-    expect((await call(HOPE, 'GET', '/me/notifications')).json().rows.filter((r: any) => /credit is low/.test(r.title))).toHaveLength(1);
+    expect((await call(HOPE, 'GET', '/me/notifications?app=staff')).json().rows.filter((r: any) => /credit is low/.test(r.title))).toHaveLength(1);
   });
 });
 
@@ -275,7 +275,7 @@ describe('integrations: one page per church (L113, L114)', () => {
     expect(wa.value).toMatch(/•••/); // masked even for platform admins in the list
     expect((await call(PA1, 'POST', `/admin/sender-requests/${wa.id}/decide`, { approve: false, reason: 'Number is not verified with the provider' })).json().status).toBe('rejected');
     expect((await call(HOPE, 'GET', '/integrations')).json().whatsappNumber).toBeNull(); // a rejected number is never used
-    const note = (await call(HOPE, 'GET', '/me/notifications')).json().rows.map((r: any) => r.title);
+    const note = (await call(HOPE, 'GET', '/me/notifications?app=staff')).json().rows.map((r: any) => r.title);
     expect(note).toEqual(expect.arrayContaining(['Your sms sender name was approved', 'Your whatsapp number was not approved']));
     const audit = (await call(PA1, 'GET', '/admin/audit/events?action=integration.sender')).json().events.map((e: any) => e.action);
     expect(audit).toEqual(expect.arrayContaining(['integration.sender_request', 'integration.sender_approved', 'integration.sender_rejected']));

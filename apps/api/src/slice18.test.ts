@@ -19,7 +19,7 @@ const OWNER = '0700000001', TREAS = '0700000002', ADMIN = '0700000003', COAST = 
 const PASTOR = '0700000557';
 const JANE = '0711000001', PETER = '0711000002', AMINA = '0711000003', DAVID = '0711000004';
 const MIN = 60_000, HOUR = 3600_000, DAY = 24 * HOUR, EAT = 3 * HOUR;
-const inbox = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows as any[];
+const inbox = async (who: string, app: 'member' | 'staff' = 'member') => (await call(who, 'GET', `/me/notifications?app=${app}`)).json().rows as any[];
 const feed = async (who: string) => (await call(who, 'GET', '/me/prayer')).json().requests as any[];
 const pray = (who: string, body: any) => call(who, 'POST', '/me/prayer', { body: 'Please pray for my family', ...body });
 
@@ -232,7 +232,7 @@ describe('the suggestion box (L231)', () => {
     expect((await call(ADMIN, 'GET', '/suggestions')).statusCode).toBe(200); // branch admin: yes
     for (const who of [TREAS, COAST, JANE]) expect((await call(who, 'GET', '/suggestions')).statusCode, who).toBeGreaterThanOrEqual(403);
     expect((await call(HOPE, 'GET', '/suggestions')).json?.().suggestions ?? []).toEqual([]);
-    expect((await inbox(OWNER)).some((n) => n.title === 'New suggestion')).toBe(true);
+    expect((await inbox(OWNER, 'staff')).some((n) => n.title === 'New suggestion')).toBe(true);
   });
 
   it('lets each member see their own suggestions, anonymous ones included, and nobody else', async () => {

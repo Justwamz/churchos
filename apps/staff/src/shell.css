@@ -449,3 +449,9 @@ a { color: var(--accent); }
 
 /* Modals opened over a side panel must sit above it (panel is 75). */
 .shell .modal-scrim { z-index: 90; }
+
+/* Today > Recent: rows with a link are buttons */
+.feed li.feed-link:hover { background: var(--accent-tint); }
+.feed-btn { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; border-radius: 8px; }
+.feed-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.feed-cta { color: var(--accent); font-weight: 650; }

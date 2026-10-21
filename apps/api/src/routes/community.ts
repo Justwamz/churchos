@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { notifyTicketBuyersOfCancel } from './tickets';
 import { audienceLabel, audienceMatchSql, audienceOf, audienceUserIds, grantsFor, inStaffScope, type Audience } from '../scope';
 import type { Permission } from '../auth';
@@ -40,18 +41,9 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const nowIso = () => ctx.clock.now().toISOString();
 
-  const notify = async (orgId: string, userIds: string[], title: string, body: string) => {
-    const ids = [...new Set(userIds)];
-    for (let i = 0; i < ids.length; i += 200) {
-      const chunk = ids.slice(i, i + 200);
-      const params: unknown[] = [];
-      const values = chunk.map((u, k) => {
-        params.push(ctx.newId('ntf'), orgId, u, title, body, nowIso());
-        const o = k * 6;
-        return `($${o + 1},$${o + 2},$${o + 3},'announcement',$${o + 4},$${o + 5},$${o + 6})`;
-      });
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ${values.join(',')}`, params);
-    }
+  // Events, groups and notices are all member-app things.
+  const notify = async (orgId: string, userIds: string[], title: string, body: string, link?: string) => {
+    for (const u of [...new Set(userIds)]) await addNotification(ctx, { orgId, userId: u, kind: 'announcement', title, body, link });
   };
 
   function when(raw: unknown, label: string): string | null {
@@ -244,7 +236,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     if (moved) {
       const going = (await ctx.db.query<any>(`SELECT user_id FROM event_rsvps WHERE event_id=$1 AND response='going'`, [old.id])).map((r) => r.user_id);
-      await notify(old.org_id, going, 'An event has moved', `"${f.title}" now starts ${new Date(f.startsAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short' })}.`);
+      await notify(old.org_id, going, 'An event has moved', `"${f.title}" now starts ${new Date(f.startsAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short' })}.`, 'member:events');
     }
     return { id: old.id };
   });
@@ -259,7 +251,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     const evt = await ctx.ledger.audit({ orgId: old.org_id, branchId: old.branch_id, actor: req.session!.uid, action: 'event.cancel', entity: 'event', entityId: old.id, summary: `Cancelled the event "${old.title}"`, changes: diff(EVENT_SPECS, before, flat), reason });
     await recordVersion(ctx, { orgId: old.org_id, branchId: old.branch_id, entity: 'event', entityId: old.id, snapshot: maskedSnapshot(EVENT_SPECS, flat), summary: 'Cancelled', eventId: evt });
     const going = (await ctx.db.query<any>(`SELECT user_id FROM event_rsvps WHERE event_id=$1 AND response='going'`, [old.id])).map((r) => r.user_id);
-    await notify(old.org_id, going, 'An event was cancelled', `"${old.title}" was cancelled.${reason ? ` ${reason}` : ''}`);
+    await notify(old.org_id, going, 'An event was cancelled', `"${old.title}" was cancelled.${reason ? ` ${reason}` : ''}`, 'member:events');
     const tk = await notifyTicketBuyersOfCancel(ctx, old, reason);
     return { id: old.id, status: 'cancelled', told: going.length, ticketOrdersTold: tk.orders, ordersToRefund: tk.ordersToRefund, ticketsToRefund: tk.ticketsToRefund };
   });
@@ -374,7 +366,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.ledger.audit({ orgId: mine.org_id, branchId: mine.branch_id, actor: req.session!.uid, action: 'wall.post', entity: 'group_post', entityId: pid, summary: `Posted ${kind === 'announcement' ? 'an announcement' : 'a post'} on the wall of ${mine.name}`, links: { groupId: id } });
     if (kind === 'announcement' && b.notify) {
       const ids = (await audienceUserIds(ctx, mine.org_id, { type: 'group', id })).filter((u) => u !== req.session!.uid);
-      await notify(mine.org_id, ids, `New announcement in ${mine.name}`, body.length > 140 ? `${body.slice(0, 137)}...` : body);
+      await notify(mine.org_id, ids, `New announcement in ${mine.name}`, body.length > 140 ? `${body.slice(0, 137)}...` : body, 'member:groups');
     }
     return { id: pid };
   });
@@ -458,7 +450,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
     );
     await ctx.ledger.audit({ orgId: g.org_id, branchId: g.branch_id, actor: req.session!.uid, action: 'group.join_request', category: 'member', entity: 'group', entityId: g.id, summary: `Asked to join ${g.name}` });
     const leaders = (await ctx.db.query<any>(`SELECT DISTINCT m.user_id FROM group_members gm JOIN memberships m ON m.id=gm.membership_id WHERE gm.group_id=$1 AND gm.role='leader' AND m.user_id IS NOT NULL`, [g.id])).map((r) => r.user_id);
-    await notify(g.org_id, leaders, `Someone wants to join ${g.name}`, `${m.full_name} asked to join. Open the group to decide.`);
+    await notify(g.org_id, leaders, `Someone wants to join ${g.name}`, `${m.full_name} asked to join. Open the group to decide.`, 'member:groups');
     return { status: 'pending' };
   });
 
@@ -488,7 +480,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
       await q.query(`UPDATE group_join_requests SET status=$3, decided_by=$4, decided_at=$5 WHERE group_id=$1 AND user_id=$2`, [gid, r.user_id, approve ? 'approved' : 'declined', req.session!.uid, now]);
     });
     await ctx.ledger.audit({ orgId: r.org_id, branchId: mine.branch_id, actor: req.session!.uid, action: approve ? 'group.join_approved' : 'group.join_declined', category: 'member', entity: 'group', entityId: gid, summary: `${approve ? 'Approved' : 'Declined'} a request to join ${mine.name}` });
-    await notify(r.org_id, [r.user_id], approve ? `You are now in ${mine.name}` : `Your request to join ${mine.name} was not accepted`, approve ? 'Open Groups to see the wall.' : 'You can ask a leader of the group about it.');
+    await notify(r.org_id, [r.user_id], approve ? `You are now in ${mine.name}` : `Your request to join ${mine.name} was not accepted`, approve ? 'Open Groups to see the wall.' : 'You can ask a leader of the group about it.', 'member:groups');
     return { status: approve ? 'approved' : 'declined' };
   });
 }
@@ -501,14 +493,12 @@ export async function runCommunityJobs(ctx: Ctx): Promise<{ notices: number; rem
   const now = ctx.clock.now().toISOString();
   let notices = 0;
   let reminders = 0;
-  const send = async (orgId: string, userIds: string[], title: string, body: string) => {
-    for (const u of [...new Set(userIds)]) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), orgId, u, title, body, now]);
-    }
+  const send = async (orgId: string, userIds: string[], title: string, body: string, link?: string) => {
+    for (const u of [...new Set(userIds)]) await addNotification(ctx, { orgId, userId: u, kind: 'announcement', title, body, link });
   };
   const due = await ctx.db.query<any>(`UPDATE notices SET notified=true WHERE notify AND NOT notified AND status='published' AND publish_at <= $1 AND (expires_at IS NULL OR expires_at > $1) RETURNING *`, [now]);
   for (const n of due) {
-    await send(n.org_id, await audienceUserIds(ctx, n.org_id, n.audience), n.title, n.body.length > 140 ? `${n.body.slice(0, 137)}...` : n.body);
+    await send(n.org_id, await audienceUserIds(ctx, n.org_id, n.audience), n.title, n.body.length > 140 ? `${n.body.slice(0, 137)}...` : n.body, 'member:notices');
     notices++;
   }
   const soon = await ctx.db.query<any>(
@@ -517,7 +507,7 @@ export async function runCommunityJobs(ctx: Ctx): Promise<{ notices: number; rem
   );
   for (const e of soon) {
     const going = (await ctx.db.query<any>(`SELECT user_id FROM event_rsvps WHERE event_id=$1 AND response='going'`, [e.id])).map((r) => r.user_id);
-    await send(e.org_id, going, `Coming up: ${e.title}`, `${new Date(e.starts_at).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${e.location ? ` at ${e.location}` : ''}. We look forward to seeing you.`);
+    await send(e.org_id, going, `Coming up: ${e.title}`, `${new Date(e.starts_at).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${e.location ? ` at ${e.location}` : ''}. We look forward to seeing you.`, 'member:events');
     reminders++;
   }
   return { notices, reminders };

@@ -38,3 +38,7 @@
 @media (max-width: 760px) {
   .content, .content table { max-width: 100%; }
 }
+
+/* Unread count on the phone Menu tab, same number as the bell */
+.tab-ico { position: relative; display: inline-flex; }
+.tab-badge { position: absolute; top: -5px; right: -10px; background: var(--bad); color: #fff; border-radius: 999px; font-size: 10px; font-weight: 700; padding: 0 5px; min-width: 16px; line-height: 16px; text-align: center; }

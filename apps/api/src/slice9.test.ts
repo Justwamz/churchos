@@ -79,7 +79,7 @@ describe('adding people and giving access', () => {
     expect(me.orgs[0].permissions).toEqual(expect.arrayContaining(['members.view', 'groups.manage']));
     expect(me.orgs[0].permissions).not.toContain('collections.view');
     expect((await call(NEW, 'GET', '/collections')).statusCode).toBeGreaterThanOrEqual(400);
-    const note = (await call(NEW, 'GET', '/me/notifications')).json().rows.map((n: any) => n.title);
+    const note = (await call(NEW, 'GET', '/me/notifications?app=staff')).json().rows.map((n: any) => n.title);
     expect(note).toContain('You now have the role Secretary');
   });
 

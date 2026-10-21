@@ -5,6 +5,7 @@ import { Modal } from './MemberForm';
 import { Card, EmptyState, PageHeader, Section, SidePanel, Stat, StatTiles, StatusChip, Toolbar } from './ui';
 import { Loaded } from './money-bits';
 import { ExpenseBudgets, ExpenseReports, ExpenseRules } from './ExpenseTabs';
+import { useLinkParams } from './links';
 import './expenses.css';
 
 const day = (d?: string | null) => {
@@ -362,7 +363,7 @@ function Detail({ id, setup, onClose, onChanged, toast }: { id: string; setup: a
 }
 
 /* ---------- list ---------- */
-function ExpenseList({ setup, rec, setRec }: { setup: any; rec: boolean; setRec: (v: boolean) => void }) {
+function ExpenseList({ setup, rec, setRec, openId }: { setup: any; rec: boolean; setRec: (v: boolean) => void; openId?: string }) {
   const s = useSession();
   const toast = useToast();
   const [status, setStatus] = useState('');
@@ -374,7 +375,8 @@ function ExpenseList({ setup, rec, setRec }: { setup: any; rec: boolean; setRec:
   const [to, setTo] = useState('');
   const [q, setQ] = useState('');
   const [unpaid, setUnpaid] = useState(false);
-  const [open, setOpen] = useState('');
+  const [open, setOpen] = useState(openId ?? '');
+  useEffect(() => { if (openId) setOpen(openId); }, [openId]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const query = (csv = false) => {
@@ -487,11 +489,19 @@ export function Expenses() {
   const setupQ = useAsync<any>(() => api.get(withOrg(s, '/expenses/setup')), [s.grant.org.id]);
   const [tab, setTab] = useState('expenses');
   const [rec, setRec] = useState(false);
+  const [openId, setOpenId] = useState<string | undefined>();
   const setup = setupQ.data;
   const can = setup?.can ?? {};
   const tabs: { id: string; label: string }[] = [{ id: 'expenses', label: 'Expenses' }];
   if (can.view || can.approve || can.manage || can.settings) tabs.push({ id: 'budgets', label: 'Budgets' }, { id: 'reports', label: 'Reports' });
   if (can.settings || can.manage) tabs.push({ id: 'rules', label: 'Rules' });
+  // A notification link: ?open=<expense id> opens its detail panel, ?tab=budgets|reports|rules picks a tab.
+  const link = useLinkParams('expenses');
+  useEffect(() => {
+    if (!link || !setup) return;
+    if (link.tab && tabs.some((t) => t.id === link.tab)) setTab(link.tab);
+    if (link.open) { setTab('expenses'); setOpenId(link.open); }
+  }, [link, setup]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
       <PageHeader
@@ -505,7 +515,7 @@ export function Expenses() {
       <Loaded loading={setupQ.loading} error={setupQ.error} hasData={!!setup} rows={4}>
         {setup && (
           <>
-            {tab === 'expenses' && <ExpenseList setup={setup} rec={rec} setRec={setRec} />}
+            {tab === 'expenses' && <ExpenseList setup={setup} rec={rec} setRec={setRec} openId={openId} />}
             {tab === 'budgets' && <ExpenseBudgets />}
             {tab === 'reports' && <ExpenseReports />}
             {tab === 'rules' && <ExpenseRules />}

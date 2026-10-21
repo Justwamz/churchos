@@ -1,12 +1,13 @@
 import { Suspense, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
-import { Badge, BrandMark, Button, ErrorNote, HelpButton, LoginGate, useChurchBranding } from '@churchos/ui';
+import { Badge, BrandMark, Button, ErrorNote, HelpButton, LoginGate, useChurchBranding, useToast } from '@churchos/ui';
 import { BrandCtx } from './Branding';
 import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
 import { EmailGate } from './EmailGate';
 import { WalletNotice, useWalletAlert } from './WalletBanner';
 import { noteVisit, topPages } from './usage';
-import { Notifications } from './Notifications';
+import { Notifications, openBell, useUnread } from './Notifications';
+import { onNotify } from './links';
 import { InstallButton, useInstall, useOnline } from './Install';
 import { Icon } from './icons';
 import { PAGES, pageLabel, type PageDef } from './nav';
@@ -170,6 +171,9 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
   const layout = useLayout();
   const phone = layout === 'phone';
   const online = useOnline();
+  const unreadCount = useUnread();
+  const toast = useToast();
+  useEffect(() => onNotify((t) => toast.show(t, 'bad')), [toast.show]); // eslint-disable-line react-hooks/exhaustive-deps
   const s = useContext(SessionCtx);
   const grant = s.grant;
   const [menu, setMenu] = useState(false);
@@ -373,6 +377,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
               ) : (
                 <>
                   <h1>Menu</h1>
+                  <button type="button" className="more-item" onClick={openBell}>Notifications{unreadCount > 0 ? ` (${unreadCount} unread)` : ''}<Icon name="bell" size={18} /></button>
                   {picker}
                   <div className="more-grid">
                     {areas.filter((a) => a.id !== 'today').map((a) => (
@@ -407,9 +412,10 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
           {tabs.map((t) => (
             <button key={t.id} type="button" className={activeTab === t.id ? 'active' : ''} aria-current={activeTab === t.id ? 'page' : undefined} onClick={() => setPage(t.id)}><Icon name={t.icon} size={22} />{t.label}</button>
           ))}
-          <button type="button" className={activeTab === 'more' ? 'active' : ''} aria-current={activeTab === 'more' ? 'page' : undefined} onClick={() => setPage('more')}><Icon name="grid" size={22} />Menu</button>
+          <button type="button" className={activeTab === 'more' ? 'active' : ''} aria-current={activeTab === 'more' ? 'page' : undefined} onClick={() => setPage('more')}><span className="tab-ico"><Icon name="grid" size={22} />{unreadCount > 0 && <span className="tab-badge" aria-label={`${unreadCount} unread notifications`}>{unreadCount > 99 ? '99+' : unreadCount}</span>}</span>Menu</button>
         </nav>
       )}
+      {toast.node}
       {cmd && <CommandBar onClose={() => setCmd(false)} />}
       <HelpButton api={api} audience="staff" screen={HELP_SCREEN[current?.id ?? ''] ?? 'staff.dashboard'} />
     </div>

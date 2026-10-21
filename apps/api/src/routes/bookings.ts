@@ -4,6 +4,7 @@ import { toCents } from '@churchos/shared';
 import { branchesFor, type Permission } from '../auth';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { addNotification, type NotificationAudience } from '../notifications';
 import { grantsFor, inStaffScope } from '../scope';
 
 // ---------- time helpers (East Africa Time is UTC+3 all year) ----------
@@ -83,9 +84,9 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
   const nowIso = () => ctx.clock.now().toISOString();
   const newCode = () => randomBytes(5).toString('hex').toUpperCase().slice(0, 6);
 
-  const notify = async (orgId: string, userIds: (string | null | undefined)[], title: string, body: string) => {
+  const notify = async (orgId: string, userIds: (string | null | undefined)[], title: string, body: string, link?: string, audience: NotificationAudience = 'member') => {
     for (const u of [...new Set(userIds.filter(Boolean) as string[])]) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), orgId, u, title, body, nowIso()]);
+      await addNotification(ctx, { orgId, userId: u, kind: 'announcement', title, body, link, audience });
     }
   };
 
@@ -327,7 +328,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     if (declined) {
       await ctx.db.query(`UPDATE bookings SET status='declined', reason=$2, updated_at=$3 WHERE id=$1`, [b.id, declined.reason ?? `${declined.name} cannot take this booking`, nowIso()]);
       await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actorType: 'system', action: 'booking.declined', entity: 'booking', entityId: b.id, summary: `Booking "${b.title}" was declined` });
-      await notify(b.org_id, [b.requester_id], 'Your booking was not accepted', `"${b.title}" on ${fmtTime(b.starts_at)}: ${declined.reason ?? `${declined.name} cannot take this booking`}`);
+      await notify(b.org_id, [b.requester_id], 'Your booking was not accepted', `"${b.title}" on ${fmtTime(b.starts_at)}: ${declined.reason ?? `${declined.name} cannot take this booking`}`, 'member:bookings');
       return 'declined';
     }
     if (items.some((i) => i.status !== 'approved')) return 'requested';
@@ -335,7 +336,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
       if (await conflictWith(i.resource_id, b.starts_at, b.ends_at, b.id)) {
         await ctx.db.query(`UPDATE bookings SET status='declined', reason='That time was taken by another booking', updated_at=$2 WHERE id=$1`, [b.id, nowIso()]);
         await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actorType: 'system', action: 'booking.declined', entity: 'booking', entityId: b.id, summary: `Booking "${b.title}" was declined because the time was taken` });
-        await notify(b.org_id, [b.requester_id], 'Your booking was not accepted', `"${b.title}": that time was taken by another booking. Please pick another time.`);
+        await notify(b.org_id, [b.requester_id], 'Your booking was not accepted', `"${b.title}": that time was taken by another booking. Please pick another time.`, 'member:bookings');
         return 'declined';
       }
     }
@@ -344,7 +345,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     await ctx.db.query(`UPDATE bookings SET status=$2, hold_until=$3, updated_at=$4 WHERE id=$1`, [b.id, status, paid ? new Date(ctx.clock.now().getTime() + HOLD_HOURS * 3600_000).toISOString() : null, nowIso()]);
     await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actorType: 'system', action: paid ? 'booking.awaiting_payment' : 'booking.confirmed', entity: 'booking', entityId: b.id, summary: paid ? `Booking "${b.title}" approved, waiting for payment` : `Booking "${b.title}" confirmed`, meta: { price: b.price == null ? 0 : Number(b.price) } });
     await notify(b.org_id, [b.requester_id], paid ? 'Booking approved: pay to confirm' : 'Your booking is confirmed',
-      paid ? `"${b.title}" on ${fmtTime(b.starts_at)} is approved. Pay within ${HOLD_HOURS} hours to keep the time.` : `"${b.title}" is confirmed for ${fmtTime(b.starts_at)}.`);
+      paid ? `"${b.title}" on ${fmtTime(b.starts_at)} is approved. Pay within ${HOLD_HOURS} hours to keep the time.` : `"${b.title}" is confirmed for ${fmtTime(b.starts_at)}.`, 'member:bookings');
     return status;
   }
 
@@ -413,7 +414,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     // The log records the request, never what the member wrote in the note (L148).
     await ctx.ledger.audit({ orgId, branchId: resources[0].branch_id, actor: uid, action: 'booking.request', entity: 'booking', entityId: id, summary: `Asked to book ${resources.map((r) => r.name).join(' and ')} on ${fmtTime(startsAt)}`, meta: { resources: ids } });
     const pending = resources.filter((r) => !(r.approval === 'auto' && r.owner_user_id !== uid));
-    for (const r of pending) await notify(orgId, [r.owner_user_id, ...(await deciderUsers(orgId, r.branch_id))].filter((u) => u !== uid), 'New booking request', `${name} asked for ${r.name} on ${fmtTime(startsAt)}.`);
+    for (const r of pending) await notify(orgId, [r.owner_user_id, ...(await deciderUsers(orgId, r.branch_id))].filter((u) => u !== uid), 'New booking request', `${name} asked for ${r.name} on ${fmtTime(startsAt)}.`, `staff:bookings?open=${id}`, 'staff');
     const status = await progress(id);
     const row = (await ctx.db.query<any>(`SELECT * FROM bookings WHERE id=$1`, [id]))[0];
     return bookingView(row, { uid, canDecide: () => false }, true).then((v) => ({ ...v, status }));
@@ -432,7 +433,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     const items = await itemsOf(b.id);
     await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actor: actorId, action: 'booking.cancel', entity: 'booking', entityId: b.id, summary: `${byStaff ? 'Church cancelled' : 'Member cancelled'} the booking "${b.title}"`, reason, meta: { paid: !!b.payment_id } });
     const who = byStaff ? [b.requester_id] : [...new Set(items.map((i) => i.owner_user_id))];
-    await notify(b.org_id, who, 'A booking was cancelled', `"${b.title}" on ${fmtTime(b.starts_at)} was cancelled${reason ? `: ${reason}` : '.'}${b.payment_id ? ' It was paid, so the church will arrange any refund with you.' : ''}`);
+    await notify(b.org_id, who, 'A booking was cancelled', `"${b.title}" on ${fmtTime(b.starts_at)} was cancelled${reason ? `: ${reason}` : '.'}${b.payment_id ? ' It was paid, so the church will arrange any refund with you.' : ''}`, byStaff ? 'member:bookings' : `staff:bookings?open=${b.id}`, byStaff ? 'member' : 'staff');
   }
 
   app.post('/me/bookings/:id/cancel', auth, async (req) => {
@@ -595,7 +596,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     if (url !== null && !/^https:\/\/[^\s]{4,290}$/i.test(url)) throw new HttpError(400, 'The meeting link must start with https://', 'bad_link');
     await ctx.db.query(`UPDATE bookings SET meeting_url=$2, updated_at=$3 WHERE id=$1`, [b.id, url, nowIso()]);
     await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actor: uid, action: 'booking.meeting_link', entity: 'booking', entityId: b.id, summary: url ? `Added a meeting link to the booking "${b.title}"` : `Removed the meeting link from the booking "${b.title}"` });
-    if (url) await notify(b.org_id, [b.requester_id], 'Your meeting link is ready', `The link for "${b.title}" is now in your booking. Open Bookings to join at the time.`);
+    if (url) await notify(b.org_id, [b.requester_id], 'Your meeting link is ready', `The link for "${b.title}" is now in your booking. Open Bookings to join at the time.`, 'member:bookings');
     return { ok: true, meetingUrl: url };
   });
 
@@ -655,7 +656,7 @@ export async function bookingPaid(ctx: Ctx, code: string, paymentId: string): Pr
   const b = (await ctx.db.query<any>(`UPDATE bookings SET status='confirmed', payment_id=$2, hold_until=NULL, updated_at=$3 WHERE code=$1 AND status='awaiting_payment' RETURNING *`, [code, paymentId, now]))[0];
   if (!b) return;
   await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actorType: 'psp', action: 'booking.paid', entity: 'booking', entityId: b.id, summary: `Payment received for the booking "${b.title}". It is confirmed.`, links: { paymentId } });
-  await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Booking confirmed',$4,$5)`, [ctx.newId('ntf'), b.org_id, b.requester_id, `Payment received. "${b.title}" is confirmed for ${fmtTime(b.starts_at)}.`, now]);
+  await addNotification(ctx, { orgId: b.org_id, userId: b.requester_id, kind: 'announcement', title: 'Booking confirmed', body: `Payment received. "${b.title}" is confirmed for ${fmtTime(b.starts_at)}.`, link: 'member:bookings' });
 }
 
 /** Releases unpaid holds after 24 hours and sends reminders a day before (L144, L146). Run by the scheduler and after the development clock moves. */
@@ -664,13 +665,14 @@ export async function runBookingJobs(ctx: Ctx): Promise<{ lapsed: number; remind
   const lapsed = await ctx.db.query<any>(`UPDATE bookings SET status='lapsed', reason='Not paid in time', updated_at=$1 WHERE status='awaiting_payment' AND hold_until <= $1 RETURNING *`, [now]);
   for (const b of lapsed) {
     await ctx.ledger.audit({ orgId: b.org_id, branchId: b.branch_id, actorType: 'system', action: 'booking.lapsed', entity: 'booking', entityId: b.id, summary: `The booking "${b.title}" was released because it was not paid in time` });
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Booking released',$4,$5)`, [ctx.newId('ntf'), b.org_id, b.requester_id, `"${b.title}" was released because payment did not arrive within 24 hours. You can book again.`, now]);
+    await addNotification(ctx, { orgId: b.org_id, userId: b.requester_id, kind: 'announcement', title: 'Booking released', body: `"${b.title}" was released because payment did not arrive within 24 hours. You can book again.`, link: 'member:book' });
   }
   const due = await ctx.db.query<any>(`UPDATE bookings SET reminder_sent=true WHERE status='confirmed' AND NOT reminder_sent AND starts_at > $1 AND starts_at <= $2 RETURNING *`, [now, new Date(ctx.clock.now().getTime() + 24 * 3600_000).toISOString()]);
   for (const b of due) {
     const owners = (await ctx.db.query<any>(`SELECT DISTINCT r.owner_user_id FROM booking_items i JOIN resources r ON r.id=i.resource_id WHERE i.booking_id=$1 AND r.owner_user_id IS NOT NULL`, [b.id])).map((r) => r.owner_user_id as string);
     for (const u of new Set([b.requester_id, ...owners])) {
-      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [ctx.newId('ntf'), b.org_id, u, `Tomorrow: ${b.title}`, `${fmtTime(b.starts_at)} to ${fmtTime(b.ends_at)}.`, now]);
+      const mine = u === b.requester_id; // the person who booked sees it in the member app, the room's owner in the staff app
+      await addNotification(ctx, { orgId: b.org_id, userId: u, kind: 'announcement', title: `Tomorrow: ${b.title}`, body: `${fmtTime(b.starts_at)} to ${fmtTime(b.ends_at)}.`, link: mine ? 'member:bookings' : `staff:bookings?open=${b.id}`, audience: mine ? 'member' : 'staff' });
     }
   }
   return { lapsed: lapsed.length, reminders: due.length };

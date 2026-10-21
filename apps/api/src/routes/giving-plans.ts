@@ -115,7 +115,7 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function tellMember(p: any, title: string, body: string, sms = false) {
     const account = (await ctx.db.query<any>(`SELECT phone FROM users WHERE id=$1`, [p.user_id]))[0]?.phone ?? p.phone;
-    await notify(ctx, { orgId: p.org_id, branchId: p.branch_id, phone: account, kind: 'announcement', title, body, idemKey: `plan:${p.id}:${title}:${nowIso().slice(0, 16)}`, sms });
+    await notify(ctx, { orgId: p.org_id, branchId: p.branch_id, phone: account, kind: 'announcement', title, body, idemKey: `plan:${p.id}:${title}:${nowIso().slice(0, 16)}`, sms, link: 'member:give?sub=regular' });
   }
 
   /** Reads the form: amount, how often, when, and on what. Shared by setting up a plan and changing one. */

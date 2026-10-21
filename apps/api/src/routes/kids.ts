@@ -185,7 +185,7 @@ function kidsInternals(ctx: Ctx) {
     for (const g of await guardiansOf(ctx, r.child_id)) {
       if (!g.phone || seen.has(g.phone)) continue;
       seen.add(g.phone);
-      const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${r.child_name} is waiting to be collected`, body, idemKey: `kids:late:${r.id}:${g.id}`, sms: true });
+      const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${r.child_name} is waiting to be collected`, body, idemKey: `kids:late:${r.id}:${g.id}`, sms: true, link: 'member:kids' });
       const wa = await sendWhatsapp(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, body, idemKey: `kids:late:wa:${r.id}:${g.id}` });
       let mail = 'none';
       if (g.email && g.email_verified) mail = (await sendEmail(ctx, s.org_id, g.email, `${r.child_name} is waiting to be collected`, `Hello ${String(g.name).split(' ')[0]},\n\n${body}\n`)) ? 'sent' : 'failed';
@@ -198,7 +198,7 @@ function kidsInternals(ctx: Ctx) {
     const people = await staffWith(ctx, s.org_id, s.branch_id, 'kids.manage');
     const body = `${r.child_name} (tag ${r.tag}) has not been collected from ${s.class_name}. ${kind === 'manual' ? `${by ?? 'The teacher'} asked for help.` : 'The guardians were told and have not come.'} Open Children in the staff app to see who to call.`;
     for (const u of people) {
-      const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: u.phone, kind: 'announcement', title: `Child not collected: ${r.child_name}`, body, idemKey: `kids:esc:${r.id}:${u.id}`, sms: true });
+      const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: u.phone, kind: 'announcement', title: `Child not collected: ${r.child_name}`, body, idemKey: `kids:esc:${r.id}:${u.id}`, sms: true, link: 'staff:children', audience: 'staff' });
       await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, action: 'alert_sent', result: 'ok', method: 'staff', subjectId: u.id, subjectName: u.name, children: r.child_name, detail: `Staff alert: SMS ${res.sms === 'sent' ? 'sent' : 'not sent'}${res.inApp ? ', in-app sent' : ''}` });
     }
   }
@@ -611,13 +611,13 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     let code: string | null = null;
     if (!hasApp || p.method === 'search') code = await createCode(s, { kind: 'dropoff', ids: rows.map((r) => r.id), name: g.full_name, phone: g.phone, subjectKind: 'guardian', subjectId: g.id });
     const text = `${who} checked in to ${s.class_name} at ${hm(nowIso())}, tag ${rows[0].tag}. To collect, ${hasApp ? 'show your QR code in the app' : 'tell the teacher your pick-up code'}${code ? `${hasApp ? ' or' : ':'} pick-up code ${code}` : ''}.`;
-    const r = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${who} checked in`, body: text, idemKey: `kids:in:${rows[0].id}`, sms: !hasApp || p.method === 'search' });
+    const r = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${who} checked in`, body: text, idemKey: `kids:in:${rows[0].id}`, sms: !hasApp || p.method === 'search', link: 'member:kids' });
     await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, action: 'message_sent', result: r.sms === 'skipped_no_balance' ? 'sms_not_sent' : 'ok', subjectId: g.id, subjectName: g.full_name, children: who, detail: `Drop-off confirmation: ${r.sms === 'sent' ? 'SMS' : ''}${r.sms === 'sent' && r.inApp ? ' and ' : ''}${r.inApp ? 'in-app' : ''}${r.sms !== 'sent' && !r.inApp ? 'not delivered' : ''}`.trim() });
     // The other guardians of these children hear about it in the app (no SMS cost).
     for (const row of rows) {
       for (const o of await guardiansOf(ctx, row.childId)) {
         if (o.id === g.id || !o.phone || !o.user_id) continue;
-        await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: o.phone, kind: 'announcement', title: `${row.name} checked in`, body: `${g.full_name} dropped off ${row.name} at ${s.class_name}, tag ${row.tag}.`, idemKey: `kids:in:${row.id}:${o.id}`, sms: false });
+        await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: o.phone, kind: 'announcement', title: `${row.name} checked in`, body: `${g.full_name} dropped off ${row.name} at ${s.class_name}, tag ${row.tag}.`, idemKey: `kids:in:${row.id}:${o.id}`, sms: false, link: 'member:kids' });
       }
     }
     void c;
@@ -671,7 +671,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (recent >= 3) throw new HttpError(429, 'Three codes have been sent for this child. Wait a little or call the guardian.', 'too_many');
     const code = await createCode(s, { kind: 'collect', ids, name, phone, subjectKind: b.kind === 'guardian' ? 'guardian' : 'approved', subjectId: String(b.id) });
     const body = `Pick-up code for ${r.child_name}, ${s.class_name}: ${code}. Give it to the teacher to take ${r.child_name} home. If you did not expect this, call the church.`;
-    const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone, kind: 'announcement', title: 'Your pick-up code', body, idemKey: `kids:code:${r.id}:${code}`, sms: true });
+    const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone, kind: 'announcement', title: 'Your pick-up code', body, idemKey: `kids:code:${r.id}:${code}`, sms: true, link: 'member:kids' });
     await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, action: 'code_sent', result: res.sms === 'sent' ? 'ok' : 'sms_not_sent', method: 'sms', subjectName: name, children: r.child_name, detail: `Pick-up code sent by SMS to ${maskPhone(phone)} (${b.kind === 'guardian' ? 'guardian' : 'approved person'})` });
     if (res.sms !== 'sent') throw new HttpError(502, 'The SMS could not be sent. Check the church\'s SMS balance, or scan the guardian\'s code.', 'sms_failed');
     return { sentTo: maskPhone(phone), name };
@@ -745,7 +745,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
           void mine;
           const kids = done.map((d) => d.child_name).join(' and ');
           const sms = !g.user_id || (r.dropper_id === g.id && r.collector_id !== g.id);
-          await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${kids} collected`, body: `${kids} collected from ${s.class_name} at ${hm(nowIso())} by ${r.collector_name}.`, idemKey: `kids:out:${r.id}:${g.id}`, sms });
+          await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${kids} collected`, body: `${kids} collected from ${s.class_name} at ${hm(nowIso())} by ${r.collector_name}.`, idemKey: `kids:out:${r.id}:${g.id}`, sms, link: 'member:kids' });
         }
       }
     }

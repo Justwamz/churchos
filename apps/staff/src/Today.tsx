@@ -5,6 +5,7 @@ import { InstallBanner, useOnline } from './Install';
 import { useWords } from './words';
 import { QUICK_ACTIONS } from './navmap';
 import { openAction } from './prefill';
+import { parseLink, ctaLabel, useOpenLink } from './links';
 import { Icon } from './icons';
 import { Card, EmptyState, Section, Skeleton, StatusChip } from './ui';
 
@@ -15,7 +16,7 @@ type TodayData = {
   kids: { id: string; className: string; branch?: string; present: number }[];
   at: string;
 };
-type Note = { id: string; title: string; body?: string; read: boolean; created_at: string };
+type Note = { id: string; kind?: string; title: string; body?: string; link?: string | null; read: boolean; created_at: string };
 
 const STATE: Record<string, { label: string; tone: 'info' | 'done' | 'off' }> = {
   before: { label: 'Opens soon', tone: 'info' },
@@ -50,12 +51,13 @@ export function TodayPage() {
   const [recent, setRecent] = useState<Note[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const openLink = useOpenLink();
 
   const load = useCallback(async () => {
     setBusy(true);
     try { setD(await api.get('/staff/today' + s.qs())); setError(''); } catch (e: any) { setError(friendly(e.message)); }
-    // The recent list is a nicety: the same notifications as the bell, newest first. If it fails the page simply has no list.
-    try { const n = await api.get('/me/notifications'); setRecent((n.rows ?? []).slice(0, 8)); } catch { setRecent([]); }
+    // The recent list is a nicety: the same staff notifications as the bell, newest first. If it fails the page simply has no list.
+    try { const n = await api.get('/me/notifications?app=staff'); setRecent((n.rows ?? []).slice(0, 8)); } catch { setRecent([]); }
     setBusy(false);
   }, [s]);
 
@@ -151,9 +153,11 @@ export function TodayPage() {
                 <Card pad={false}>
                   <ul className="feed">
                     {recent.map((n) => (
-                      <li key={n.id} className={n.read ? '' : 'unread'}>
+                      <li key={n.id} className={`${n.read ? '' : 'unread'} ${parseLink(n.link) ? 'feed-link' : ''}`}>
                         <span className="feed-dot" aria-hidden="true" />
-                        <div><b>{n.title}</b>{n.body && <p>{n.body}</p>}<span className="tiny">{ago(n.created_at)}</span></div>
+                        {parseLink(n.link)
+                          ? <button type="button" className="feed-btn" onClick={() => openLink(n.link)}><b>{n.title}</b>{n.body && <p>{n.body}</p>}<span className="tiny">{ago(n.created_at)} · <span className="feed-cta">{ctaLabel(n.link, n.kind)}</span></span></button>
+                          : <div><b>{n.title}</b>{n.body && <p>{n.body}</p>}<span className="tiny">{ago(n.created_at)}</span></div>}
                       </li>
                     ))}
                   </ul>

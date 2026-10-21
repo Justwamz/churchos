@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLinkParams } from './links';
 import { API_URL, Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Gate } from './MemberForm';
@@ -72,6 +73,12 @@ export function Suggestions() {
   const [q, setQ] = useState('');
   useEffect(() => { const t = setTimeout(() => setQ(search.trim()), 300); return () => clearTimeout(t); }, [search]);
   const [edit, setEdit] = useState<any>(null);
+  // A notification link: ?open=<suggestion id> opens it for a reply.
+  const link = useLinkParams('suggestions');
+  useEffect(() => {
+    if (!link?.open) return;
+    api.get('/suggestions').then((r: any) => { const f = (r?.suggestions ?? []).find((x: any) => x.id === link.open); if (f) setEdit(f); }).catch(() => {});
+  }, [link]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const query = (csv = false) => {

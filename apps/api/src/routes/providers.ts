@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { maskPhone } from '@churchos/shared';
 import { diff, type FieldSpec } from '../audit';
 import { HttpError, requireAdmin, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 
 const SPECS: Record<string, FieldSpec> = {
   sms_sender: { field: 'smsSenderId', label: 'SMS sender name' },
@@ -63,10 +64,10 @@ export function providerRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     await ctx.ledger.audit({ orgId: r.org_id, branchId: r.branch_id, actor: req.session!.uid, action: approve ? 'integration.sender_approved' : 'integration.sender_rejected', category: 'config', entity: 'sender_request', entityId: r.id, summary: `${approve ? 'Approved' : 'Rejected'} a ${spec.label.toLowerCase()}`, reason: approve ? null : reason, changes });
     // Tell the person who asked.
-    await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement',$4,$5,$6)`, [
-      ctx.newId('ntf'), r.org_id, r.requested_by, approve ? `Your ${spec.label.toLowerCase()} was approved` : `Your ${spec.label.toLowerCase()} was not approved`,
-      approve ? `ChurchOS approved ${r.kind === 'whatsapp_number' ? 'the WhatsApp number' : '"' + r.value + '"'}. It is now in use.` : `ChurchOS could not approve it: ${reason}`, now,
-    ]);
+    await addNotification(ctx, {
+      orgId: r.org_id, userId: r.requested_by, kind: 'announcement', title: approve ? `Your ${spec.label.toLowerCase()} was approved` : `Your ${spec.label.toLowerCase()} was not approved`,
+      body: approve ? `ChurchOS approved ${r.kind === 'whatsapp_number' ? 'the WhatsApp number' : '"' + r.value + '"'}. It is now in use.` : `ChurchOS could not approve it: ${reason}`, link: 'staff:integrations', audience: 'staff',
+    });
     return { id: r.id, status: approve ? 'approved' : 'rejected' };
   });
 }

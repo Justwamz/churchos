@@ -6,6 +6,7 @@ import { normalizePhone, type Permission } from '../auth';
 import { imageSize } from '../artwork';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { checkoutLink, HttpError, requireSession, staffScope, type Ctx } from '../ctx';
+import { addNotification } from '../notifications';
 import { normalizeMethod } from './helpers';
 
 const HOLD_MINUTES = 30;
@@ -570,7 +571,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     if (s.channel !== 'app' || s.status !== 'completed' || s.fulfilment !== 'to_prepare') throw new HttpError(409, 'This order is not waiting to be prepared', 'wrong_state');
     await ctx.db.query(`UPDATE shop_sales SET fulfilment='ready', ready_at=$2 WHERE id=$1`, [s.id, nowIso()]);
     await ctx.ledger.audit({ orgId: s.org_id, branchId: s.branch_id, actor: req.session!.uid, action: 'shop.order_ready', entity: 'shop_sale', entityId: s.id, summary: `Order ${s.receipt_no} is ready for collection` });
-    if (s.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','Your order is ready',$4,$5)`, [ctx.newId('ntf'), s.org_id, s.buyer_user_id, `Order ${s.receipt_no} is ready to collect at ${s.branch_name}. Show your collection code ${s.code}.`, nowIso()]);
+    if (s.buyer_user_id) await addNotification(ctx, { orgId: s.org_id, userId: s.buyer_user_id, kind: 'announcement', title: 'Your order is ready', body: `Order ${s.receipt_no} is ready to collect at ${s.branch_name}. Show your collection code ${s.code}.`, link: 'member:shop' });
     return { id: s.id, state: 'ready' };
   });
 
@@ -654,13 +655,13 @@ export async function shopPaid(ctx: Ctx, code: string, paymentId: string): Promi
     const rows = await ctx.db.query<any>(`SELECT ra.user_id, ra.scope_type, ra.scope_id, r.permissions FROM role_assignments ra JOIN roles r ON r.id=ra.role_id WHERE ra.org_id=$1`, [s.org_id]);
     const region = (await ctx.db.query<any>(`SELECT region FROM branches WHERE id=$1`, [s.branch_id]))[0]?.region;
     const staff = [...new Set(rows.filter((r) => (r.permissions as string[]).includes('shop.sell') && (r.scope_type === 'org' || (r.scope_type === 'branch' && r.scope_id === s.branch_id) || (r.scope_type === 'region' && r.scope_id === region))).map((r) => r.user_id as string))];
-    for (const u of staff) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'announcement','New shop order',$4,$5)`, [ctx.newId('ntf'), s.org_id, u, `${s.buyer_name ?? 'A member'} paid ${kesText(Number(s.total))} for order ${s.receipt_no}. Prepare it for collection.`, now]);
-    if (s.buyer_user_id) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'receipt','Shop order paid',$4,$5)`, [ctx.newId('ntf'), s.org_id, s.buyer_user_id, `Thank you. Receipt ${s.receipt_no}, ${kesText(Number(s.total))}. Collect it at ${branch?.name ?? 'the shop'} with your code ${s.code}. We will tell you when it is ready.`, now]);
+    for (const u of staff) await addNotification(ctx, { orgId: s.org_id, userId: u, kind: 'announcement', title: 'New shop order', body: `${s.buyer_name ?? 'A member'} paid ${kesText(Number(s.total))} for order ${s.receipt_no}. Prepare it for collection.`, link: `staff:shop?open=${s.id}`, audience: 'staff' });
+    if (s.buyer_user_id) await addNotification(ctx, { orgId: s.org_id, userId: s.buyer_user_id, kind: 'receipt', title: 'Shop order paid', body: `Thank you. Receipt ${s.receipt_no}, ${kesText(Number(s.total))}. Collect it at ${branch?.name ?? 'the shop'} with your code ${s.code}. We will tell you when it is ready.`, link: 'member:shop' });
     return;
   }
   if (s.buyer_membership_id) {
     const u = (await ctx.db.query<any>(`SELECT user_id FROM memberships WHERE id=$1`, [s.buyer_membership_id]))[0]?.user_id;
-    if (u) await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,$2,$3,'receipt','Shop receipt',$4,$5)`, [ctx.newId('ntf'), s.org_id, u, `Thank you. Receipt ${s.receipt_no}, ${kesText(Number(s.total))}.`, now]);
+    if (u) await addNotification(ctx, { orgId: s.org_id, userId: u, kind: 'receipt', title: 'Shop receipt', body: `Thank you. Receipt ${s.receipt_no}, ${kesText(Number(s.total))}.`, link: 'member:shop' });
   }
 }
 

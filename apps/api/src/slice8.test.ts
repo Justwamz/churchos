@@ -39,7 +39,7 @@ function when(dow: number, hhmm: string, minDays = 8, weeks = 0): string {
 }
 const plus = (iso: string, minutes: number) => new Date(Date.parse(iso) + minutes * MIN).toISOString();
 const dateOf = (iso: string) => new Date(Date.parse(iso) + EAT).toISOString().slice(0, 10);
-const inbox = async (who: string) => (await call(who, 'GET', '/me/notifications')).json().rows as any[];
+const inbox = async (who: string, app: 'member' | 'staff' = 'member') => (await call(who, 'GET', `/me/notifications?app=${app}`)).json().rows as any[];
 const book = (who: string, resourceIds: string[], startsAt: string, minutes: number, extra: any = {}) =>
   call(who, 'POST', '/me/bookings', { resourceIds, startsAt, endsAt: plus(startsAt, minutes), title: 'A visit', ...extra });
 
@@ -140,7 +140,7 @@ describe('a free booking with a person (L141, L142)', () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ status: 'requested', price: null });
     id = r.json().id;
-    expect((await inbox(OWNER)).some((n) => n.title === 'New booking request')).toBe(true);
+    expect((await inbox(OWNER, 'staff')).some((n) => n.title === 'New booking request')).toBe(true);
     expect((await call(JANE, 'POST', `/me/diary/${id}/decide`, { approve: true })).statusCode).toBe(404); // not her diary
     expect((await call(PETER, 'POST', `/me/diary/${id}/decide`, { approve: true })).statusCode).toBe(404);
     const diary = (await call(OWNER, 'GET', '/me/diary')).json();
@@ -159,7 +159,7 @@ describe('a free booking with a person (L141, L142)', () => {
     expect((await call(JANE, 'POST', `/me/bookings/${id}/cancel`, { reason: 'Plans changed' })).json().status).toBe('cancelled');
     expect((await call(PETER, 'GET', `/me/resources/res_pastor/availability?date=${day}`)).json().slots.map((s: any) => s.startsAt)).toContain(slot);
     expect((await call(JANE, 'POST', `/me/bookings/${id}/cancel`)).statusCode).toBe(409);
-    expect((await inbox(OWNER)).some((n) => n.title === 'A booking was cancelled')).toBe(true);
+    expect((await inbox(OWNER, 'staff')).some((n) => n.title === 'A booking was cancelled')).toBe(true);
   });
 
   it('keeps the note private: only the member and the people who decide see it, and the log never holds it', async () => {
@@ -331,7 +331,7 @@ describe('calendar and reminders (L146, L147)', () => {
     await runBookingJobs(ctx);
     await runBookingJobs(ctx);
     expect((await inbox(JANE)).filter((n) => n.title === 'Tomorrow: Prayer session')).toHaveLength(1);
-    expect((await inbox(OWNER)).filter((n) => n.title === 'Tomorrow: Prayer session')).toHaveLength(1);
+    expect((await inbox(OWNER, 'staff')).filter((n) => n.title === 'Tomorrow: Prayer session')).toHaveLength(1);
     expect((await call(PETER, 'POST', `/me/bookings/${r.id}/cancel`)).statusCode).toBe(404);
     expect((await call(JANE, 'POST', `/me/bookings/${r.id}/cancel`)).json().code).toBe('too_late'); // inside 24 hours
     expect((await call(OWNER, 'POST', `/bookings/${r.id}/cancel`, { reason: 'The pastor is unwell' })).json().status).toBe('cancelled');
