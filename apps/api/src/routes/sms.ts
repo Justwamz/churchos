@@ -31,12 +31,34 @@ export function smsRoutes(app: FastifyInstance, ctx: Ctx) {
   // ---------- member notifications (in-app inbox, L56, L121) ----------
 
   app.get('/me/notifications', auth, async (req) => {
-    const rows = await ctx.db.query<any>(`SELECT id, kind, title, body, message_id, member_id, for_name, read, created_at FROM notifications WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, [req.session!.uid]);
+    const rows = await ctx.db.query<any>(`SELECT id, kind, title, body, message_id, member_id, for_name, read, created_at FROM notifications WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100`, [req.session!.uid]);
     return { unread: rows.filter((r) => !r.read).length, rows };
   });
 
   app.post('/me/notifications/read', auth, async (req) => {
     await ctx.db.query(`UPDATE notifications SET read=true WHERE user_id=$1`, [req.session!.uid]);
     return { ok: true };
+  });
+
+  /** Deleting from the inbox hides the messages for this person only; they can be brought back straight after (undo). Receipts and the records behind them are not touched. */
+  const idsOf = (v: unknown) => (Array.isArray(v) ? v.map(String).slice(0, 200) : []);
+
+  app.post('/me/notifications/delete', auth, async (req) => {
+    const ids = idsOf((req.body as any)?.ids);
+    if (!ids.length) return { deleted: 0, ids: [] };
+    const rows = await ctx.db.query<any>(`UPDATE notifications SET deleted_at=$3 WHERE user_id=$1 AND id = ANY($2::text[]) AND deleted_at IS NULL RETURNING id`, [req.session!.uid, ids, ctx.clock.now().toISOString()]);
+    return { deleted: rows.length, ids: rows.map((r) => r.id) };
+  });
+
+  app.post('/me/notifications/delete-read', auth, async (req) => {
+    const rows = await ctx.db.query<any>(`UPDATE notifications SET deleted_at=$2 WHERE user_id=$1 AND read AND deleted_at IS NULL RETURNING id`, [req.session!.uid, ctx.clock.now().toISOString()]);
+    return { deleted: rows.length, ids: rows.map((r) => r.id) };
+  });
+
+  app.post('/me/notifications/restore', auth, async (req) => {
+    const ids = idsOf((req.body as any)?.ids);
+    if (!ids.length) return { restored: 0 };
+    const rows = await ctx.db.query<any>(`UPDATE notifications SET deleted_at=NULL WHERE user_id=$1 AND id = ANY($2::text[]) AND deleted_at IS NOT NULL RETURNING id`, [req.session!.uid, ids]);
+    return { restored: rows.length };
   });
 }

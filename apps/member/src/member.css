@@ -938,3 +938,11 @@ h3 { font-size: 17px; }
 /* ---- Manrope: aligned figures stay tidy, big headings a little tighter ---- */
 .amt, .amount-input, .hero-total strong, .bk-price strong, .shop-price, .tk-sum-row.grand strong, .stat-value, .big-amount, .thanks-amt { font-variant-numeric: tabular-nums; }
 .appbar-title strong, .hero-total strong, .thanks-amt, .shop-price.big, .amount-input { letter-spacing: -0.02em; }
+
+/* Deleting messages from the inbox (Slice 25). */
+.msg-del { flex: none; align-self: flex-start; width: 44px; height: 44px; margin: -6px -6px 0 0; border: 0; border-radius: 12px; background: none; color: var(--ink-3); display: grid; place-items: center; cursor: pointer; }
+.msg-del:hover:not(:disabled) { background: var(--bad-tint); color: var(--bad); }
+.msg-del:disabled { opacity: 0.4; cursor: default; }
+.inbox-actions { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.link-btn.danger { color: var(--bad); }
+.link-btn.danger:disabled { color: var(--ink-3); }

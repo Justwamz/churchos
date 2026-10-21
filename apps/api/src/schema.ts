@@ -746,6 +746,8 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- A child has no sign-in of their own: their in-app messages sit in a guardian's inbox, marked "For <child>" (L125).
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS member_id text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS for_name text;
+-- Members can delete messages from their own inbox (kept, hidden, so it can be undone).
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 
 -- Certificates and sacramental records (L98 to L103).
 CREATE TABLE IF NOT EXISTS certificate_templates (

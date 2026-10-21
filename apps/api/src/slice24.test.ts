@@ -102,3 +102,34 @@ describe('what the church calls its gatherings (Slice 25)', () => {
     expect(pub.words).toMatchObject({ one: 'Mass', many: 'Masses' });
   });
 });
+
+describe('members delete messages from their inbox', () => {
+  const post = (who: string, url: string, payload: any = {}) => app.inject({ method: 'POST', url, payload, headers: { authorization: `Bearer ${tokens[who]}` } });
+
+  it('hides them for that person only, and brings them back on undo', async () => {
+    await login(JANE); await login('0711000002');
+    const t = ctx.clock.now().toISOString();
+    for (const [id, user, title] of [['ntf_del1', 'u_jane', 'First note'], ['ntf_del2', 'u_jane', 'Second note'], ['ntf_del3', 'u_peter', 'Peter note']]) {
+      await ctx.db.query(`INSERT INTO notifications (id, org_id, user_id, kind, title, body, created_at) VALUES ($1,'org_grace',$2,'announcement',$3,'body',$4)`, [id, user, title, t]);
+    }
+    const before = (await call(JANE, 'GET', '/me/notifications')).json();
+    expect(before.rows.map((r: any) => r.id)).toEqual(expect.arrayContaining(['ntf_del1', 'ntf_del2']));
+    const del = (await post(JANE, '/me/notifications/delete', { ids: ['ntf_del1', 'ntf_del3'] })).json();
+    expect(del).toEqual({ deleted: 1, ids: ['ntf_del1'] }); // Peter's note is not Jane's to delete
+    const after = (await call(JANE, 'GET', '/me/notifications')).json();
+    expect(after.rows.map((r: any) => r.id)).not.toContain('ntf_del1');
+    expect(after.unread).toBe(before.unread - 1);
+    expect((await call('0711000002', 'GET', '/me/notifications')).json().rows.map((r: any) => r.id)).toContain('ntf_del3');
+    expect((await post(JANE, '/me/notifications/restore', { ids: ['ntf_del1', 'ntf_del3'] })).json()).toEqual({ restored: 1 });
+    expect((await call(JANE, 'GET', '/me/notifications')).json().rows.map((r: any) => r.id)).toContain('ntf_del1');
+  });
+
+  it('deletes everything already read, and needs a sign-in', async () => {
+    await post(JANE, '/me/notifications/read');
+    const r = (await post(JANE, '/me/notifications/delete-read')).json();
+    expect(r.deleted).toBeGreaterThan(0);
+    expect((await call(JANE, 'GET', '/me/notifications')).json()).toMatchObject({ rows: [], unread: 0 });
+    expect((await app.inject({ method: 'POST', url: '/me/notifications/delete', payload: { ids: ['x'] } })).statusCode).toBe(401);
+    expect((await post(JANE, '/me/notifications/delete', {})).json()).toEqual({ deleted: 0, ids: [] });
+  });
+});
