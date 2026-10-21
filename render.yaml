@@ -21,6 +21,10 @@ services:
         value: "1"
       - key: SEED_DEMO
         value: "1"
+      - key: LISTEN_EARLY
+        value: "1"
+      - key: ALLOW_DEV_OTP # the demo uses the fixed development sign-in code (Render runs Node services in production mode)
+        value: "1"
       - key: CHURCHOS_AUTH_SECRET
         generateValue: true
       - key: GIVING_URL # the address of the giving site, for example https://churchos-giving.onrender.com (used in links in messages)

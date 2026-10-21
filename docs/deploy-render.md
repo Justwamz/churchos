@@ -37,6 +37,8 @@ This puts the API and the four web apps (staff, member, giving, admin) on Render
 | `GIVING_URL` | The giving site's address, used in links inside messages and QR codes. |
 | `SEED_DEMO` | `1` (default) loads the demo churches and people at start. `0` starts empty. |
 | `TRUST_PROXY` | `1` behind Render's proxy. |
+| `LISTEN_EARLY` | `1` opens the port first and loads the demo data right after (Render wants the port open within a minute or two). |
+| `ALLOW_DEV_OTP` | `1` allows the fixed demo sign-in code `123456`. Render runs Node services in production mode, which otherwise refuses sign-in. Because it is production mode the screen does not show the code: type `123456`. |
 | `NODE_ENV=production` | Hides development helpers and refuses sign-in unless `ALLOW_DEV_OTP=1` is also set. Not used on the demo. |
 
 ## Turning on real or simulated providers

@@ -17,6 +17,9 @@ import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 
 const port = Number(process.env.PORT ?? 4000);
 const { app, ctx } = await buildApp({ logger: false });
+// On a host that wants the port open quickly (Render) the API starts listening first and loads the demo data right after (LISTEN_EARLY=1).
+const listenEarly = process.env.LISTEN_EARLY === '1';
+if (listenEarly) await app.listen({ port, host: '0.0.0.0' });
 // Demo churches and people are loaded unless SEED_DEMO=0 (a real launch starts empty).
 if (process.env.SEED_DEMO !== '0') {
   await seed(ctx);
@@ -38,7 +41,7 @@ setInterval(() => void runKidsJobs(ctx).catch((e) => console.error('children sch
 setInterval(() => void runShopJobs(ctx).catch((e) => console.error('shop scheduler failed', e)), 30_000).unref();
 setInterval(() => void runBookingJobs(ctx).catch((e) => console.error('booking scheduler failed', e)), 30_000).unref();
 setInterval(() => void runCommunityJobs(ctx).catch((e) => console.error('community scheduler failed', e)), 30_000).unref();
-await app.listen({ port, host: '0.0.0.0' });
+if (!listenEarly) await app.listen({ port, host: '0.0.0.0' });
 
 console.log(`\nChurchOS API listening on http://localhost:${port}`);
 console.log(`Dev one-time code for every login: ${DEV_OTP}`);
