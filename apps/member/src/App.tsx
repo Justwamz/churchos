@@ -240,6 +240,8 @@ function Home({ claims, me, user, go, families, notif, openSub, openShop }: { cl
         {m ? <p>{m.branch_name} · {m.org_name}</p> : <p>You are not linked to a church yet. Ask your church to add you, or request a move in the Me tab.</p>}
       </div>
 
+      <InstallBanner />
+
       <AdvertSlider onShop={openShop} />
       <HomeServices onOpen={() => go('services')} />
       <HomeKids families={families} onOpen={() => go('kids')} />
@@ -780,6 +782,57 @@ function InstallCard() {
   if (ios) return <p className="tiny" style={{ margin: 0 }}>To install: tap Share, then Add to Home Screen</p>;
   return null;
 }
+const INSTALL_DISMISS_KEY = 'churchos:member-install-dismissed';
+const INSTALL_SNOOZE_MS = 7 * 86_400_000;
+
+/**
+ * A visible "Install the app" card at the top of Home, for phones where the app is not installed yet. It can be put off for a week; the
+ * Install card under Me stays for anyone who wants it later. Where the browser cannot install (iPhone) it shows the two taps instead.
+ */
+function InstallBanner() {
+  const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
+  const [gone, setGone] = useState(() => { try { return Date.now() - Number(localStorage.getItem(INSTALL_DISMISS_KEY) ?? 0) < INSTALL_SNOOZE_MS; } catch { return false; } });
+  const [installed, setInstalled] = useState(false);
+  const brand = useContext(BrandCtx);
+  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+  const phone = window.matchMedia?.('(max-width: 760px)').matches ?? true;
+  useEffect(() => {
+    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
+    const onReady = () => setEvt((window as any).__installPrompt ?? null);
+    const onInstalled = () => { setInstalled(true); setEvt(null); (window as any).__installPrompt = null; };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('churchos:install-ready', onReady);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('churchos:install-ready', onReady); window.removeEventListener('appinstalled', onInstalled); };
+  }, []);
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (standalone || installed || gone || !phone || (!evt && !ios)) return null;
+  const later = () => { try { localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now())); } catch { /* ignore */ } setGone(true); };
+  const install = async () => {
+    try {
+      await evt.prompt();
+      const r = await evt.userChoice;
+      if (r?.outcome === 'accepted') setInstalled(true);
+    } catch { /* the browser decided not to show it */ }
+    setEvt(null);
+    (window as any).__installPrompt = null;
+  };
+  const name = brand?.hasLogo && brand.name ? brand.name : 'ChurchOS';
+  return (
+    <section className="install-banner" aria-label="Install the app">
+      <span className="install-ico" aria-hidden="true"><Icon name="install" size={26} /></span>
+      <div className="install-text">
+        <strong>Install the {name} app</strong>
+        <span>{evt ? 'Open it from your home screen like any other app: faster, and full screen.' : 'Tap the Share button, then "Add to Home Screen".'}</span>
+      </div>
+      <div className="install-actions">
+        {evt && <button type="button" className="install-go" onClick={install}>Install</button>}
+        <button type="button" className="install-later" onClick={later}>Not now</button>
+      </div>
+    </section>
+  );
+}
+
 function PledgeForm({ church, projects, onDone }: { church: any; projects: any[]; onDone: () => void }) {
   const [proj, setProj] = useState(projects[0].code);
   const [amount, setAmount] = useState('');
