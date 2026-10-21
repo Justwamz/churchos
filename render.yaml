@@ -9,7 +9,7 @@ services:
     name: churchos-api
     runtime: node
     region: frankfurt
-    plan: starter
+    plan: free
     buildCommand: npm install -g pnpm@10.29.2 && pnpm install --frozen-lockfile --prod=false
     startCommand: pnpm --filter @churchos/api start
     healthCheckPath: /health

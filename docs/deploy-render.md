@@ -7,7 +7,7 @@ This puts the API and the four web apps (staff, member, giving, admin) on Render
 ## Steps
 
 1. In Render choose **New > Blueprint**, pick the repository `Justwamz/churchos` and the branch `main`. Render reads `render.yaml` and lists five services:
-   `churchos-api` (a web service, Starter plan, Frankfurt) and four static sites: `churchos-staff`, `churchos-member`, `churchos-giving`, `churchos-admin`.
+   `churchos-api` (a web service, Free plan, Frankfurt) and four static sites: `churchos-staff`, `churchos-member`, `churchos-giving`, `churchos-admin`.
 2. Render asks for the values marked in the Blueprint. Until the services exist you do not know their addresses, so use the usual pattern and correct it afterwards if Render shows different ones (a name that is already taken gets a suffix):
 
    | Service | Variable | Value |
@@ -26,7 +26,7 @@ This puts the API and the four web apps (staff, member, giving, admin) on Render
 - **API:** Node 22, started with `pnpm --filter @churchos/api start`, health check at `/health`, behind Render's proxy (`TRUST_PROXY=1`), with its own generated secret `CHURCHOS_AUTH_SECRET`.
 - **Sites:** built with Vite. Every address falls back to the app, so refreshing a page works. The service-worker file is never cached by the browser, and the usual safe headers are added.
 - **Region:** Frankfurt, the closest Render region to Kenya.
-- **Plan:** the API is on Starter so it stays awake: the scheduled jobs (reminders, regular giving, attendance) run inside it and a sleeping free instance would stop them. You can change it to `free` for a throw-away demo, but it then sleeps after 15 minutes without use.
+- **Plan:** the API is on the Free plan. A free web service goes to sleep after 15 minutes without a visit and takes about a minute to wake on the next visit; while it sleeps the scheduled jobs (reminders, regular giving, attendance) do not run, and it forgets everything it held in memory. To keep it awake change `plan: free` to `plan: starter` in render.yaml (a paid plan).
 
 ## Settings the API understands
 
