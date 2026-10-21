@@ -251,3 +251,11 @@ Going live with real SMS (Onfon) and email (Resend): see [docs/going-live-messag
 - **Wording:** Church setup > Wording. The owner chooses what the church calls its gatherings (Service, Mass, Gathering, Meeting, Celebration or its own word). The staff app, the member app and the public check-in pages use it. Try it as Daniel: set "Mass" and look at the menu, Today and the member app.
 - **Font:** Manrope in every app (printed certificates keep their serif).
 - **Look:** every page now uses the same header, tabs, tiles, side panels, chips and empty states; dark mode follows the phone or computer setting. The style guide for developers is `apps/staff/src/ui/README.md`.
+
+## More for event credit (Slice 27)
+
+- **Use part of it:** at checkout a member (or a guest with a code) chooses how much credit to use: all, half, none or an amount. The rest goes to the phone or card, with the service fee on the rest only.
+- **Ask for it back as money:** Member app > the credit screen > Ask for a refund. The amount is held back from the balance at once. The church sees the request under Worship & events > Event credit and approves or declines it. ChurchOS does not send the money: the church pays the member itself (for example by M-Pesa) and records the payment reference, and the member is told. A decline or a cancel puts the credit back.
+- **Send to another member:** enter their number, check the name that appears, send. It is instant, within the same church, and both people are told.
+- **What the church is holding:** Event credit page > Overview (outstanding amount, how many people hold it, how old it is, issued, used and paid back). Names of holders only for people who manage events. The treasurer sees the totals. The Money Overview has a card too.
+- **Reminders:** members get an in-app reminder once a month while they hold unused credit (guests by email with their code), and Home shows a card with the balance.

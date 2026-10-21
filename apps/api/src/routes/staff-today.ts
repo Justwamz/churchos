@@ -42,6 +42,10 @@ export function staffTodayRoutes(app: FastifyInstance, ctx: Ctx) {
       text: `SELECT count(*)::int AS n FROM ticket_refunds WHERE org_id = ANY($1::text[]) AND (branch_id IS NULL OR branch_id = ANY($2::text[])) AND status='pending'`,
       params: [o, b],
     })), 'Decide each one', 'events');
+    add('credit', 'Event credit refunds', await count('events.manage', (o) => ({
+      text: `SELECT count(*)::int AS n FROM credit_refunds WHERE org_id = ANY($1::text[]) AND status IN ('pending','approved')`,
+      params: [o],
+    })), 'To decide, or approved and not yet paid', 'credit');
     add('cash', 'Cash counts to sign off', await count('cash.approve', (o, b) => ({
       text: `SELECT count(*)::int AS n FROM cash_entries WHERE org_id = ANY($1::text[]) AND branch_id = ANY($2::text[]) AND status='counted' AND counted_by <> $3`,
       params: [o, b, uid],

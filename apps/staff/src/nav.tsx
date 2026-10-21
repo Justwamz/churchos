@@ -34,6 +34,7 @@ export const PAGES: PageDef[] = [
   { id: 'integrations', label: 'Messaging settings', any: ['integrations.manage', 'wallets.view'], el: L(() => import('./Integrations'), 'Integrations'), keywords: 'sender id sms provider email', icon: 'settings' },
   { id: 'notices', label: 'Notices', any: ['notices.view', 'notices.manage'], el: L(() => import('./Notices'), 'Notices'), keywords: 'announcements noticeboard', icon: 'communicate' },
   { id: 'events', label: 'Events', any: ['events.view', 'events.manage'], el: L(() => import('./Events'), 'Events'), keywords: 'tickets conference retreat', icon: 'today' },
+  { id: 'credit', label: 'Event credit', any: ['events.manage', 'collections.view'], el: L(() => import('./EventCredit'), 'EventCredit'), keywords: 'event ticket credit refund held buyers money back', icon: 'wallet' },
   { id: 'bookings', label: 'Bookings', any: ['bookings.view'], el: L(() => import('./Bookings'), 'Bookings'), keywords: 'rooms hall venue reserve', icon: 'today' },
   { id: 'calendar', label: 'Calendar', any: ['bookings.view'], el: L(() => import('./CalendarPage'), 'CalendarPage'), keywords: 'schedule diary', icon: 'today' },
   { id: 'resources', label: 'Resources', any: ['bookings.view', 'resources.manage'], el: L(() => import('./Resources'), 'Resources'), keywords: 'rooms equipment halls', icon: 'building' },

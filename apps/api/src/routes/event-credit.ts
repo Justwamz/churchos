@@ -174,7 +174,7 @@ export function eventCreditRoutes(app: FastifyInstance, ctx: Ctx) {
     return {
       total: [...churches.values()].reduce((s, c) => s + c.balance, 0),
       churches: [...churches.values()],
-      credits: rows.map((r) => ({ id: r.id, church: r.church, amount: Number(r.amount), balance: Number(r.balance), event: r.event_title, at: r.created_at })),
+      credits: rows.map((r) => ({ id: r.id, church: r.church, amount: Number(r.amount), balance: Number(r.balance), event: r.event_title, reason: r.reason ?? null, kind: r.source_kind ?? 'order', at: r.created_at })),
       spent: used.filter((u) => !u.undone).map((u) => ({ amount: Number(u.amount), order: u.code, event: u.title, at: u.created_at })),
     };
   });

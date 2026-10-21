@@ -74,3 +74,9 @@
 
 /* Manrope: figures in rows line up */
 .tk .tk-row, .tk .tk-total { font-variant-numeric: tabular-nums; }
+
+.tk .tk-usecredit { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line, #ddd); border-radius: 14px; background: var(--good-tint); }
+.tk .tk-usetitle { font-weight: 600; }
+.tk .tk-usebox { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; font-weight: 700; }
+.tk .tk-usebox input { min-width: 0; }
+.tk .tk-useslider { width: 100%; min-height: 32px; accent-color: var(--brand); }

@@ -2,6 +2,7 @@ import { networkMismatch, phoneHint } from '@churchos/shared';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, ErrorNote, Field, Note, kes, phonePretty, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
+import { CreditNote, openCredit } from './Credit';
 import { Icon, Sheet, Skeleton } from './ui';
 
 // ---------------- helpers ----------------
@@ -176,8 +177,13 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
   const [quote, setQuote] = useState<{ count: number; subtotal: number; serviceFee: number; total: number; free: boolean; credit?: number; creditUsed?: number; covered?: boolean } | null>(null);
   const [useCredit, setUseCredit] = useState(true);
   const [creditBal, setCreditBal] = useState(0);
+  // how much credit to use, in KES. null means as much as possible
+  const [creditAmt, setCreditAmt] = useState<number | null>(null);
+  const [creditTxt, setCreditTxt] = useState<string | null>(null); // what is being typed in the amount box
+  const [maxUse, setMaxUse] = useState<number | null>(null);
   useEffect(() => { api.get('/me/credit').then((r: any) => setCreditBal(Number(r?.total ?? 0))).catch(() => undefined); }, []);
   const [quoting, setQuoting] = useState(false);
+  const effUse = useCredit && creditAmt !== 0;
   const [phase, setPhase] = useState<'form' | 'waiting' | 'done' | 'slow' | 'lapsed'>('form');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -197,18 +203,18 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
     setQuoting(true);
     let live = true;
     const t = setTimeout(() => {
-      api.post('/me/tickets/quote', { code, method, lines, useCredit })
-        .then((r: any) => { if (live) { setQuote(r); setQuoting(false); } })
+      api.post('/me/tickets/quote', { code, method, lines, useCredit: effUse, creditAmount: effUse && creditAmt != null ? creditAmt : undefined })
+        .then((r: any) => { if (live) { setQuote(r); setQuoting(false); if (useCredit && creditAmt == null) setMaxUse(Math.floor(Number(r?.creditUsed ?? 0) / 100)); } })
         .catch(() => { if (live) setQuoting(false); });
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [JSON.stringify(lines), method, code, useCredit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(lines), method, code, useCredit, creditAmt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const maxFor = (t: Type) => {
     const others = count - (qty[t.id] ?? 0);
     return Math.max(0, Math.min(t.perOrderMax, t.left ?? t.perOrderMax, 20 - others));
   };
-  const set = (t: Type, n: number) => { setError(''); setQty((q) => ({ ...q, [t.id]: Math.max(0, Math.min(maxFor(t), n)) })); };
+  const set = (t: Type, n: number) => { setError(''); setCreditAmt(null); setQty((q) => ({ ...q, [t.id]: Math.max(0, Math.min(maxFor(t), n)) })); };
 
   const free = !!quote?.free;
   const covered = !free && !!quote?.covered;
@@ -234,7 +240,7 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
   const pay = async () => {
     setBusy(true); setError('');
     try {
-      const o = await api.post('/me/tickets/orders', { eventId, method, phone: noPay || method === 'card' ? undefined : phone, lines, advertId, useCredit });
+      const o = await api.post('/me/tickets/orders', { eventId, method, phone: noPay || method === 'card' ? undefined : phone, lines, advertId, useCredit: effUse, creditAmount: effUse && creditAmt != null ? creditAmt : undefined });
       if (!alive.current) return;
       if (o.status === 'paid') { await finish(o); return; }
       if (method === 'card' && o.payUrl) {
@@ -328,10 +334,24 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
                               <input type="checkbox" role="switch" checked={useCredit} onChange={(ev2) => setUseCredit(ev2.target.checked)} />
                               <span>Use my credit</span>
                             </label>
+                            {useCredit && maxUse != null && maxUse > 0 && (
+                              <div className="crd-use">
+                                <div className="crd-use-line"><span>Use KES</span>
+                                  <input type="text" inputMode="numeric" aria-label="Credit to use, in KES" value={creditTxt ?? (creditAmt == null ? String(maxUse) : String(creditAmt))} onBlur={() => setCreditTxt(null)} onChange={(ev2) => { const raw = ev2.target.value.replace(/D/g, ''); setCreditTxt(raw); const n = Math.floor(Number(raw) || 0); setCreditAmt(n >= maxUse ? null : n); }} />
+                                  <span>of your {kes(creditBal)}</span></div>
+                                <input type="range" min={0} max={maxUse} step={1} aria-label="Credit to use" value={creditAmt == null ? maxUse : creditAmt} onChange={(ev2) => { setCreditTxt(null); const n = Number(ev2.target.value); setCreditAmt(n >= maxUse ? null : n); }} />
+                                <div className="chips">
+                                  <button type="button" className={`chip ${creditAmt == null ? 'on' : ''}`} onClick={() => { setCreditTxt(null); setCreditAmt(null); }}>Use all</button>
+                                  <button type="button" className={`chip ${creditAmt === Math.floor(maxUse / 2) ? 'on' : ''}`} onClick={() => { setCreditTxt(null); setCreditAmt(Math.floor(maxUse / 2)); }}>Use half</button>
+                                  <button type="button" className={`chip ${creditAmt === 0 ? 'on' : ''}`} onClick={() => { setCreditTxt(null); setCreditAmt(0); }}>Use none</button>
+                                </div>
+                              </div>
+                            )}
+                            {useCredit && creditAmt === 0 && <p className="tiny">You are not using any credit on this order.</p>}
                             {useCredit && (quote.creditUsed ?? 0) > 0 && <div className="tk-sum-row credit"><span>Credit used</span><span>-{kes(quote.creditUsed!)}</span></div>}
                           </>
                         )}
-                        <div className="tk-sum-row grand"><span>{creditBal > 0 && useCredit && (quote.creditUsed ?? 0) > 0 ? 'To pay now' : 'Total'}</span><strong>{kes(quote.total)}</strong></div>
+                        <div className="tk-sum-row grand"><span>{creditBal > 0 && effUse && (quote.creditUsed ?? 0) > 0 ? 'To pay now' : 'Total'}</span><strong>{kes(quote.total)}</strong></div>
                       </>
                     )}
                   </div>
@@ -456,45 +476,11 @@ function TicketView({ t, onClose }: { t: any | null; onClose: () => void }) {
   );
 }
 
-function CreditSheet({ open, data, onClose }: { open: boolean; data: any; onClose: () => void }) {
-  const credits: any[] = data?.credits ?? [];
-  const spent: any[] = data?.spent ?? [];
-  return (
-    <Sheet open={open} onClose={onClose} title="Event credit">
-      <div className="stack">
-        <p>You have <strong>{kes(data?.total ?? 0)}</strong>. Use it on any event at this church, any time. It never expires.</p>
-        {credits.length > 0 && (
-          <>
-            <div className="field-label">Where it came from</div>
-            <ul className="tk-credit-list">
-              {credits.map((c) => (
-                <li key={c.id}><span><strong>{c.church}</strong><span className="tiny">{c.event ? `${c.event} · ` : ''}{c.at ? dateShort(c.at) : ''} · was {kes(c.amount)}</span></span><strong>{kes(c.balance)}</strong></li>
-              ))}
-            </ul>
-          </>
-        )}
-        {spent.length > 0 && (
-          <>
-            <div className="field-label">What you used it for</div>
-            <ul className="tk-credit-list">
-              {spent.map((c, i) => (
-                <li key={i}><span><strong>{c.event ?? 'Tickets'}</strong><span className="tiny">{c.at ? dateShort(c.at) : ''}</span></span><span>-{kes(c.amount)}</span></li>
-              ))}
-            </ul>
-          </>
-        )}
-        <Button kind="ghost" onClick={onClose}>Close</Button>
-      </div>
-    </Sheet>
-  );
-}
-
 export function TicketsPage({ onEvents }: { onEvents: () => void }) {
   const q = useAsync<any>(() => api.get('/me/tickets'));
   const [open, setOpen] = useState<any | null>(null);
   const [err, setErr] = useState('');
   const credit = useAsync<any>(() => api.get('/me/credit'));
-  const [creditOpen, setCreditOpen] = useState(false);
   useEffect(() => { const f = () => credit.reload(); window.addEventListener('churchos:credit-changed', f); return () => window.removeEventListener('churchos:credit-changed', f); }, []); // eslint-disable-line
   const tickets: any[] = q.data?.tickets ?? [];
   const pending: any[] = q.data?.pending ?? [];
@@ -575,11 +561,11 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
     <div className="stack tk-page">
       {err && <ErrorNote>{err}</ErrorNote>}
       {(credit.data?.total ?? 0) > 0 && (
-        <button type="button" className="tk-credit-chip" onClick={() => setCreditOpen(true)}>
+        <button type="button" className="tk-credit-chip" onClick={openCredit}>
           <span>Event credit: <strong>{kes(credit.data.total)}</strong></span><Icon name="chev" size={18} />
         </button>
       )}
-      <CreditSheet open={creditOpen} data={credit.data} onClose={() => setCreditOpen(false)} />
+      <CreditNote />
       {pending.length > 0 && (
         <section className="tk-group-wrap">
           <h3 className="agenda-month">Waiting for payment</h3>

@@ -49,6 +49,7 @@ export function Dashboard() {
     return () => { closed = true; clearTimeout(timer); es?.close(); };
   }, []);
 
+  const cr = useAsync<any>(() => api.get('/credit/summary').catch(() => null), []);
   const x = d.data;
   const sum = (k: string) => (x ? x.branches.reduce((t: number, b: any) => t + Number(b[k] ?? 0), 0) : 0);
   return (
@@ -66,6 +67,13 @@ export function Dashboard() {
               <Stat label="Last 7 days" value={kes(x.week.gross)} hint={`${Number(x.week.n)} payments`} />
               <Stat label="Cash recorded today" value={kes(x.cashToday)} hint="Signed off by two people" />
             </StatTiles>
+            {cr.data && (
+              <Section title="Event credit">
+                <StatTiles>
+                  <Stat label="Event credit held" value={kes(cr.data.outstanding)} hint={`${cr.data.holders} ${cr.data.holders === 1 ? 'person' : 'people'}. Not income until spent.`} tone="info" onClick={() => s.go('credit')} />
+                </StatTiles>
+              </Section>
+            )}
             <Section title="Your balance">
               <StatTiles>
                 <Stat label="In 48 hour hold" value={kes(sum('pending'))} tone="wait" />

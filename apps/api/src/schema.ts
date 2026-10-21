@@ -1021,6 +1021,49 @@ CREATE TABLE IF NOT EXISTS event_credit_moves (
   created_at text NOT NULL
 );
 CREATE INDEX IF NOT EXISTS event_credit_moves_order_idx ON event_credit_moves(order_id);
+-- Slice 27: credit can be cashed out (the church pays outside ChurchOS and records it), sent to another member, and is reminded about.
+ALTER TABLE event_credits ADD COLUMN IF NOT EXISTS last_reminded_at text;
+ALTER TABLE event_credits ADD COLUMN IF NOT EXISTS source_kind text NOT NULL DEFAULT 'order';
+CREATE TABLE IF NOT EXISTS credit_refunds (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  user_id text NOT NULL,
+  member_name text NOT NULL,
+  phone text,
+  amount bigint NOT NULL CHECK (amount > 0),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','paid','declined','cancelled')),
+  reason text,
+  decided_by text,
+  decided_by_name text,
+  decided_at text,
+  decision_note text,
+  paid_by text,
+  paid_by_name text,
+  paid_at text,
+  paid_reference text,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS credit_refunds_org_idx ON credit_refunds(org_id, status);
+CREATE TABLE IF NOT EXISTS credit_refund_holds (
+  org_id text NOT NULL,
+  refund_id text NOT NULL,
+  credit_id text NOT NULL,
+  amount bigint NOT NULL,
+  undone boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (refund_id, credit_id)
+);
+CREATE TABLE IF NOT EXISTS credit_transfers (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  from_user text NOT NULL,
+  from_name text NOT NULL,
+  to_user text NOT NULL,
+  to_name text NOT NULL,
+  amount bigint NOT NULL CHECK (amount > 0),
+  note text,
+  created_at text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS credit_transfers_from_idx ON credit_transfers(from_user, created_at);
 ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS credit_used bigint NOT NULL DEFAULT 0;
 ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS credit_issued bigint NOT NULL DEFAULT 0;
 -- Regular giving (L197 to L203): a plan, and one run for each due date.
@@ -1470,7 +1513,7 @@ GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 
 DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','event_credits','event_credit_moves','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','giving_statements','statement_settings','lectionary_days','attendance_blocked','church_branding','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
+  FOREACH t IN ARRAY ARRAY['households','memberships','guardians','org_settings','membership_history','roles','role_assignments','projects','pledges','give_intents','kyc_documents','payout_change_requests','wallets','sender_requests','adverts','advert_seen','ticket_types','ticket_orders','tickets','ticket_refunds','event_credits','event_credit_moves','giving_plans','giving_plan_runs','service_schedules','services','visitors','attendance','attendance_settings','giving_ledger','giving_ledger_access','giving_statements','statement_settings','lectionary_days','attendance_blocked','church_branding','credit_refunds','credit_refund_holds','credit_transfers','cash_entry_gifts','prayer_requests','suggestions','expense_settings','expense_categories','expense_budgets','expenses','expense_files','kids_classes','kids_sessions','kids_checkins','kids_pickup_people','kids_codes','kids_log','shop_items','shop_movements','shop_sales','shop_tills','resources','resource_blocks','bookings','booking_items','notices','events','event_rsvps','group_posts','group_comments','group_join_requests','integration_settings','branch_integrations','wallet_topups','sms_messages','groups','group_members','messages','certificate_templates','branch_profiles','sacramental_records','record_issues','entity_versions'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (org_id = current_setting(''app.org_id'', true))', t);

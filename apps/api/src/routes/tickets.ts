@@ -13,6 +13,7 @@ import { sendEmail } from '../wallets';
 import { csv, normalizeMethod } from './helpers';
 import { refundStateFor, runRefundJobs } from './ticket-refunds';
 import { creditStateFor, findCredits, restoreUsed, retakeUsed, spendIn } from './event-credit';
+import { runCreditReminders } from './credit-extras';
 
 const HOLD_MINUTES = 15;
 const MAX_PER_ORDER = 20;
@@ -64,6 +65,8 @@ const qrGif = (data: string): string => {
 export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const nowIso = () => ctx.clock.now().toISOString();
+  /** How much credit the buyer chose to use, in KES in the request, or null for as much as possible. */
+  const creditAmt = (v: unknown) => (v === undefined || v === null || v === "" || !Number.isFinite(Number(v)) ? null : Math.max(0, Math.round(Number(v) * 100)));
   const newCode = () => randomBytes(5).toString('hex').toUpperCase().slice(0, 6);
   const ticketUrl = (token: string) => ticketUrlOf(ctx, token);
   const issueTickets = (orderId: string) => issueTicketsFor(ctx, orderId);
@@ -115,7 +118,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
 
   interface Buyer { name: string; email: string | null; phone: string | null; userId: string | null; membershipId: string | null }
 
-  async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null; credit?: { userId?: string | null; code?: unknown } }) {
+  async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null; credit?: { userId?: string | null; code?: unknown; amount?: number | null } }) {
     const e = o.event;
     if (e.status === 'cancelled') throw new HttpError(409, 'This event was cancelled', 'cancelled');
     if (e.status === 'postponed') throw new HttpError(409, 'This event has been postponed. Tickets go back on sale when the new date is announced.', 'postponed');
@@ -148,7 +151,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const free = subtotal === 0;
     // Event credit (Slice 20): what the buyer has, or the code they typed, pays first. Only the rest goes to the phone or card.
     const credits = o.credit && subtotal > 0 ? await findCredits(ctx, e.org_id, o.credit) : [];
-    const creditUse = Math.min(credits.reduce((s, c) => s + c.balance, 0), subtotal);
+    const creditUse = Math.min(credits.reduce((s, c) => s + c.balance, 0), subtotal, o.credit?.amount != null ? Math.max(0, o.credit.amount) : Infinity); // the buyer may choose to use only part of it
     const payable = subtotal - creditUse;
     const covered = payable === 0;
     if (free) {
@@ -219,7 +222,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   /** What the buyer will pay, before they commit: the tickets, the service fee on top, and the total (L172). */
-  async function quoteFor(b: any, e: any, who: { userId?: string | null; code?: unknown }) {
+  async function quoteFor(b: any, e: any, who: { userId?: string | null; code?: unknown; amount?: number | null }) {
     const types = await counts(e.id);
     let subtotal = 0;
     let count = 0;
@@ -233,7 +236,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     if (subtotal === 0) return { count, subtotal: 0, serviceFee: 0, total: 0, free: true, credit: 0, creditUsed: 0, covered: false };
     const credits = await findCredits(ctx, e.org_id, who);
     const credit = credits.reduce((s, c) => s + c.balance, 0);
-    const creditUsed = Math.min(credit, subtotal);
+    const creditUsed = Math.min(credit, subtotal, who.amount != null ? Math.max(0, who.amount) : Infinity);
     if (creditUsed === subtotal) return { count, subtotal, serviceFee: 0, total: 0, free: false, credit, creditUsed, covered: true };
     const org = (await ctx.db.query<any>(`SELECT fee_schedule FROM organisations WHERE id=$1`, [e.org_id]))[0];
     const method = b.method === 'card' || b.method === 'airtel' || b.method === 'tkash' ? b.method : 'mpesa';
@@ -244,20 +247,20 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post('/public/tickets/quote', async (req) => {
     const b = (req.body ?? {}) as any;
     const e = await eventByCode(String(b.code ?? ''));
-    return quoteFor(b, e, { code: b.creditCode });
+    return quoteFor(b, e, { code: b.creditCode, amount: creditAmt(b.creditAmount) });
   });
 
   app.post('/me/tickets/quote', auth, async (req) => {
     const b = (req.body ?? {}) as any;
     const e = await eventByCode(String(b.code ?? ''));
-    return quoteFor(b, e, { userId: b.useCredit === false ? null : req.session!.uid, code: b.creditCode });
+    return quoteFor(b, e, { userId: b.useCredit === false ? null : req.session!.uid, code: b.creditCode, amount: creditAmt(b.creditAmount) });
   });
 
   app.post('/public/tickets/orders', async (req) => {
     const b = (req.body ?? {}) as any;
     const e = await eventByCode(String(b.code ?? ''));
     const name = text(b.name, 80, 'name', true)!;
-    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null, credit: b.creditCode ? { code: b.creditCode } : undefined });
+    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null, credit: b.creditCode ? { code: b.creditCode, amount: creditAmt(b.creditAmount) } : undefined });
     return orderResponse(r.id);
   });
 
@@ -310,7 +313,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const user = (await ctx.db.query<any>(`SELECT email FROM users WHERE id=$1`, [uid]))[0];
     const open = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM ticket_orders WHERE buyer_user_id=$1 AND status='awaiting_payment' AND hold_until > $2`, [uid, nowIso()]))[0].n);
     if (open >= 3) throw new HttpError(429, 'You have 3 ticket orders waiting for payment. Pay for them or cancel them first.', 'too_many');
-    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name: m.full_name, email: user?.email ?? null, phone: b.phone ? String(b.phone) : req.session!.phone, userId: uid, membershipId: m.id }, advertId: b.advertId ? String(b.advertId) : null, credit: { userId: b.useCredit === false ? null : uid, code: b.creditCode } });
+    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name: m.full_name, email: user?.email ?? null, phone: b.phone ? String(b.phone) : req.session!.phone, userId: uid, membershipId: m.id }, advertId: b.advertId ? String(b.advertId) : null, credit: { userId: b.useCredit === false ? null : uid, code: b.creditCode, amount: creditAmt(b.creditAmount) } });
     return orderResponse(r.id);
   });
 
@@ -602,6 +605,7 @@ export async function sendConfirmationFor(ctx: Ctx, orderId: string) {
 /** Holds that ran out are released, and ticket holders get a reminder the day before (L173, L177). */
 export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminders: number; refunded: number }> {
   const refunds = await runRefundJobs(ctx);
+  await runCreditReminders(ctx).catch((e) => console.error("credit reminders failed", e));
   const now = ctx.clock.now().toISOString();
   const lapsed = await ctx.db.query<any>(`UPDATE ticket_orders SET status='lapsed' WHERE status='awaiting_payment' AND hold_until <= $1 RETURNING id, org_id, branch_id, code`, [now]);
   for (const o of lapsed) await restoreUsed(ctx, o.id);

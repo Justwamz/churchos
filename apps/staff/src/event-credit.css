@@ -1,0 +1,27 @@
+/* Event credit page (prefix ec-). Tokens only. */
+.ec-ages { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ec-age { border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 14px; min-width: 0; }
+.ec-age b { display: block; font-size: 20px; }
+.ec-age span { color: var(--ink-3); font-size: 13px; }
+.ec-bar { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--off-tint); margin-bottom: 14px; }
+.ec-bar i { display: block; height: 100%; }
+.ec-bar .a { background: var(--good); } .ec-bar .b { background: var(--warn); } .ec-bar .c { background: var(--bad); }
+.ec-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: var(--warn-tint); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); border-radius: var(--r-card); padding: 14px 18px; margin-bottom: 20px; }
+.ec-banner > span { min-width: 0; overflow-wrap: anywhere; }
+.ec-calm { background: var(--info-tint); border-radius: var(--r-ctl); padding: 12px 14px; color: var(--ink-2); overflow-wrap: anywhere; margin: 24px 0 0; }
+.ec-list { display: grid; gap: 12px; margin-top: 16px; }
+.ec-row { display: grid; gap: 8px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); }
+.ec-row .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ec-row .top > div { min-width: 0; overflow-wrap: anywhere; }
+.ec-row .amt { font-size: 18px; white-space: nowrap; }
+.ec-row .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.ec-row.tap { cursor: pointer; }
+.ec-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.ec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
+.ec-grid > div { min-width: 0; overflow-wrap: anywhere; }
+.ec-grid .k { display: block; font-size: 12.5px; color: var(--ink-3); font-weight: 600; margin-bottom: 2px; }
+.ec-hold { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
+.ec-hold:last-child { border-bottom: 0; }
+.ec-hold > div { min-width: 0; overflow-wrap: anywhere; }
+.ec-hold b.v { white-space: nowrap; }
+@media (max-width: 640px) { .ec-ages { grid-template-columns: minmax(0, 1fr); } .ec-grid { grid-template-columns: minmax(0, 1fr); } .ec-row .acts .btn { flex: 1; } }

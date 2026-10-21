@@ -12,6 +12,7 @@ import { AdvertSlider } from './Adverts';
 import { HomeShop, ShopPage } from './Shop';
 import type { ShopIntent } from './Shop';
 import { Icon, Sheet, Skeleton } from './ui';
+import { CreditNote, CreditPage, HomeCredit } from './Credit';
 import { FamilyPage, HomeKids, useFamilies } from './Family';
 import { HomeRegular, RegularGiving } from './RegularGiving';
 import { AnonSwitch, GivingRecord } from './GivingRecord';
@@ -23,7 +24,7 @@ import { WordsProvider, useWords } from './Words';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
-type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets' | 'prayer' | 'suggestions' | 'claims';
+type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets' | 'credit' | 'prayer' | 'suggestions' | 'claims';
 type GiveSub = 'give' | 'pledges' | 'history' | 'regular';
 type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
 type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
@@ -105,6 +106,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   useEffect(() => { window.addEventListener('churchos:open-tickets', showTickets); return () => window.removeEventListener('churchos:open-tickets', showTickets); }, []); // eslint-disable-line
   const showSub = (s: HomeSub) => { setNav((p) => ({ tab: 'home', sub: 'give', k: p.k + 1 })); setHomeSub(s); try { history.replaceState(null, '', '#home'); } catch { /* ignore */ } if (mainRef.current) mainRef.current.scrollTop = 0; };
   useEffect(() => { const a = () => showSub('prayer'); const b = () => showSub('suggestions'); const c = () => showSub('claims'); window.addEventListener('churchos:open-claims', c); window.addEventListener('churchos:open-prayer', a); window.addEventListener('churchos:open-suggestions', b); return () => { window.removeEventListener('churchos:open-claims', c); window.removeEventListener('churchos:open-prayer', a); window.removeEventListener('churchos:open-suggestions', b); }; }, []); // eslint-disable-line
+  useEffect(() => { const c = () => showSub('credit'); const ev = () => showSub('events'); window.addEventListener('churchos:open-credit', c); window.addEventListener('churchos:open-events', ev); return () => { window.removeEventListener('churchos:open-credit', c); window.removeEventListener('churchos:open-events', ev); }; }, []); // eslint-disable-line
   const me = useAsync<any>(() => api.get('/me'));
   const claim = useClaimSetup();
   const online = useOnline();
@@ -160,7 +162,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         {tab === 'home' && homeSub && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
         {tab === 'home' && !homeSub && <ChurchLogo brand={brand} />}
         <div className="appbar-title">
-          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : homeSub === 'claims' ? 'Claim expenses' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
+          {tab === 'home' && homeSub ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'credit' ? 'Event credit' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : homeSub === 'claims' ? 'Claim expenses' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
@@ -174,7 +176,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {!online && <Note tone="warn">You are offline. Some things may not load until you are connected.</Note>}
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
-              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <EventsPage /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'claims' ? <ClaimsPage setup={claim.setup} /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home claims={claim.allowed} me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
+              {tab === 'home' && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'claims' ? <ClaimsPage setup={claim.setup} /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home claims={claim.allowed} me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} />}
               {tab === 'services' && <ServicesPage hasMembership={!!me.data?.memberships?.length} />}
               {tab === 'kids' && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
@@ -245,6 +247,7 @@ function Home({ claims, me, user, go, families, notif, openSub, openShop }: { cl
       <AdvertSlider onShop={openShop} />
       <HomeServices onOpen={() => go('services')} />
       <HomeKids families={families} onOpen={() => go('kids')} />
+      <HomeCredit onEvents={() => openSub('events')} onCredit={() => openSub('credit')} />
       <HomeTickets onOpen={() => openSub('tickets')} />
       <HomeRegular onOpen={() => go('give', { sub: 'regular' })} />
 

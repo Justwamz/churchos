@@ -181,6 +181,16 @@ export function EventPage({ code }: { code: string }) {
   const [creditNote, setCreditNote] = useState<{ ok: boolean; text: string } | undefined>();
   const [creditBusy, setCreditBusy] = useState(false);
   const [quoteErr, setQuoteErr] = useState<string | undefined>();
+  // Credit to use, in KES as typed. null = as much as possible (All).
+  const [useKes, setUseKes] = useState<number | null>(null);
+  const [sentKes, setSentKes] = useState<number | null>(null);
+  const [creditBal, setCreditBal] = useState(0);
+
+  useEffect(() => {
+    if (useKes === sentKes) return;
+    const t = setTimeout(() => setSentKes(useKes), 300);
+    return () => clearTimeout(t);
+  }, [useKes, sentKes]);
 
   useEffect(() => {
     let alive = true;
@@ -196,12 +206,12 @@ export function EventPage({ code }: { code: string }) {
   useEffect(() => {
     if (!count) { setQuote(undefined); return; }
     let alive = true;
-    api.post<Quote>('/public/tickets/quote', { code, method, lines, creditCode: creditCode || undefined })
+    api.post<Quote>('/public/tickets/quote', { code, method, lines, creditCode: creditCode || undefined, creditAmount: creditCode && sentKes != null ? sentKes : undefined })
       .then((q) => { if (alive) { setQuote(q); setQuoteErr(undefined); } })
       .catch((e) => { if (alive) { setQuote(undefined); setQuoteErr(creditCode ? errMsg(e) : undefined); } });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, method, linesKey, creditCode]);
+  }, [code, method, linesKey, creditCode, sentKes]);
 
   const applyCredit = async () => {
     const t = creditText.trim();
@@ -210,12 +220,12 @@ export function EventPage({ code }: { code: string }) {
     try {
       const r = await api.get<{ balance: number; church: string }>(`/public/credit/${encodeURIComponent(t)}`);
       if (r.balance <= 0) { setCreditCode(''); setCreditNote({ ok: false, text: 'That credit has been used up.' }); setCreditBusy(false); return; }
-      setCreditCode(t);
+      setCreditCode(t); setCreditBal(r.balance); setUseKes(null); setSentKes(null);
       setCreditNote({ ok: true, text: `Credit ${kes(r.balance)} at ${r.church}` });
     } catch (e) { setCreditCode(''); setCreditNote({ ok: false, text: errMsg(e) }); }
     setCreditBusy(false);
   };
-  const removeCredit = () => { setCreditCode(''); setCreditText(''); setCreditNote(undefined); setQuoteErr(undefined); setCreditOpen(false); };
+  const removeCredit = () => { setCreditCode(''); setUseKes(null); setSentKes(null); setCreditText(''); setCreditNote(undefined); setQuoteErr(undefined); setCreditOpen(false); };
 
   if (ev === undefined) return <TkShell><Spinner /></TkShell>;
   if (!ev) return <TkShell><Card><Note tone="warn">We could not find that event. Please check the link you were given.</Note></Card></TkShell>;
@@ -223,6 +233,11 @@ export function EventPage({ code }: { code: string }) {
   const postponed = ev.status === 'postponed';
   const closed = (ev.over && !postponed) || ev.status === 'cancelled';
   const covered = !!quote?.covered && !!creditCode;
+  const avail = quote?.credit ?? creditBal;
+  const maxKes = Math.floor(Math.min(avail, quote?.subtotal ?? avail) / 100);
+  const shownKes = useKes == null ? Math.floor((quote?.creditUsed ?? maxKes * 100) / 100) : Math.min(useKes, maxKes);
+  const pending = !!creditCode && useKes !== sentKes;
+  const pickKes = (n: number | null) => setUseKes(n == null ? null : Math.max(0, Math.min(maxKes, Math.floor(n))));
   const free = (quote?.free ?? false) || covered;
   const mobile = method !== 'card';
   const hint = phoneHint(method);
@@ -235,10 +250,10 @@ export function EventPage({ code }: { code: string }) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    if (busy || !count || !nameOk || !emailOk || !phoneOk || mismatch) return;
+    if (busy || pending || !count || !nameOk || !emailOk || !phoneOk || mismatch) return;
     setBusy(true); setError(undefined);
     try {
-      const o = await api.post<Order>('/public/tickets/orders', { code, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, method: free ? 'mpesa' : method, lines, creditCode: creditCode || undefined });
+      const o = await api.post<Order>('/public/tickets/orders', { code, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, method: free ? 'mpesa' : method, lines, creditCode: creditCode || undefined, creditAmount: creditCode && useKes != null ? Math.min(useKes, maxKes) : undefined });
       nav(`/tickets/${encodeURIComponent(o.secret)}`);
     } catch (err) {
       setError(errMsg(err));
@@ -327,6 +342,21 @@ export function EventPage({ code }: { code: string }) {
                           </div>
                         </Field>
                         {creditNote && <div className={creditNote.ok ? 'tk-credit-ok' : 'tk-credit-bad'} role="status">{creditNote.text}</div>}
+                        {creditCode && avail > 0 && maxKes > 0 && (
+                          <div className="tk-usecredit" role="group" aria-label="How much credit to use">
+                            <div className="tk-usetitle">Use KES <b>{shownKes.toLocaleString('en-KE')}</b> of your {kes(avail)} credit</div>
+                            <div className="chips">
+                              <button type="button" className={`chip ${useKes == null ? 'on' : ''}`} aria-pressed={useKes == null} onClick={() => pickKes(null)}>All</button>
+                              <button type="button" className={`chip ${useKes != null && useKes === Math.floor(maxKes / 2) && maxKes > 1 ? 'on' : ''}`} onClick={() => pickKes(Math.floor(maxKes / 2))}>Half</button>
+                              <button type="button" className={`chip ${useKes === 0 ? 'on' : ''}`} aria-pressed={useKes === 0} onClick={() => pickKes(0)}>None</button>
+                            </div>
+                            <div className="tk-usebox">
+                              <span>KES</span>
+                              <input type="number" inputMode="numeric" min={0} max={maxKes} step={1} aria-label="Credit to use in KES" value={shownKes} onChange={(e) => { const v = e.target.value; pickKes(v === '' ? 0 : Number(v)); }} />
+                            </div>
+                            <input type="range" className="tk-useslider" min={0} max={maxKes} step={1} aria-label="Credit to use" value={shownKes} onChange={(e) => pickKes(Number(e.target.value))} />
+                          </div>
+                        )}
                         <button type="button" className="tk-linkbtn" onClick={removeCredit}>Remove code</button>
                       </div>
                     )}
@@ -364,7 +394,7 @@ export function EventPage({ code }: { code: string }) {
               {error && <ErrorNote>{error}</ErrorNote>}
             </div>
 
-            <Button type="submit" disabled={busy || count === 0 || postponed || (!!creditCode && !!quoteErr)}>
+            <Button type="submit" disabled={busy || pending || count === 0 || postponed || (!!creditCode && !!quoteErr)}>
               {busy ? 'One moment...' : !quote ? 'Choose your tickets' : covered ? 'Get tickets with my credit' : quote.free ? 'Get free tickets' : `Pay ${kes(quote.total)}`}
             </Button>
           </form>
