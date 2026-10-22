@@ -116,7 +116,7 @@
 /* tariff band editor: a grid, not a table, so it fits a phone */
 .band-editor { margin-bottom: 18px; }
 .band-editor h4 { margin: 0; }
-.band-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 10px; align-items: end; margin-top: 10px; }
+.band-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 10px; margin-top: 10px; }
 .band-cell { display: grid; gap: 4px; min-width: 0; align-content: end; }
 .band-cap { font-size: 12px; font-weight: 600; color: var(--ink-3); }
 .band-from { min-height: 44px; display: flex; align-items: center; font-variant-numeric: tabular-nums; color: var(--ink-2); }

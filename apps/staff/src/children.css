@@ -36,7 +36,7 @@
 .kd-tagcard { text-align: center; display: grid; gap: 10px; width: min(420px, 100%); }
 .kd-tag-big { font-size: 64px; font-weight: 900; line-height: 1; color: var(--brand); }
 .kd-who { font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
-.kd-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; }
+.kd-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .kd-filter-btn .btn { width: 100%; }
 .kd-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
 .kd-totals .card { display: grid; text-align: center; padding: 12px; }

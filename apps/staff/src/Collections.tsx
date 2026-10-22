@@ -70,7 +70,7 @@ export function Collections() {
       />
       <Section>
         <Card>
-          <form className="mn-fields tight" onSubmit={(e) => { e.preventDefault(); setApplied(f); }}>
+          <form className="mn-fields tight form-row" onSubmit={(e) => { e.preventDefault(); setApplied(f); }}>
             <Field label="From"><input type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} /></Field>
             <Field label="To"><input type="date" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })} /></Field>
             <Field label="Purpose">

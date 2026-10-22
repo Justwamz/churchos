@@ -943,7 +943,7 @@ function LogTab() {
   const who = (n?: string, dev?: string) => <>{n || '-'}{dev && <div className="tiny">{dev}</div>}</>;
   return (
     <div className="stack">
-      <div className="kd-filters">
+      <div className="kd-filters form-row">
         <Field label="From"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
         <Field label="Search"><input value={text} onChange={(e) => setText(e.target.value)} placeholder="Name or class" /></Field>
@@ -994,7 +994,7 @@ function ReportTab() {
   const rows: any[] = q.data?.sessions ?? [];
   return (
     <div className="stack">
-      <div className="kd-filters">
+      <div className="kd-filters form-row">
         <Field label="From"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></Field>
         <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
         <div className="kd-filter-btn"><Button kind="ghost" onClick={() => api.openDownload(`/kids/report?from=${from}&to=${to}&csv=1`).catch(() => undefined)}>Download CSV</Button></div>

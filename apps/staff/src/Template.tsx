@@ -163,10 +163,10 @@ function TemplateEditor({ data, reload }: { data: any; reload: () => void }) {
             <Card>
               {cfg.signatories.length === 0 && <p className="pp-note">No signatories. The card will have no signature lines.</p>}
               {cfg.signatories.map((s, i) => (
-                <div key={i} className="grid cols-2" style={{ alignItems: 'end' }}>
+                <div key={i} className="grid cols-2 form-row">
                   <Field label="Name"><input disabled={ro} value={s.name} onChange={(e) => set('signatories', cfg.signatories.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} /></Field>
                   <Field label="Title"><input disabled={ro} value={s.title} onChange={(e) => set('signatories', cfg.signatories.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} /></Field>
-                  {!ro && <div style={{ marginBottom: 16 }}><Button small kind="ghost" onClick={() => set('signatories', cfg.signatories.filter((_, j) => j !== i))}>Remove</Button></div>}
+                  {!ro && <Button small kind="ghost" onClick={() => set('signatories', cfg.signatories.filter((_, j) => j !== i))}>Remove</Button>}
                 </div>
               ))}
               {!ro && cfg.signatories.length < 3 && <div><Button small kind="ghost" onClick={() => set('signatories', [...cfg.signatories, { name: '', title: '' }])}>Add a signatory</Button></div>}

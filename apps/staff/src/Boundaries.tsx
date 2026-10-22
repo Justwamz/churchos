@@ -40,7 +40,7 @@ export function PlaceFields({ lat, lng, radius, setLat, setLng, setRadius, min, 
     <div className="stack" style={{ gap: 10 }}>
       <div><Button small kind="ghost" disabled={here.busy} onClick={here.go}>{here.busy ? 'Reading your location...' : 'Use my current location'}</Button></div>
       {here.msg && <div className="tiny" role="status">{here.msg}</div>}
-      <div className="at-filters">
+      <div className="at-filters form-row">
         <Field label="Latitude"><input aria-label="Latitude" inputMode="decimal" value={lat} onChange={(e) => setLat(e.target.value)} placeholder="-1.2864" /></Field>
         <Field label="Longitude"><input aria-label="Longitude" inputMode="decimal" value={lng} onChange={(e) => setLng(e.target.value)} placeholder="36.8172" /></Field>
         <Field label={`Distance in metres (${min} to ${max})`}><input aria-label="Distance in metres" type="number" min={min} max={max} value={radius} onChange={(e) => setRadius(e.target.value)} /></Field>

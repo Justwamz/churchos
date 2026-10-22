@@ -143,9 +143,9 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
           </div>
         ))}
         {edit && emails.length < 5 && (
-          <div className="row" style={{ marginTop: 8, alignItems: 'flex-end' }}>
+          <div className="form-row" style={{ marginTop: 8 }}>
             <div style={{ flex: 1, minWidth: 200 }}><Field label="Add an email"><input type="email" placeholder="treasurer@example.com" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmail(); } }} /></Field></div>
-            <div style={{ marginBottom: 12 }}><Button kind="ghost" onClick={addEmail}>Add</Button></div>
+            <Button kind="ghost" onClick={addEmail}>Add</Button>
           </div>
         )}
       </Card>

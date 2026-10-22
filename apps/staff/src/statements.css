@@ -1,5 +1,4 @@
 .st-card { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 8px; }
-.st-make { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
 .st-list { display: grid; gap: 8px; }
 .st-row { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: grid; gap: 4px; }
 .st-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

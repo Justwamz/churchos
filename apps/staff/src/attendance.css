@@ -1,5 +1,4 @@
-.at-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
-.at-filters > * { flex: 1 1 180px; min-width: 0; }
+.at-filters.form-row > * { flex: 1 1 180px; min-width: 0; }
 .at-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 @media (max-width: 900px) { .at-tiles { grid-template-columns: repeat(2, 1fr); } }
 .at-tile { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 14px; min-width: 0; }

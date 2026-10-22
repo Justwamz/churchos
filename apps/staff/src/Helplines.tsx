@@ -40,7 +40,7 @@ export function Helplines() {
         {d.data?.standard && <Note tone="warn">These are the standard numbers. Please check each one is right for your area before members rely on them.</Note>}
         {off && <Note>Only people who manage every branch can change the helplines.</Note>}
         {rows.map((r, i) => (
-          <div className="pp-hl" key={i}>
+          <div className="pp-hl form-row" key={i}>
             <label className="field"><span className="field-label">Name</span><input value={r.name} maxLength={60} disabled={off} onChange={(e) => set(i, 'name', e.target.value)} /></label>
             <label className="field"><span className="field-label">Number</span><input inputMode="tel" value={r.phone} maxLength={20} disabled={off} onChange={(e) => set(i, 'phone', e.target.value)} /></label>
             <label className="field"><span className="field-label">Note (optional)</span><input value={r.note} maxLength={120} disabled={off} onChange={(e) => set(i, 'note', e.target.value)} /></label>

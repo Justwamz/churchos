@@ -440,7 +440,7 @@ function ExpenseList({ setup, rec, setRec, openId }: { setup: any; rec: boolean;
         </div>
         {more && (
           <Card>
-            <div className="mn-fields tight">
+            <div className="mn-fields tight form-row">
               <Field label="Type"><select value={kind} onChange={(e) => setKind(e.target.value)}><option value="">Expenses and claims</option><option value="expense">Expenses</option><option value="claim">Claims</option></select></Field>
               <Field label="Category"><select value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{setup.categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
               <Field label="Project"><select value={project} onChange={(e) => setProject(e.target.value)}><option value="">All projects</option>{projectsAll.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>

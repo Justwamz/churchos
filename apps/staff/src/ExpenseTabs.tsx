@@ -101,7 +101,7 @@ export function ExpenseBudgets() {
     <div className="stack">
       <Block title="Yearly budgets">
         <div className="stack">
-          <div className="xt-filters">
+          <div className="xt-filters form-row">
             {branches.length > 1 && (
               <Field label="Branch"><select value={branchId} onChange={(e) => setBranchId(e.target.value)}>{branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
             )}
@@ -249,7 +249,7 @@ export function ExpenseReports() {
   return (
     <div className="stack">
       <Block title="Spending report">
-        <div className="xt-filters">
+        <div className="xt-filters form-row">
           <Field label="From"><input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></Field>
           <Field label="To"><input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} /></Field>
           {branches.length > 1 && (

@@ -49,7 +49,7 @@ export function StatementCard({ member, years, reason, note, reasonOk }: { membe
   return (
     <div className="st-card">
       <h4 style={{ margin: 0, fontSize: 16 }}>Giving statement</h4>
-      <div className="st-make">
+      <div className="form-row">
         <Field label="Year"><select aria-label="Statement year" value={year} onChange={(e) => setYear(e.target.value)}>{options.map((y) => <option key={y}>{y}</option>)}</select></Field>
         <Button disabled={busy} onClick={make}>{busy ? 'Making...' : 'Make statement (PDF)'}</Button>
       </div>

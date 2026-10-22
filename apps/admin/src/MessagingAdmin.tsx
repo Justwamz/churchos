@@ -48,7 +48,7 @@ function BandEditor({ label, rows, onChange }: { label: string; rows: Row[]; onC
       {rows.map((r, i) => {
         const last = i === rows.length - 1;
         return (
-          <div key={i} className="band-row">
+          <div key={i} className="band-row form-row">
             <div className="band-cell"><span className="band-cap">From (auto)</span><span className="band-from">{fmt(startOf(i))}</span></div>
             <div className="band-cell"><span className="band-cap">Up to</span>
               {last ? <span className="band-end">and above</span>
