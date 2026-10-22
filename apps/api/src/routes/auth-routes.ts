@@ -5,6 +5,7 @@ import { HttpError, requireSession, type Ctx } from '../ctx';
 import { str } from '../limits';
 import { authMode, badCodeError, checkSmsCode, DEV_CODE, requestSmsCode, warnIfDemoInProduction } from '../otp';
 import { clientIp, limiterFor, rateLimit, tooMany } from '../ratelimit';
+import { passkeyRoutes, secondFactorGate } from './passkey-routes';
 import { createSession, getHeaderSession, makeDownloadTicket, revokeAllSessions, revokeSession } from '../sessions';
 
 const MAX_ATTEMPTS = 5;
@@ -21,6 +22,7 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx) {
 
   /** Lets the apps show the right wording: a fixed demo code, or "we sent you a code". */
   app.get('/auth/mode', async () => ({ mode: authMode() }));
+  passkeyRoutes(app, ctx);
 
   app.post('/auth/otp/request', async (req) => {
     const phone = normalizePhone(str((req.body as any)?.phone, { max: 20, label: 'The phone number', allowNumber: true }));
@@ -62,6 +64,9 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx) {
       }
       limiter.reset(key);
     }
+    // Platform admins with a passkey (sms mode) must present it before a session starts. Demo sign-in never changes.
+    const gate = await secondFactorGate(ctx, user);
+    if (gate) return gate;
     await ctx.ledger.audit({ action: 'security.login', category: 'security', actorId: user.id, actorName: user.name, actorType: user.is_platform_admin ? 'admin' : 'user', summary: `${user.name} signed in`, meta: { phone: maskPhone(phone) } });
     const { token } = await createSession(ctx, user, req);
     return { token, user: { id: user.id, name: user.name, phone, isAdmin: user.is_platform_admin } };

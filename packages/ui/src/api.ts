@@ -61,6 +61,7 @@ export function createApi(tokenKey: string) {
     get: <T = any>(p: string) => request<T>('GET', p),
     post: <T = any>(p: string, b?: unknown) => request<T>('POST', p, b ?? {}),
     put: <T = any>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
+    del: <T = any>(p: string) => request<T>('DELETE', p),
     /**
      * A one-minute link for one GET path, for what cannot send an Authorization header (downloads, the live stream).
      * The sign-in token itself never appears in a URL.

@@ -402,8 +402,8 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       db.query<any>(
         `SELECT pl.id, pl.amount, m.full_name, m.member_number,
                 COALESCE((SELECT SUM(net) FROM payments WHERE project_id=pl.project_id AND member_id=pl.membership_id AND stage IN ${DONE}),0) AS paid
-           FROM pledges pl JOIN memberships m ON m.id=pl.membership_id WHERE pl.project_id=$1 ORDER BY pl.created_at`,
-        [(req.params as any).id],
+           FROM pledges pl JOIN memberships m ON m.id=pl.membership_id JOIN projects pj ON pj.id=pl.project_id WHERE pl.project_id=$1 AND pj.org_id=$2 AND pj.branch_id IN (${inList(3, scope.branchIds.length)}) ORDER BY pl.created_at`,
+        [(req.params as any).id, scope.orgId, ...scope.branchIds],
       ),
     );
   });

@@ -169,7 +169,7 @@ const MASTER: string = (() => {
   return randomBytes(32).toString('hex');
 })();
 
-export type KeyPurpose = 'session' | 'qr' | 'door' | 'invite' | 'guardian' | 'scan' | 'download';
+export type KeyPurpose = 'session' | 'qr' | 'door' | 'invite' | 'guardian' | 'scan' | 'download' | 'passkey' | 'passkey_pending';
 const keyCache = new Map<string, Buffer>();
 function keyFor(purpose: KeyPurpose): Buffer {
   let k = keyCache.get(purpose);

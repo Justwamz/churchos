@@ -272,7 +272,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     for (const l of Array.isArray(b.lines) ? b.lines : []) {
       const c = types.find((x) => x.row.id === String(l?.typeId));
       const qty = Math.floor(Number(l?.qty));
-      if (!c || !Number.isFinite(qty) || qty < 1) continue;
+      if (!c || !Number.isFinite(qty) || qty < 1 || qty > 10000) continue;
       subtotal += qty * Number(c.row.price);
       count += qty;
     }

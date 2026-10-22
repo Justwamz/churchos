@@ -1,3 +1,4 @@
+import { runSystem } from '@churchos/ledger';
 import { brandingInfo } from './branding';
 import type { FastifyInstance } from 'fastify';
 import { networkMismatch } from '@churchos/shared';
@@ -13,11 +14,12 @@ const MIN_CENTS = 1000; // KES 10
 const MAX_CENTS = 15_000_000; // KES 150,000 per transaction
 
 export async function churchByCode(ctx: Ctx, code: string) {
-  const rows = await ctx.db.query<any>(
+  // A church is found by its public code from any church or none (the same facts as /public/church/:code).
+  const rows = await runSystem(() => ctx.db.query<any>(
     `SELECT b.id, b.code, b.name, b.region, b.org_id, o.name AS org_name, o.fee_bearer, o.fee_schedule
        FROM branches b JOIN organisations o ON o.id = b.org_id WHERE b.code = $1`,
     [str(code, { max: 40, label: 'The church code' }).toUpperCase()],
-  );
+  ));
   return rows[0];
 }
 

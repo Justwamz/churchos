@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
-import { HelpButton, LoginGate, phonePretty, useToast } from '@churchos/ui';
+import { HelpButton, LoginGate, PasskeyBanner, phonePretty, useToast } from '@churchos/ui';
 import { api, type PageProps } from './common';
 import { Icon } from './icons';
 import { AREAS, areaOfPage, pageById, type PageId } from './navmap';
@@ -27,6 +27,8 @@ const PAGE_EL: Record<PageId, ComponentType<PageProps>> = {
   outbox: lazyPage(() => import('./pages/Outboxes'), 'Outbox'),
   tools: lazyPage(() => import('./pages/Platform'), 'Tools'),
   audit: lazyPage(() => import('./pages/Platform'), 'Audit'),
+  'data-requests': lazyPage(() => import('./pages/DataRequests'), 'DataRequests'),
+  security: lazyPage(() => import('./pages/Security'), 'Security'),
 };
 
 const COLLAPSE_KEY = 'churchos:admin-nav-collapsed';
@@ -275,6 +277,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
                   {activeArea.ids.map((id) => <button key={id} type="button" className={`chip ${current.id === id ? 'on' : ''}`} aria-current={current.id === id ? 'page' : undefined} onClick={() => setPage(id)}>{pageById(id)!.label}</button>)}
                 </nav>
               )}
+              {current.id !== 'security' && <PasskeyBanner api={api} onOpen={() => setPage('security')} />}
               {body}
             </>
           )}

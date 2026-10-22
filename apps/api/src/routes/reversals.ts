@@ -1,3 +1,4 @@
+import { runSystem } from '@churchos/ledger';
 import { HttpError, inList, type Ctx } from '../ctx';
 import { phoneSince } from '../dataprotection';
 import { maskPhoneSql } from './helpers';
@@ -36,8 +37,9 @@ export async function createReversalRequest(
   },
 ) {
   let payment: any | null = null;
-  if (a.paymentId) payment = (await ctx.db.query<any>(`SELECT * FROM payments WHERE id=$1`, [a.paymentId]))[0] ?? null;
-  else if (a.message) payment = await findPaymentFromMessage(ctx, a.message);
+  // The payment is found in any church (the payer may have paid the wrong one); who may act on it is decided just below.
+  if (a.paymentId) payment = (await runSystem(() => ctx.db.query<any>(`SELECT * FROM payments WHERE id=$1`, [a.paymentId])))[0] ?? null;
+  else if (a.message) payment = await runSystem(() => findPaymentFromMessage(ctx, a.message!));
   if (!payment) throw new HttpError(404, 'We could not find that payment. Paste the full confirmation message, including the transaction code.', 'payment_not_found');
 
   // Verify the requester is entitled to ask: members only for payments from their own phone, staff only inside their scope.

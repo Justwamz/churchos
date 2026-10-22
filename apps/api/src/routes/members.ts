@@ -1,3 +1,4 @@
+import { runSystem } from '@churchos/ledger';
 import type { FastifyInstance } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
 import { diff, logAccess, MEMBER_SPECS, maskedSnapshot, NUMBER_FORMAT_SPECS, recordVersion } from '../audit';
@@ -157,7 +158,11 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
    * sign-in, as before. A phone that already belongs to a person who has signed in (a session, a role, an admin, or a membership at
    * another church) is NOT linked: the membership stays unlinked and the person is offered it, and it appears in their app only if they accept.
    */
-  async function linkTarget(phone: string, name: string, orgId: string, q: import('@churchos/ledger').Db = ctx.db): Promise<{ userId: string | null; offerTo: string | null }> {
+  function linkTarget(phone: string, name: string, orgId: string, q: import('@churchos/ledger').Db = ctx.db): Promise<{ userId: string | null; offerTo: string | null }> {
+    // Looks for the person at every church, so it runs with every row visible; it returns only who the membership is offered to.
+    return runSystem(() => linkTargetInner(phone, name, orgId, q));
+  }
+  async function linkTargetInner(phone: string, name: string, orgId: string, q: import('@churchos/ledger').Db): Promise<{ userId: string | null; offerTo: string | null }> {
     const u = (await q.query<any>(`SELECT id, is_platform_admin FROM users WHERE phone=$1`, [phone]))[0];
     if (!u) return { userId: await userForPhone(phone, name, q), offerTo: null };
     const known = u.is_platform_admin

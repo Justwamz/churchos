@@ -6,6 +6,7 @@ import type { MockEmailProvider, MockMessagingProvider } from '@churchos/messagi
 import { branchesFor, type Permission, type Session } from './auth';
 import { bearerOf, getSession } from './sessions';
 import { setActor } from './audit';
+import { enterSessionScope } from './dbscope';
 
 export interface Ctx {
   db: Db;
@@ -58,6 +59,7 @@ export async function requireSession(req: FastifyRequest, _reply: FastifyReply) 
   if (!s) throw new HttpError(401, 'sign in required', 'unauthenticated');
   req.session = s;
   setActor(s);
+  await enterSessionScope(c!, s);
 }
 
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {

@@ -76,16 +76,28 @@ The request keeps an `erasure_requests` row (id, status, who decided, when, note
 |---|---|---|
 | Financial records (journal, postings, payments, giving ledger, payouts, statements) | 7 years | Never deleted by any job. |
 | Audit log | 7 years | Never deleted by any job. |
-| Attendance | 3 years | Manual for now. |
-| Children's records (profile, check-in, pick-up) | Until the child's 21st birthday, then review (to confirm with counsel) | Manual for now. |
-| Visitor details (people who are not members) | 12 months after the last visit unless they join | Manual for now. |
+| Attendance (names and the link to a person) | 3 years | **Automatic**, hourly (`runPersonalPurges`). Rows and counts stay. |
+| Children's check-in, log and pick-up code details | 7 years for the log details (names and ids); the child's profile itself until the 21st birthday, then review (to confirm with counsel) | **Automatic** for check-ins, log lines and pick-up codes. The profile is manual. Rows are never deleted. |
+| Visitor details (people who are not members) | 12 months after the last visit unless they join | **Automatic**, hourly. Row, visit count and dates stay. |
 | Prayer requests | Until the person withdraws them, or the church closes them | The existing prayer clean-up. |
 | Sign-in codes (`otp_codes`) | 24 hours after they expire | **Automatic**, hourly (`retention.ts`). |
 | Sessions | Until they expire or are revoked, plus 30 days | **Automatic**, hourly. |
 | In-app notifications | 90 days | **Automatic**, hourly. |
 | Held payments, rate-limit state | Not touched | Held payments are financial. Rate limits expire on their own. |
 
-The automatic purges are idempotent (a second run finds nothing), follow the platform clock for sign-in codes and notifications, and use the real clock for sessions (sessions run on real time). A purge that removes something writes one `retention.purge` audit event with counts and nothing personal.
+### Purges of personal details (anonymise, never delete)
+
+Three purges in `retention.ts` (`runPersonalPurges`, hourly) remove who a row was about and keep the row, because reports and child safety need the counts and times. They never touch financial tables or the audit log.
+
+| What | Rule | What changes | What stays |
+|---|---|---|---|
+| Visitors | No membership, not a member, last seen more than `RETENTION_VISITOR_MONTHS` ago (12) | Name becomes "Former visitor", phone `anon-<id>`, note and who followed up removed; the visitor's attendance names too | Visit count, status, first and last seen, welcome status |
+| Attendance | `at` older than `RETENTION_ATTENDANCE_YEARS` (3) | Name becomes "Anonymised"; the member and visitor ids become a per-row placeholder (`anon_<row id>`); place and usher removed | The row, service, time, mode, how. Reports count distinct people per service (`count(DISTINCT membership_id)`), and every row still has its own value, so those counts do not change. Lists that show names join to the member and lose these old rows, which is intended. A person's attendance over more than the retention period is no longer linked to them |
+| Children's check-in log | Check-ins (collected), log lines and pick-up codes older than `RETENTION_KIDS_LOG_YEARS` (7) | Child, dropper and collector names and ids; log subject, children and detail text; pick-up code name and phone | Time, class, tag, who staffed it, action and result (safeguarding record). Decision: seven years is a working default for how long a safeguarding enquiry may look back; the child's own profile follows the 21st birthday rule and is reviewed by hand. To confirm with counsel |
+
+The periods are set by environment variables, the same for every church (there is no per-church setting yet). `RETENTION_DRY_RUN=1` makes the purges count only and write one `retention.purge_personal_dry_run` audit event a day with the counts; a real run writes `retention.purge_personal`. A second run finds nothing. A person's own erasure (above) is separate and immediate.
+
+The other automatic purges are idempotent (a second run finds nothing), follow the platform clock for sign-in codes and notifications, and use the real clock for sessions (sessions run on real time). A purge that removes something writes one `retention.purge` audit event with counts and nothing personal.
 
 ## Logging
 
@@ -98,11 +110,11 @@ The development start-up banner prints the demo sign-in code and demo phone numb
 - [ ] **Register with the Office of the Data Protection Commissioner (ODPC)** as a data controller or processor, as the Act and its regulations require for ChurchOS and, if they process data themselves, for each church. Confirm with counsel who registers and whether a church needs its own registration.
 - [ ] Appoint a **data protection contact** and publish an address for requests.
 - [ ] Review and publish the **privacy policy** (draft: `docs/privacy-policy-draft.md`) in the member and giving apps. Legal review first.
-- [ ] Confirm the **retention periods** above with counsel, then decide whether to automate attendance, visitor and children's purges.
+- [ ] Confirm the **retention periods** above with counsel. The visitor, attendance and children's purges are automatic; run a week with `RETENTION_DRY_RUN=1` first and read the counts in the audit log.
 - [ ] **Cross-border transfer**: the database is hosted in Frankfurt. Confirm the lawful basis for the transfer and put it in the privacy policy.
 - [ ] Move the database from in-memory to managed Postgres with backups. An erasure must also be applied to backups on restore (replay the `erasure_requests` log), or backups must be short-lived.
 - [ ] Data processing agreements with Render, the SMS and WhatsApp providers, the email provider and the payment providers.
 - [ ] A breach procedure: who is told, and the 72-hour report to the ODPC.
 - [ ] Decide how a platform admin answers a request from someone who cannot sign in (identity check, then export or erasure).
-- [ ] Platform admin screen for data requests (today a platform admin decides through the API; the church owner has a screen).
-- [ ] Switch on real SMS sign-in (`AUTH_MODE=sms`) so the demo code is gone.
+- [x] Platform admin screen for data requests (admin app, Platform, Data requests).
+- [ ] Switch on real SMS sign-in (`AUTH_MODE=sms`) so the demo code is gone, and set `REQUIRE_ADMIN_PASSKEY=1` (passkey as second factor for platform admins; see deploy-render.md).

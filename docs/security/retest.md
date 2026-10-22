@@ -20,12 +20,12 @@ Status after Waves 1 to 3. Checks run: full build, 697 API tests plus ledger, pa
 
 ## Open
 - LG-10: the database is in memory; use managed Postgres before launch.
-- AZ-20: row-level security is not the tenant boundary yet (handler checks held in testing).
-- AUTH-03: real SMS sign-in and a second factor for platform admins are not switched on.
-- LG-16: export, erasure requests and automatic purges of codes, sessions and notifications are built (see docs/data-protection.md). Still open: legal review of retention periods and the privacy policy draft, manual purges for attendance, visitor and children records, and a platform-admin screen for erasure decisions (API only).
+- AZ-20: request-scoped row-level security is built (rls.ts, dbscope.ts): every table with an org_id is filtered by the request's churches as a low-privilege role, and routes that span churches are listed as bypass groups. Not yet tested on real Postgres, only PGlite. Cross-church lookups without runSystem see only the person's own churches; tests found seven, others may exist.
+- AUTH-03: real SMS sign-in is built but not switched on (AUTH_MODE=sms). A passkey second factor for platform admins is built (slice 40) and is enforced for admins who have one in sms mode; `REQUIRE_ADMIN_PASSKEY=1` blocks admins without one. Both are off in the demo. Not verified with a real authenticator in a browser.
+- LG-16: export, erasure requests and automatic purges of codes, sessions and notifications are built (see docs/data-protection.md). Automatic anonymising purges for visitors, attendance and children's logs and the platform-admin screen for erasure decisions are built (slice 40). Still open: legal review of retention periods and the privacy policy draft.
 - AZ-21: `?org=` left alone (no demo user has two churches).
 - AZ-18: fixed: a person already in a church sees the offer on Home and in Me, and gets an inbox message.
-- No database CHECK constraints on amounts (parsing and ceilings are enforced in the API).
+- Database CHECK constraints: 41 added on money and quantity columns. Skipped where negative values are valid (postings, giving_ledger, shop movements) or the data is JSON.
 - Giving checkout `?return=` for the member app needs `VITE_RETURN_ORIGINS` in production.
 - CI actions are pinned by major tag, not commit SHA.
 - Not verified in a browser: giving routes after the react-router 7 upgrade; real devices, real providers.
@@ -37,3 +37,10 @@ Status after Waves 1 to 3. Checks run: full build, 697 API tests plus ledger, pa
 - Amounts like "1,000", "1e3" or "12.345" are refused; SVG certificate logos are refused.
 - Codes issued from now on are longer (service 8, advert and booking 12). Old codes still work.
 - Ticket pages no longer offer order management; the emailed order link does.
+
+## Retest of the fixed code (local stack, before RLS and kiosk)
+All probe families re-run. Fixed: forged webhook, short payment, `?token=`, spoofed forwarded address, headers, cross-tenant matrix (5,386 requests, no leaks), amounts, CSV, ticket secret, statement check, welcome SMS, consent, phone search, uploads, export and erasure, races. One new issue found and fixed: `GET /projects/:id/pledges` had no church filter (NEW-1, high); it now filters by church and branch scope, with a test (slice41). Also fixed: absurd quantity in a ticket quote. Left as is: whitespace around amounts is trimmed (harmless); the public statement check also returns the church branding object.
+
+## Added after the first report
+- Kiosk mode (self check-in terminal): paired devices, revocable tokens, no personal data shown.
+- Passkeys: optional second factor for platform admins.

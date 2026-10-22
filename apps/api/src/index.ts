@@ -17,7 +17,7 @@ import { seedPastoralDemo } from './seed-pastoral';
 import { seedExpensesDemo } from './seed-expenses';
 import { DEV_OTP, SEED_LOGINS, seed } from './seed';
 import { errLine } from './redact';
-import { runRetentionJobs } from './retention';
+import { runPersonalPurges, runRetentionJobs } from './retention';
 
 // Last-resort handlers. The database is in memory, so a stray rejected promise must not take the process (and the data) down;
 // a truly uncaught exception leaves unknown state, so log it and exit (Render restarts the service). One short line, no payloads.
@@ -61,6 +61,7 @@ setInterval(() => void runKidsJobs(ctx).catch((e) => console.error(`children sch
 setInterval(() => void runShopJobs(ctx).catch((e) => console.error(`shop scheduler failed ${errLine(e)}`)), 30_000).unref();
 setInterval(() => void runBookingJobs(ctx).catch((e) => console.error(`booking scheduler failed ${errLine(e)}`)), 30_000).unref();
 setInterval(() => void runRetentionJobs(ctx).catch((e) => console.error(`retention clean-up failed ${errLine(e)}`)), 3600_000).unref();
+setInterval(() => void runPersonalPurges(ctx).catch((e) => console.error(`personal data clean-up failed ${errLine(e)}`)), 3600_000).unref();
 setInterval(() => void runCommunityJobs(ctx).catch((e) => console.error(`community scheduler failed ${errLine(e)}`)), 30_000).unref();
 if (!listenEarly) await app.listen({ port, host: '0.0.0.0' });
 

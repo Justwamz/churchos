@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Card, ErrorNote, Field, Note, useToast } from '@churchos/ui';
+import { Button, Card, ErrorNote, Field, Note, SecurityPanel, useToast } from '@churchos/ui';
 import { api, errText } from './api';
 import { Sheet } from './ui';
 
@@ -50,6 +50,7 @@ export function MyData({ signOut }: { signOut: () => void }) {
 
   return (
     <>
+      <SecurityPanel api={api} toast={toast.show} />
       <Card title="My data">
         <div className="stack">
           <p className="muted" style={{ margin: 0 }}>You can download a copy of the information we hold about you, or ask to close your account and have your details erased.</p>

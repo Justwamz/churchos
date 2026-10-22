@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
-import { Clock, createDb, Ledger, type Db } from '@churchos/ledger';
+import { Clock, createDb, dbScope, Ledger, runSystem, type Db } from '@churchos/ledger';
+import { RLS_SQL } from './rls';
+import { CHECKS_SQL } from './constraints';
+import { initialScope } from './dbscope';
 import { createProviderFromEnv, friendlyPspMessage, isMock, PspError, type Provider } from '@churchos/payments';
 import { MockEmailProvider, MockMessagingProvider, createEmailFromEnv, createMessagingFromEnv, type Channel, type EmailProvider, type MessagingProvider, type OutboundEmail, type OutboundMessage } from '@churchos/messaging';
 import { HttpError, type Ctx } from './ctx';
@@ -53,6 +56,7 @@ import { CORS_HEADERS, CORS_METHODS, corsAllows, isProduction } from './cors';
 import { trustProxyHops } from './guards';
 import { errLine } from './redact';
 import { dataProtectionRoutes } from './routes/data-protection';
+import { KIOSK_SCHEMA, kioskRoutes } from './routes/kiosk';
 
 /** The app named in X-Churchos-App is recorded in the audit trail, so only our own apps are believed (IN-03). */
 const KNOWN_APPS = new Set(['staff', 'member', 'giving', 'admin']);
@@ -125,13 +129,17 @@ export async function buildApp(opts: BuildOptions = {}) {
   const ledger = new Ledger(db, clock, provider);
   await ledger.migrate();
   await db.exec(APP_SCHEMA);
+  await db.exec(KIOSK_SCHEMA);
+  // Last, so tables added by any schema above are covered (policies and grants are rebuilt from the catalogue each start).
+  await db.exec(RLS_SQL);
+  await db.exec(CHECKS_SQL);
 
   const ctx: Ctx = { db, ledger, provider, messaging: messagingFromEnv(), email: emailFromEnv(), givingUrl: process.env.GIVING_URL ?? 'http://localhost:3001', clock, events: new EventEmitter(), newId: (p) => `${p}_${randomUUID().slice(0, 12)}` };
   ctx.events.setMaxListeners(0);
   if (isMock(provider)) {
     provider.setDeliver(async (raw, headers) => {
       try {
-        await handleWebhook(ctx, raw, headers);
+        await runSystem(() => handleWebhook(ctx, raw, headers));
       } catch (e) {
         console.error(`webhook failed ${errLine(e)}`);
       }
@@ -178,6 +186,10 @@ export async function buildApp(opts: BuildOptions = {}) {
   app.addHook('onRequest', (req, _reply, done) => {
     const app = req.headers['x-churchos-app'];
     als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: clampApp(app), requestId: String(req.id) }, done);
+  });
+  // Tenant scope for the database (AZ-20): open routes run with every row visible, everything else starts with nothing until sign-in names the person's churches.
+  app.addHook('onRequest', (req, _reply, done) => {
+    dbScope.run(initialScope(req.url, req.method), done);
   });
   // CORS fails closed in production (no CORS_ORIGINS = no browser origin allowed; start-up also refuses, see guards.ts). Bearer tokens, no cookies: credentials stay off.
   await app.register(cors, {
@@ -246,7 +258,8 @@ export async function buildApp(opts: BuildOptions = {}) {
   creditExtraRoutes(app, ctx);
   joinRoutes(app, ctx);
   givingPlanRoutes(app, ctx);
-  attendanceRoutes(app, ctx);
+  const attendance = attendanceRoutes(app, ctx);
+  kioskRoutes(app, ctx, attendance);
   givingLedgerRoutes(app, ctx);
   prayerRoutes(app, ctx);
   suggestionRoutes(app, ctx);

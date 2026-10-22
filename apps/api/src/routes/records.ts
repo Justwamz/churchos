@@ -1,3 +1,4 @@
+import { runSystem } from '@churchos/ledger';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor } from '../auth';
 import { assertEmail } from '../email-rules';
@@ -283,14 +284,15 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!m) throw new HttpError(404, 'member not found', 'not_found');
     const scope = await staffScope(ctx, req, 'records.view', m.branch_id);
     if (scope.orgId !== m.org_id) throw new HttpError(404, 'member not found', 'not_found');
-    const rows = await ctx.db.query<any>(
+    // Deliberately across churches: the person's verified records held elsewhere are shown read-only (L64).
+    const rows = await runSystem(() => ctx.db.query<any>(
       `SELECT r.id, r.kind, r.subject_name, r.event_date, r.place, r.serial, r.status, r.org_id, o.name AS held_by, b.name AS branch_name
          FROM sacramental_records r JOIN organisations o ON o.id=r.org_id JOIN branches b ON b.id=r.branch_id
         WHERE r.status='approved' AND (r.membership_id IN (SELECT id FROM memberships WHERE ${m.user_id ? 'user_id=$1' : 'id=$1'})
               OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(r.details->'parties','[]'::jsonb)) p WHERE p->>'membershipId' IN (SELECT id FROM memberships WHERE ${m.user_id ? 'user_id=$1' : 'id=$1'})))
         ORDER BY r.event_date`,
       [m.user_id ?? m.id],
-    );
+    ));
     // A record held by another church is a read-only verified copy: no details, no editing (L64).
     return rows.map((r) => ({ ...r, read_only: r.org_id !== scope.orgId, subject_name: r.subject_name }));
   });

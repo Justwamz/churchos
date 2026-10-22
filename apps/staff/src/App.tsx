@@ -14,6 +14,7 @@ import { PAGES, pageLabel, type PageDef } from './nav';
 import { AREAS, QUICK_ACTIONS, areaOfPage, type Area } from './navmap';
 import { WordsProvider, useWords } from './words';
 import { CommandBar } from './CommandBar';
+import { KioskView } from './KioskView';
 import { PageSkeleton } from './ui';
 import './phone.css';
 import './shell.css';
@@ -423,6 +424,8 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
 }
 
 export function App() {
+  // The kiosk screen is a paired device, not a signed-in person: it must never reach the staff sign-in or the staff shell.
+  if (location.pathname.replace(/\/+$/, '') === '/kiosk') return <KioskView />;
   return (
     <LoginGate api={api} title="ChurchOS Staff" subtitle="Sign in to look after your people, your worship and your money." allow={() => true}>
       {({ signOut }) => <Shell signOut={signOut} />}

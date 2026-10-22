@@ -182,7 +182,7 @@ needs a float policy for this.
 - **Bring a friend and the live link:** in the member app, Bring a friend gives a link and QR. The public pages are `/here/<code>` and `/live/<service code>` (the church-wide link is `/live/b-GRC001`).
 - **Visitors and the care list (staff app > Attendance):** first-time visitors to follow up, regular members who stopped coming (Peter Otieno in the demo), the weekly trend, and the Monday email switch.
 - **The Monday report:** it is emailed at 7:00 am Nairobi time on Mondays to people who can see attendance. In the admin console > Test tools, move the clock to a Monday after 7:00 am to send it, and read it in the Email outbox; or use "Send me last week's report now".
-- **Not built:** reading of the day from a lectionary, YouTube viewer numbers pulled automatically, and a kiosk mode.
+- **Not built:** reading of the day from a lectionary, YouTube viewer numbers pulled automatically. Kiosk mode (a paired entrance tablet for self check-in, Slice 39) is built; children are still checked in by a teacher.
 
 ## Anonymous giving and members' giving records (Slice 17)
 

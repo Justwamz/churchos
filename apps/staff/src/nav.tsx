@@ -47,6 +47,7 @@ export const PAGES: PageDef[] = [
   { id: 'lectionary', label: 'Lectionary', any: ['attendance.manage', 'attendance.view'], el: L(() => import('./Lectionary'), 'Lectionary'), keywords: 'reading of the day scripture', icon: 'book' },
   { id: 'boundaries', label: 'Check-in boundary', any: ['attendance.manage', 'attendance.view'], el: L(() => import('./Boundaries'), 'Boundaries'), keywords: 'location gps radius geofence', icon: 'building' },
   { id: 'usher', label: 'Usher', any: ['attendance.checkin'], el: L(() => import('./Usher'), 'Usher'), keywords: 'check in door welcome', icon: 'checkin' },
+  { id: 'kiosk', label: 'Kiosk', any: ['attendance.checkin', 'attendance.manage'], el: L(() => import('./Kiosk'), 'KioskAdmin'), keywords: 'self check-in tablet entrance screen pair device', icon: 'checkin' },
   { id: 'children', label: 'Children', any: ['kids.checkin', 'kids.manage'], el: L(() => import('./Children'), 'Children'), keywords: 'kids sunday school class pickup', icon: 'child' },
   { id: 'prayer', label: 'Prayer', any: ['prayer.respond'], el: L(() => import('./Prayer'), 'Prayer'), keywords: 'prayer requests', icon: 'heart' },
   { id: 'suggestions', label: 'Suggestions', any: ['suggestions.view'], el: L(() => import('./Suggestions'), 'Suggestions'), keywords: 'feedback suggestion box', icon: 'message' },

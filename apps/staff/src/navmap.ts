@@ -13,7 +13,7 @@ export const AREAS: Area[] = [
     { title: 'Records', ids: ['records', 'template', 'data-requests'] },
   ] },
   { id: 'worship', label: 'Worship & events', icon: 'worship', groups: [
-    { title: 'On the day', ids: ['usher', 'attendance', 'checkin'] },
+    { title: 'On the day', ids: ['usher', 'attendance', 'kiosk', 'checkin'] },
     { title: 'Plan ahead', ids: ['services', 'lectionary', 'boundaries'] },
     { title: 'Events and rooms', ids: ['events', 'credit', 'bookings', 'calendar', 'resources'] },
   ] },

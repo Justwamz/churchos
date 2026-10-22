@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Db } from './db';
+import { runSystem, type Db } from './db';
 
 export type ActorType = 'user' | 'admin' | 'member' | 'system' | 'psp';
 export type AuditCategory = 'money' | 'member' | 'record' | 'access' | 'config' | 'security' | 'messaging' | 'system';
@@ -75,7 +75,8 @@ export function hashEvent(prevHash: string | null, row: Record<string, unknown>)
  * organisation. Each hash covers the previous one, so a changed or removed event is detectable (L107).
  */
 export async function writeAudit(db: Db, at: string, e: AuditInput): Promise<string> {
-  return db.tx(async (q) => {
+  // The chain is a system record: reading the previous hash and appending must not depend on which church's request caused the event.
+  return runSystem(() => db.tx(async (q) => {
     const chain = e.orgId ?? 'platform';
     const prev = (await q.query<{ hash: string }>(`SELECT hash FROM audit_events WHERE chain=$1 ORDER BY seq DESC LIMIT 1`, [chain]))[0];
     const row = {
@@ -110,7 +111,7 @@ export async function writeAudit(db: Db, at: string, e: AuditInput): Promise<str
        row.meta === null || row.meta === undefined ? null : JSON.stringify(row.meta), prev?.hash ?? null, hash],
     );
     return row.id;
-  });
+  }));
 }
 
 export interface ChainReport {

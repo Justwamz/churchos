@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
 import { formatKes } from '@churchos/shared';
 import { ApiError, createApi, type Api } from './api';
+import { addPasskey, deviceHasPasskey, passkeyError, passkeySecondFactor, passkeySignIn, passkeysSupported } from './passkeys';
 
 export { createApi, ApiError, API_URL } from './api';
 export { applyBranding, brandFile, BrandMark, useChurchBranding, type BrandApp, type BrandInfo } from './brand';
@@ -8,6 +9,7 @@ export type { Api } from './api';
 export { HelpButton, HelpMarkdown } from './help';
 export { safeHttpUrl, openExternal } from './safeUrl';
 export { CertificateCard, QrCode, printCertificate, VERIFY_ORIGIN } from './certificate';
+export { SecurityPanel, PasskeyBanner, passkeysSupported } from './passkeys';
 export { AuditLog, AuditHistory, HistoryButton, ChangeTable } from './audit';
 export type { CertificatePayload } from './certificate';
 export { formatKes, toCents, DEFAULT_FEE_SCHEDULE } from '@churchos/shared';
@@ -223,18 +225,32 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
   const verify = async () => {
     setBusy(true); setError(undefined);
     try {
-      const r = await p.api.post('/auth/otp/verify', { phone, code });
-      if (p.allow && !p.allow(r.user)) {
-        setError('This number does not have access to this app.');
-        setBusy(false);
-        return;
-      }
-      p.api.setToken(r.token);
-      try { localStorage.setItem(`${p.title}:user`, JSON.stringify(r.user)); } catch { /* ignore */ }
-      setUser(r.user);
-    } catch (e: any) { setError(e.status === 429 ? tooMany(e, 'try') : e.message); }
+      let r = await p.api.post('/auth/otp/verify', { phone, code });
+      // A platform admin with a passkey shows it after the code; one who must add a passkey does that first. Demo sign-in never gets here.
+      if (r.needsPasskey) r = await passkeySecondFactor(p.api, r.pending);
+      else if (r.needsEnrolment) r = await addPasskey(p.api, 'My passkey', r.pending);
+      finish(r);
+    } catch (e: any) { setError(e.status === 429 ? tooMany(e, 'try') : e.status ? e.message : passkeyError(e)); }
     setBusy(false);
   };
+  const finish = (r: any) => {
+    if (p.allow && !p.allow(r.user)) {
+      p.api.setToken(r.token); void p.api.signOut(); // ends the session that was just made
+      setError('This number does not have access to this app.');
+      return;
+    }
+    p.api.setToken(r.token);
+    try { localStorage.setItem(`${p.title}:user`, JSON.stringify(r.user)); } catch { /* ignore */ }
+    setUser(r.user);
+  };
+  const withPasskey = async () => {
+    setBusy(true); setError(undefined);
+    try { finish(await passkeySignIn(p.api)); }
+    catch (e: any) { setError(e.status === 429 ? tooMany(e, 'try') : passkeyError(e)); }
+    setBusy(false);
+  };
+  // Offered where the browser supports it and passkeys are in real use (sms mode) or one was added on this device.
+  const canPasskey = passkeysSupported() && (mode === 'sms' || deviceHasPasskey());
 
   return (
     <main className="login">
@@ -246,6 +262,7 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
           <>
             <Field label="Phone number"><input autoFocus inputMode="tel" placeholder="0712 345 678" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
             <Button type="submit" disabled={busy || phone.trim().length < 9}>{busy ? 'Sending…' : 'Send me a code'}</Button>
+            {canPasskey && <Button kind="ghost" disabled={busy} onClick={withPasskey}>Sign in with a passkey</Button>}
           </>
         ) : (
           <>

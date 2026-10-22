@@ -307,6 +307,8 @@ async function requestView(ctx: Ctx, s: Session, r: any) {
   return {
     id: r.id, status: r.status, name: r.subject_name ?? FORMER, phone: r.subject_phone ?? null, reason: r.reason, churches: names,
     createdAt: r.created_at, decidedAt: r.decided_at, note: r.note, completedAt: r.completed_at,
+    // Event credit that is lost on approval (pending requests only; after completion the credit is gone).
+    heldCreditCents: r.status === 'pending' ? Number((await ctx.db.query<any>(`SELECT COALESCE(SUM(balance),0)::bigint AS t FROM event_credits WHERE user_id=$1 AND balance > 0`, [r.user_id]))[0].t) : 0,
     canDecide: r.status === 'pending' && r.user_id !== s.uid && (await mayDecide(ctx, s, orgIds)),
     needsPlatformAdmin: r.status === 'pending' && orgIds.length !== 1,
   };
@@ -410,6 +412,7 @@ async function completeErasure(ctx: Ctx, requestId: string, by: { decidedBy: str
     await q.query(`DELETE FROM advert_seen WHERE user_id=$1`, [uid]);
     await q.query(`DELETE FROM attendance_prefs WHERE user_id=$1`, [uid]);
     await q.query(`DELETE FROM email_codes WHERE user_id=$1`, [uid]);
+    await q.query(`DELETE FROM passkeys WHERE user_id=$1`, [uid]);
     await run('consents', `DELETE FROM contact_prefs WHERE phone=$1`, [phone]);
     await q.query(`DELETE FROM contact_prefs_org WHERE phone=$1`, [phone]);
     await q.query(`DELETE FROM otp_codes WHERE phone=$1`, [phone]);

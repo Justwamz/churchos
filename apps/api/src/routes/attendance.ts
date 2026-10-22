@@ -981,6 +981,8 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   // keep the helper reachable by the scheduler
   HOOKS.set(ctx, { sendReportTo });
+  // The same recording rules, for the kiosk (routes/kiosk.ts).
+  return { identify, record, state, serviceRow };
 }
 
 const HOOKS = new WeakMap<Ctx, { sendReportTo: (user: { id: string; name: string; email: string }, orgId: string, ws: string) => Promise<boolean> }>();

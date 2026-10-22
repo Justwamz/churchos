@@ -51,7 +51,7 @@ Nothing real is switched on. The settings for live M-Pesa, Airtel Money and Pays
 These are not done yet, and each is a real gap for a live launch:
 
 1. **A real database.** The API runs on an embedded Postgres kept in memory. A live launch needs Render's managed Postgres and a database driver behind `packages/ledger/src/db.ts`.
-2. **Real sign-in.** One-time codes by SMS are not built; the fixed development code is the only code. In production mode the API refuses sign-in unless `ALLOW_DEV_OTP=1` is set on purpose.
+2. **Real sign-in.** Set `AUTH_MODE=sms` (real SMS codes, see going-live-messaging.md), unset `ALLOW_DEV_OTP`, set `WEBAUTHN_RP_ID` and `REQUIRE_ADMIN_PASSKEY=1`, and have each platform admin add a passkey (admin app, Security) before launch. In production mode the API refuses sign-in unless `AUTH_MODE=sms` or `ALLOW_DEV_OTP=1` is set on purpose.
 3. **No demo data.** Set `SEED_DEMO=0` so the API starts empty, and create the first platform admin and church properly. This needs a small bootstrap step that is not written yet.
 4. **Provider keys and callback addresses** for payments and messaging, tested in each provider's sandbox first.
 5. **Backups, monitoring and a domain name** for each site.
@@ -74,6 +74,10 @@ Set on the `churchos-api` service (Environment tab). The Blueprint already conta
 | `SEED_DEMO` | `1` | `0` | Real launch starts empty. |
 | `ENABLE_DEV_TOOLS` | unset | unset | `1` makes the platform admin clock, payment-simulation and webhook-replay tools reachable in production mode. Leave unset. |
 | `GIVING_URL` | giving site address | giving site address | Links in messages. |
+| `WEBAUTHN_RP_ID` | unset (`localhost`) | the registrable domain the sites share, e.g. `churchos.co.ke` | Passkeys (WebAuthn) belong to this domain and cannot move to another. Each site address in `CORS_ORIGINS` must be this domain or a subdomain of it, so passkeys need a custom domain: on `*.onrender.com` the sites do not share a usable domain and browsers refuse it. Without it passkeys only work on `localhost`. Changing it later makes every passkey stop working. |
+| `REQUIRE_ADMIN_PASSKEY` | unset (off) | `1` | In `AUTH_MODE=sms`: a platform admin without a passkey gets no session until one is added at sign-in; admins who have one must show it after the SMS code. **Turn ON for a real launch.** Off, admins without a passkey still get in and see a banner asking them to add one. Has no effect in demo mode. |
+| `RETENTION_DRY_RUN` | unset | unset, or `1` for the first week | `1` makes the automatic purges of visitor, attendance and children's details only count and write the counts to the audit log (once a day), changing nothing. Use it to check the numbers before switching purges on for real. |
+| `RETENTION_VISITOR_MONTHS`, `RETENTION_ATTENDANCE_YEARS`, `RETENTION_KIDS_LOG_YEARS` | unset (12, 3, 7) | confirm with counsel | How long visitor details, attendance names and children's check-in details are kept before they are anonymised (see docs/data-protection.md). |
 
 What the API now does on its own: sends `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`, a locked-down `Content-Security-Policy`, HSTS (production) and `Cache-Control: no-store` on every response (public pictures keep their own short cache); accepts bodies up to 64 KB (receipts and scans up to 6 MB, branding 4 MB, posters and adverts 2 MB, shop pictures and lectionary import 1 MB); times out slow requests (30 s); serves stored files with safe headers (sandbox, no sniffing, private no-store, downloads for anything that is not an image or PDF); answers every error with a short generic message and logs one line (method, path without the query, request id, error name). `/health` is `{"ok":true}` in production.
 

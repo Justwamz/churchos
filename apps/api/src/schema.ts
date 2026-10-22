@@ -1625,6 +1625,23 @@ CREATE TABLE IF NOT EXISTS erased_phones (
   phone_hash text PRIMARY KEY,
   erased_at timestamptz NOT NULL
 );
+-- Slice 40: passkeys (WebAuthn), sign-in and second factor for platform admins; used challenge ids (single use).
+CREATE TABLE IF NOT EXISTS passkeys (
+  id text PRIMARY KEY,
+  user_id text NOT NULL,
+  credential_id text NOT NULL UNIQUE,
+  public_key text NOT NULL,
+  counter bigint NOT NULL DEFAULT 0,
+  transports jsonb NOT NULL DEFAULT '[]'::jsonb,
+  name text NOT NULL,
+  created_at timestamptz NOT NULL,
+  last_used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS passkeys_user ON passkeys(user_id);
+CREATE TABLE IF NOT EXISTS passkey_used (
+  jti text PRIMARY KEY,
+  expires_at timestamptz NOT NULL
+);
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;

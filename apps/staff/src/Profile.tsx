@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, ErrorNote, Field, Note, phonePretty, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, ErrorNote, Field, Note, SecurityPanel, phonePretty, useAsync, useToast } from '@churchos/ui';
 import { api, friendly } from './session';
 import { Load } from './bits';
 import { PageHeader, StatusChip } from './ui';
@@ -104,6 +104,7 @@ export function Profile() {
             )}
           </Load>
         </Card>
+        <SecurityPanel api={api} toast={toast.show} />
       </div>
       {toast.node}
     </div>

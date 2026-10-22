@@ -1,0 +1,40 @@
+/* Staff page: pair and manage kiosks */
+.ks-form { display: grid; gap: 12px; max-width: 520px; }
+.ks-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ks-actions .btn { width: auto; }
+.ks-code { margin-top: 16px; padding: 16px; border: 2px dashed var(--line); border-radius: 14px; display: grid; gap: 8px; text-align: center; background: var(--surface); }
+.ks-code .big { font-size: clamp(32px, 8vw, 48px); font-weight: 800; letter-spacing: .12em; font-variant-numeric: tabular-nums; color: var(--brand); }
+.ks-code .lab { color: var(--ink-2); font-size: 14px; }
+.ks-code .url { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center; overflow-wrap: anywhere; }
+.ks-code .url .btn { width: auto; }
+.ks-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ks-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.ks-list .nm { display: grid; min-width: 0; }
+.ks-list .nm span, .ks-list .meta span { color: var(--ink-2); font-size: 13px; }
+.ks-list .meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ks-list .btn { width: auto; }
+
+/* The kiosk screen itself */
+body.kx-body { overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.kx { --kx-brand: var(--brand); position: fixed; inset: 0; z-index: 1000; background: var(--bg, #fff); color: var(--ink, #111); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; overflow: auto; }
+.kx h1 { margin: 0; font-size: clamp(30px, 6vw, 56px); line-height: 1.1; overflow-wrap: anywhere; }
+.kx-sub { margin: 0; font-size: clamp(18px, 3vw, 28px); color: var(--ink-2, #444); }
+.kx-hint, .kx-err { font-size: 22px; margin: 0; }
+.kx-err { color: var(--bad, #b00020); }
+.kx-logo { border-radius: 22px; }
+.kx-label { font-size: 22px; font-weight: 700; }
+.kx-input { width: min(520px, 100%); min-height: 72px; font-size: 34px; text-align: center; border: 3px solid var(--line, #ccc); border-radius: 18px; background: var(--surface, #fff); color: inherit; padding: 8px 16px; -webkit-user-select: text; user-select: text; }
+.kx-input:focus-visible, .kx-btn:focus-visible, .kx-pad button:focus-visible { outline: 4px solid var(--kx-brand); outline-offset: 3px; }
+.kx-btn { min-height: 76px; min-width: 240px; padding: 12px 36px; font-size: 28px; font-weight: 800; border: 0; border-radius: 20px; background: var(--kx-brand); color: #fff; cursor: pointer; }
+.kx-btn.big { min-height: 104px; font-size: clamp(26px, 4vw, 38px); width: min(720px, 100%); }
+.kx-btn.ghost { background: transparent; color: var(--kx-brand); border: 3px solid var(--kx-brand); }
+.kx-btn:disabled { opacity: .45; cursor: not-allowed; }
+.kx-row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.kx-display { font-size: clamp(36px, 7vw, 64px); font-weight: 800; letter-spacing: .08em; font-variant-numeric: tabular-nums; min-height: 80px; }
+.kx-pad { display: grid; grid-template-columns: repeat(3, minmax(88px, 128px)); gap: 14px; }
+.kx-pad button { min-height: 88px; font-size: 38px; font-weight: 800; border: 3px solid var(--line, #ccc); border-radius: 20px; background: var(--surface, #fff); color: inherit; cursor: pointer; }
+.kx-pad button:active { background: var(--brand-tint, #eee); }
+.kx-pad button.fn { font-size: 24px; }
+.kx-welcome { font-size: clamp(40px, 9vw, 84px); color: var(--kx-brand); }
+@media (max-height: 640px) { .kx { gap: 12px; } .kx-pad button { min-height: 64px; } .kx-btn { min-height: 60px; } }
+@media (prefers-reduced-motion: no-preference) { .kx.welcome h1 { animation: kx-pop .4s ease-out; } @keyframes kx-pop { from { transform: scale(.9); opacity: 0; } to { transform: none; opacity: 1; } } }
