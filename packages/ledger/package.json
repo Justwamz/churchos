@@ -5,10 +5,12 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "test": "vitest run --passWithNoTests" },
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  },
   "dependencies": {
     "@churchos/shared": "workspace:*",
     "@churchos/payments": "workspace:*",
-    "@electric-sql/pglite": "^0.2.17"
+    "@electric-sql/pglite": "0.2.17"
   }
 }

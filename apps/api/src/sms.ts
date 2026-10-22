@@ -1,5 +1,6 @@
 import type { Ctx } from './ctx';
 import { activeBands, costOf, recordUnits, unitsUsed } from './pricing';
+import { consentOf } from './consent';
 import { addNotification, type NotificationAudience } from './notifications';
 import { checkLowBalance, integrationSettings, RATES, walletFor } from './wallets';
 
@@ -15,14 +16,17 @@ export type SmsKind = 'receipt' | 'reminder' | 'announcement';
  */
 export async function notify(
   ctx: Ctx,
-  a: { orgId: string; branchId?: string | null; phone: string; kind: SmsKind; title: string; body: string; idemKey: string; sms?: boolean; link?: string; audience?: NotificationAudience },
-): Promise<{ sms: 'sent' | 'skipped_no_balance' | 'not_requested'; inApp: boolean }> {
+  a: { orgId: string; branchId?: string | null; phone: string; kind: SmsKind; title: string; body: string; idemKey: string; sms?: boolean; essential?: boolean; link?: string; audience?: NotificationAudience },
+): Promise<{ sms: 'sent' | 'skipped_no_balance' | 'skipped_opted_out' | 'not_requested'; inApp: boolean }> {
   const now = ctx.clock.now().toISOString();
   const user = (await ctx.db.query<any>(`SELECT id FROM users WHERE phone=$1`, [a.phone]))[0];
   if (user) {
     await addNotification(ctx, { orgId: a.orgId, userId: user.id, kind: a.kind, title: a.title, body: a.body, link: a.link, audience: a.audience });
   }
   if (a.sms === false) return { sms: 'not_requested', inApp: !!user };
+  // A person who opted out of SMS, or this church recorded that they did, gets no text from this church (AZ-07).
+  // `essential` is for child-safety texts (pick-up codes, late collection) that a parent must still get.
+  if (!a.essential && (await consentOf(ctx, a.orgId, a.phone)).sms_opt_out) return { sms: 'skipped_opted_out', inApp: !!user };
 
   let sent = false;
   let walletId: string | null = null;

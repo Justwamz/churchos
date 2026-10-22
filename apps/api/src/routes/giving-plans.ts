@@ -5,6 +5,7 @@ import { HttpError, requireSession, type Ctx } from '../ctx';
 import { grantsFor } from '../scope';
 import { notify } from '../sms';
 import { csv, normalizeMethod } from './helpers';
+import { parseKes } from '../limits';
 
 /**
  * Regular giving (L197 to L203). A member sets up a plan; on each due date ChurchOS sends the phone prompt, the member types
@@ -122,7 +123,7 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
   async function parsePlan(b: any, m: any, existing?: any) {
     const get = (k: string, fallback: any) => (b[k] !== undefined ? b[k] : fallback);
     let amount: number;
-    try { amount = toCents(get('amount', existing ? Number(existing.amount) / 100 : undefined)); } catch { throw new HttpError(400, 'Enter a valid amount', 'bad_amount'); }
+    amount = parseKes(get('amount', existing ? Number(existing.amount) / 100 : undefined), { min: 0, max: 1_000_000_000, label: 'a valid amount' });
     if (amount < MIN_CENTS) throw new HttpError(400, 'The minimum gift is KES 10', 'amount_too_small');
     if (amount > MAX_CENTS) throw new HttpError(400, 'The maximum for one gift is KES 150,000', 'amount_too_large');
     const method = String(normalizeMethod(get('method', existing?.method ?? 'mpesa')));
@@ -371,7 +372,7 @@ export function givingPlanRoutes(app: FastifyInstance, ctx: Ctx) {
     const params: unknown[] = [g.orgId, g.branchIds];
     if (q.status) { params.push(String(q.status)); where.push(`p.status=$${params.length}`); }
     if (q.branchId) { params.push(String(q.branchId)); where.push(`p.branch_id=$${params.length}`); }
-    if (q.q) { params.push(`%${String(q.q).replace(/[%_]/g, '')}%`); where.push(`(m.full_name ILIKE $${params.length} OR m.member_number ILIKE $${params.length})`); }
+    if (q.q) { params.push(`%${String(q.q).replace(/[\\%_]/g, (c) => '\\' + c)}%`); where.push(`(m.full_name ILIKE $${params.length} OR m.member_number ILIKE $${params.length})`); }
     const rows = await ctx.db.query<any>(
       `SELECT p.*, b.name AS branch_name, pr.name AS project_name, m.full_name, m.member_number FROM giving_plans p JOIN branches b ON b.id=p.branch_id JOIN memberships m ON m.id=p.membership_id LEFT JOIN projects pr ON pr.id=p.project_id
         WHERE ${where.join(' AND ')} ORDER BY (p.status='active') DESC, p.next_run_at NULLS LAST, m.full_name LIMIT 500`,

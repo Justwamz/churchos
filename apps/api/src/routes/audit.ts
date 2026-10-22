@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { canonical, verifyChains } from '@churchos/ledger';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 import { csv } from './helpers';
+import { intParam } from '../limits';
 
 /** Who may see what: an organisation, optionally narrowed to some branches. Null means every church (platform admins). */
 interface Visible {
@@ -32,13 +33,13 @@ function where(v: Visible, q: any, startAt = 1): { sql: string; params: unknown[
   if (q.entity) add('e.entity = ?', String(q.entity));
   if (q.entityId) add('e.entity_id = ?', String(q.entityId));
   if (q.actor) add('(e.actor_id = ? OR lower(COALESCE(e.actor_name, \'\')) LIKE lower(\'%\' || ? || \'%\'))', String(q.actor));
-  if (q.q) add("(lower(e.summary) LIKE ? OR lower(e.action) LIKE ? OR lower(COALESCE(e.actor_name,'')) LIKE ?)", `%${String(q.q).toLowerCase()}%`);
+  if (q.q) add("(lower(e.summary) LIKE ? OR lower(e.action) LIKE ? OR lower(COALESCE(e.actor_name,'')) LIKE ?)", `%${String(q.q).toLowerCase().replace(/[\\%_]/g, (c) => '\\' + c)}%`);
   if (q.before) add('e.seq < ?', Number(q.before));
   return { sql: parts.length ? parts.join(' AND ') : 'TRUE', params };
 }
 
 async function listEvents(ctx: Ctx, v: Visible, q: any) {
-  const limit = Math.min(Math.max(Number(q.limit ?? 50), 1), 200);
+  const limit = intParam(q.limit, { min: 1, max: 200, def: 50 });
   const w = where(v, q);
   const rows = await ctx.db.query<any>(`SELECT ${EVENT_COLS} FROM audit_events e WHERE ${w.sql} ORDER BY e.seq DESC LIMIT ${limit + 1}`, w.params);
   const more = rows.length > limit;

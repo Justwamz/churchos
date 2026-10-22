@@ -2,8 +2,11 @@ import { brandingInfo } from './branding';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import qrcode from 'qrcode-generator';
-import { buildReference, computeFee, maskEmail, networkMismatch, toCents } from '@churchos/shared';
+import { buildReference, computeFee, maskEmail, networkMismatch } from '@churchos/shared';
+import { parseKes, str } from '../limits';
 import { normalizePhone } from '../auth';
+import { abuse, abuseDisabled, dailyCap, promptGuard, windowHit as hourlyWindowHit } from '../abuse';
+import { clientIp } from '../ratelimit';
 import { assertEmail, checkEmail } from '../email-rules';
 import { diff, type FieldSpec } from '../audit';
 import { validateArtwork } from '../artwork';
@@ -67,8 +70,8 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const nowIso = () => ctx.clock.now().toISOString();
   /** How much credit the buyer chose to use, in KES in the request, or null for as much as possible. */
-  const creditAmt = (v: unknown) => (v === undefined || v === null || v === "" || !Number.isFinite(Number(v)) ? null : Math.max(0, Math.round(Number(v) * 100)));
-  const newCode = () => randomBytes(5).toString('hex').toUpperCase().slice(0, 6);
+  const creditAmt = (v: unknown) => (v === undefined || v === null || v === '' ? null : parseKes(v, { min: 0, max: 1_000_000, label: 'the credit to use' }));
+  const newCode = () => randomBytes(4).toString('hex').toUpperCase();
   const ticketUrl = (token: string) => ticketUrlOf(ctx, token);
   const issueTickets = (orderId: string) => issueTicketsFor(ctx, orderId);
   const ticketsOf = (orderId: string) => ticketsOfOrder(ctx, orderId);
@@ -119,13 +122,26 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
 
   interface Buyer { name: string; email: string | null; phone: string | null; userId: string | null; membershipId: string | null }
 
-  async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null; credit?: { userId?: string | null; code?: unknown; amount?: number | null } }) {
+  /** At most a few orders waiting for payment per email, phone or signed-in user across all events (and per IP in one hold window). Lapsed orders release their stock as before. */
+  async function capUnpaid(req: FastifyRequest | undefined, w: { emailKey: string | null; phone: string | null; userId: string | null }) {
+    if (abuseDisabled()) return;
+    const L = abuse();
+    const n = Number((await ctx.db.query<any>(
+      `SELECT count(*)::int AS n FROM ticket_orders WHERE status='awaiting_payment' AND hold_until > $1 AND ((buyer_email_key IS NOT NULL AND buyer_email_key=$2) OR (buyer_phone IS NOT NULL AND buyer_phone=$3) OR (buyer_user_id IS NOT NULL AND buyer_user_id=$4))`,
+      [nowIso(), w.emailKey ?? '', w.phone ?? '', w.userId ?? ''],
+    ))[0].n);
+    if (n >= L.unpaidPerPerson) throw new HttpError(429, `You already have ${n} orders waiting for payment. Pay for them or wait ${HOLD_MINUTES} minutes for them to be released.`, 'too_many_unpaid');
+    if (req) hourlyWindowHit(ctx, `unpaid:ip:${clientIp(req)}`, L.unpaidPerIp, HOLD_MINUTES * 60_000, 'Too many orders from this device. Please wait a few minutes and try again.');
+  }
+
+  async function createOrder(o: { event: any; lines: any; buyer: Buyer; method: unknown; advertId?: string | null; req?: FastifyRequest; credit?: { userId?: string | null; code?: unknown; amount?: number | null } }) {
     const e = o.event;
     if (e.status === 'cancelled') throw new HttpError(409, 'This event was cancelled', 'cancelled');
     if (e.status === 'postponed') throw new HttpError(409, 'This event has been postponed. Tickets go back on sale when the new date is announced.', 'postponed');
     if (Date.parse(e.ends_at ?? e.starts_at) < ctx.clock.now().getTime()) throw new HttpError(409, 'This event has already happened', 'over');
     const wanted: { typeId: string; qty: number }[] = [];
     for (const l of Array.isArray(o.lines) ? o.lines : []) {
+      if (typeof l?.typeId !== 'string' || (l.qty !== undefined && typeof l.qty !== 'number' && !(typeof l.qty === 'string' && /^\d{1,6}$/.test(l.qty)))) throw new HttpError(400, 'Each ticket line needs a ticket type and a whole-number quantity', 'bad_lines');
       const qty = Number(l?.qty);
       if (!Number.isInteger(qty) || qty < 1) continue;
       if (wanted.some((w) => w.typeId === String(l.typeId))) throw new HttpError(400, 'Each ticket type can appear once. Change its quantity instead.', 'bad_lines');
@@ -150,6 +166,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const mailbox = b.email ? assertEmail(b.email) : null;
     if (mailbox) b.email = mailbox.email;
     const free = subtotal === 0;
+    const phone = b.phone ? normalizePhone(b.phone) : null;
     // Event credit (Slice 20): what the buyer has, or the code they typed, pays first. Only the rest goes to the phone or card.
     const credits = o.credit && subtotal > 0 ? await findCredits(ctx, e.org_id, o.credit) : [];
     const creditUse = Math.min(credits.reduce((s, c) => s + c.balance, 0), subtotal, o.credit?.amount != null ? Math.max(0, o.credit.amount) : Infinity); // the buyer may choose to use only part of it
@@ -161,9 +178,13 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
         [e.id, b.userId ?? '', mailbox?.key ?? ''],
       ))[0].n);
       if (held + wanted.reduce((s, w) => s + w.qty, 0) > MAX_FREE_PER_PERSON) throw new HttpError(409, `One person can get up to ${MAX_FREE_PER_PERSON} free tickets for an event`, 'free_limit');
+      // LG-13: the mailbox limit alone is bypassed with new addresses, so the same event also caps free tickets per IP and per phone.
+      const nFree = wanted.reduce((s, w) => s + w.qty, 0);
+      const capMsg = 'That is a lot of free tickets from one place for this event. Please try again tomorrow, or ask the church.';
+      if (o.req) dailyCap(ctx, `free:ip:${e.id}:${clientIp(o.req)}`, nFree, abuse().freeIpEventDay, capMsg);
+      if (phone) dailyCap(ctx, `free:ph:${e.id}:${phone}`, nFree, abuse().freePhoneEventDay, capMsg);
     }
     let method: string | null = null;
-    let phone = b.phone ? normalizePhone(b.phone) : null;
     let providerTxId: string | null = null;
     let checkoutUrl: string | null = null;
     let fee: ReturnType<typeof computeFee> | null = null;
@@ -179,6 +200,9 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
       const org = (await ctx.db.query<any>(`SELECT fee_schedule FROM organisations WHERE id=$1`, [e.org_id]))[0];
       fee = computeFee(org.fee_schedule, method as any, payable, 'member'); // the buyer pays the service fee on top (L172)
       if (fee.amountPaid > 15_000_000) throw new HttpError(400, 'An order can be at most KES 150,000. Please buy in two orders.', 'too_large');
+      // LG-05 and LG-13: payment prompts are limited per phone, IP and user, and one person cannot hold more than a few unpaid orders at once.
+      promptGuard(ctx, o.req, { phone, uid: b.userId });
+      await capUnpaid(o.req, { emailKey: mailbox?.key ?? null, phone, userId: b.userId });
       const reference = buildReference(branch.code, `TKT-${code}`);
       // LG-14: the order and its stock reservation are written first; the prompt is sent after (see below), never before.
       startPrompt = async () => {
@@ -264,21 +288,21 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/public/tickets/quote', async (req) => {
     const b = (req.body ?? {}) as any;
-    const e = await eventByCode(String(b.code ?? ''));
+    const e = await eventByCode(str(b.code, { max: 40, label: 'The event code' }));
     return quoteFor(b, e, { code: b.creditCode, amount: creditAmt(b.creditAmount) });
   });
 
   app.post('/me/tickets/quote', auth, async (req) => {
     const b = (req.body ?? {}) as any;
-    const e = await eventByCode(String(b.code ?? ''));
+    const e = await eventByCode(str(b.code, { max: 40, label: 'The event code' }));
     return quoteFor(b, e, { userId: b.useCredit === false ? null : req.session!.uid, code: b.creditCode, amount: creditAmt(b.creditAmount) });
   });
 
   app.post('/public/tickets/orders', async (req) => {
     const b = (req.body ?? {}) as any;
-    const e = await eventByCode(String(b.code ?? ''));
+    const e = await eventByCode(str(b.code, { max: 40, label: 'The event code' }));
     const name = text(b.name, 80, 'name', true)!;
-    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null, credit: b.creditCode ? { code: b.creditCode, amount: creditAmt(b.creditAmount) } : undefined });
+    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null, req, credit: b.creditCode ? { code: b.creditCode, amount: creditAmt(b.creditAmount) } : undefined });
     return orderResponse(r.id);
   });
 
@@ -303,11 +327,12 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     return orderResponse(o.id);
   });
 
-  async function ticketView(t: any) {
+  /** `own` is true for the signed-in buyer's list (member app), which needs the order's refund and credit state. The public ticket page gets this ticket only: no order secret, no order actions (AZ-06). */
+  async function ticketView(t: any, own = false) {
     const e = (await ctx.db.query<any>(`SELECT e.*, o.name AS church FROM events e JOIN organisations o ON o.id=e.org_id WHERE e.id=$1`, [t.event_id]))[0];
     const ord = (await ctx.db.query<any>(`SELECT * FROM ticket_orders WHERE id=$1`, [t.order_id]))[0];
     return {
-      order: { id: ord.id, code: ord.code, secret: ord.secret, refund: await refundStateFor(ctx, ord, e), credit: await creditStateFor(ctx, ord, e) },
+      order: own ? { id: ord.id, code: ord.code, refund: await refundStateFor(ctx, ord, e), credit: await creditStateFor(ctx, ord, e) } : { code: ord.code },
       id: t.id, serial: t.serial, type: t.type_name, holder: t.holder_name, status: t.status, usedAt: t.checked_in_at, url: ticketUrl(t.token), token: t.token, qrSvg: qrSvg(ticketUrl(t.token)),
       event: { id: e.id, code: e.code, title: e.title, startsAt: e.starts_at, endsAt: e.ends_at, location: e.location, church: e.church, branding: await brandingInfo(ctx, e.org_id), cancelled: e.status === 'cancelled', postponed: e.status === 'postponed', movedFrom: e.postponed_from && e.status === 'scheduled' ? e.postponed_from : null, posterUrl: e.poster_data ? `/public/event/${e.code}/poster` : null },
     };
@@ -331,7 +356,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const user = (await ctx.db.query<any>(`SELECT email FROM users WHERE id=$1`, [uid]))[0];
     const open = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM ticket_orders WHERE buyer_user_id=$1 AND status='awaiting_payment' AND hold_until > $2`, [uid, nowIso()]))[0].n);
     if (open >= 3) throw new HttpError(429, 'You have 3 ticket orders waiting for payment. Pay for them or cancel them first.', 'too_many');
-    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name: m.full_name, email: user?.email ?? null, phone: b.phone ? String(b.phone) : req.session!.phone, userId: uid, membershipId: m.id }, advertId: b.advertId ? String(b.advertId) : null, credit: { userId: b.useCredit === false ? null : uid, code: b.creditCode, amount: creditAmt(b.creditAmount) } });
+    const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name: m.full_name, email: user?.email ?? null, phone: b.phone ? String(b.phone) : req.session!.phone, userId: uid, membershipId: m.id }, advertId: b.advertId ? String(b.advertId) : null, req, credit: { userId: b.useCredit === false ? null : uid, code: b.creditCode, amount: creditAmt(b.creditAmount) } });
     return orderResponse(r.id);
   });
 
@@ -343,7 +368,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
       [uid],
     );
     const tickets = [];
-    for (const t of rows) tickets.push(await ticketView(t));
+    for (const t of rows) tickets.push(await ticketView(t, true));
     const pend = await ctx.db.query<any>(`SELECT id FROM ticket_orders WHERE buyer_user_id=$1 AND status='awaiting_payment' AND hold_until > $2 ORDER BY created_at DESC`, [uid, nowIso()]);
     const pending = [];
     for (const p of pend) pending.push(await orderResponse(p.id));
@@ -390,7 +415,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
       if (names.has(name.toLowerCase())) throw new HttpError(400, `There are two ticket types called "${name}"`, 'duplicate');
       names.add(name.toLowerCase());
       let price: number;
-      try { price = t.price === '' || t.price === undefined || t.price === null ? 0 : toCents(t.price); } catch { throw new HttpError(400, `Enter the price of "${name}" in shillings, or 0 for free`, 'bad_amount'); }
+      price = t.price === '' || t.price === undefined || t.price === null ? 0 : parseKes(t.price, { min: 0, max: 150_000, label: `the price of "${name}"` });
       if (price < 0 || (price > 0 && price < 1000) || price > 15_000_000) throw new HttpError(400, `The price of "${name}" must be 0 or between KES 10 and KES 150,000`, 'bad_amount');
       const quantity = Number(t.quantity);
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100_000) throw new HttpError(400, `Enter how many "${name}" tickets are available (1 to 100,000)`, 'bad_number');
@@ -610,10 +635,11 @@ export async function sendConfirmationFor(ctx: Ctx, orderId: string) {
     });
   }
   if (o.buyer_email) {
+    const orderLink = `${ctx.givingUrl}/tickets/${o.secret}`;
     const subject = `Your tickets for ${o.title}`;
-    const plain = `Hello ${o.buyer_name},\n\nThank you. Your ${tickets.length === 1 ? 'ticket is' : 'tickets are'} confirmed for ${o.title}\n${when(o.starts_at)}${o.location ? `\n${o.location}` : ''}\nHosted by ${o.church}\n\nShow the QR code at the door. Each ticket works once.\n\n${lines.join('\n')}\n\nOrder ${o.code}${o.total > 0 ? `, paid ${kesText(Number(o.total))} (tickets ${kesText(Number(o.subtotal))} plus a ${kesText(Number(o.service_fee))} service fee)` : ', free'}.\n`;
+    const plain = `Hello ${o.buyer_name},\n\nThank you. Your ${tickets.length === 1 ? 'ticket is' : 'tickets are'} confirmed for ${o.title}\n${when(o.starts_at)}${o.location ? `\n${o.location}` : ''}\nHosted by ${o.church}\n\nShow the QR code at the door. Each ticket works once.\n\n${lines.join('\n')}\n\nTo change or cancel your order, use this private link: ${orderLink}\n\nOrder ${o.code}${o.total > 0 ? `, paid ${kesText(Number(o.total))} (tickets ${kesText(Number(o.subtotal))} plus a ${kesText(Number(o.service_fee))} service fee)` : ', free'}.\n`;
     const cards = tickets.map((t) => `<div style="border:1px solid #e3e0d6;border-radius:14px;padding:16px;margin:12px 0;text-align:center"><div style="font-weight:700">${esc(t.type_name)}</div><div style="color:#667">${esc(t.holder_name)}</div><img alt="QR code for ticket ${esc(t.serial)}" width="200" height="200" src="${qrGif(ticketUrlOf(ctx, t.token))}" style="margin:8px 0"/><div style="font-family:monospace;letter-spacing:1px">${esc(t.serial)}</div><div style="margin-top:8px"><a href="${ticketUrlOf(ctx, t.token)}">Open or print this ticket</a></div></div>`).join('');
-    const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#17212b"><h2 style="color:#0e5a52">You are going to ${esc(o.title)}</h2><p>Hello ${esc(o.buyer_name)}, thank you. Your ${tickets.length === 1 ? 'ticket is' : 'tickets are'} confirmed.</p><p><b>${esc(when(o.starts_at))}</b>${o.location ? `<br/>${esc(o.location)}` : ''}<br/>Hosted by ${esc(o.church)}</p><p>Show the QR code at the door. Each ticket works once.</p>${cards}<p style="color:#667;font-size:13px">Order ${esc(o.code)}${o.total > 0 ? `. Paid ${kesText(Number(o.total))}: tickets ${kesText(Number(o.subtotal))} plus a ${kesText(Number(o.service_fee))} service fee.` : '. Free.'}</p></div>`;
+    const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#17212b"><h2 style="color:#0e5a52">You are going to ${esc(o.title)}</h2><p>Hello ${esc(o.buyer_name)}, thank you. Your ${tickets.length === 1 ? 'ticket is' : 'tickets are'} confirmed.</p><p><b>${esc(when(o.starts_at))}</b>${o.location ? `<br/>${esc(o.location)}` : ''}<br/>Hosted by ${esc(o.church)}</p><p>Show the QR code at the door. Each ticket works once.</p>${cards}<p style="font-size:13px"><a href="${orderLink}">Manage this order</a> to ask for a refund, keep it as credit or cancel. Keep this link private.</p><p style="color:#667;font-size:13px">Order ${esc(o.code)}${o.total > 0 ? `. Paid ${kesText(Number(o.total))}: tickets ${kesText(Number(o.subtotal))} plus a ${kesText(Number(o.service_fee))} service fee.` : '. Free.'}</p></div>`;
     await sendEmail(ctx, o.org_id, o.buyer_email, subject, plain, html);
   }
 }

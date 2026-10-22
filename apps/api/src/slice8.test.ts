@@ -212,7 +212,7 @@ describe('a paid booking (L144)', () => {
     const mine = (await call(PETER, 'GET', '/me/bookings')).json().find((b: any) => b.id === id);
     code = mine.code;
     expect(mine).toMatchObject({ status: 'awaiting_payment', price: 300000, paid: false });
-    expect(mine.payUrl).toMatch(/\?booking=[A-F0-9]{6}$/);
+    expect(mine.payUrl).toMatch(/\?booking=[A-F0-9]{12}$/);
     expect((await book(JANE, ['res_hall'], slot, 60)).json().code).toBe('time_taken'); // held while unpaid
   });
 

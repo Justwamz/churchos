@@ -31,6 +31,9 @@ const FAKE_LOCALS = new Set([
   'a', 'b', 'c', 'ab', 'abc123', '123', '1234', '12345', '123456', 'sample', 'example', 'temp', 'temporary', 'dummy', 'random', 'unknown', 'hello', 'hi', 'sdf', 'zzz', 'zxc',
 ]);
 
+/** True when the domain is in the set or is a subdomain of a listed one (sub.mailinator.com, foo.example.com). */
+const inSet = (set: Set<string>, d: string) => { for (const x of set) if (d === x || d.endsWith('.' + x)) return true; return false; };
+
 export type EmailCheck = { ok: true; email: string; key: string } | { ok: false; message: string };
 
 /** The mailbox as the provider sees it: Gmail ignores dots, and googlemail.com is gmail.com. Used to count one person once. */
@@ -46,10 +49,10 @@ export function checkEmail(raw: unknown): EmailCheck {
   if (email.length > 120 || !SHAPE.test(email) || email.includes('..')) return { ok: false, message: 'Enter a valid email address' };
   const [local, domain] = email.split('@');
   const tld = domain.split('.').pop()!;
-  if (/^(test|example|invalid|localhost|local|lan|internal)$/.test(tld) || FAKE_DOMAINS.has(domain) || /^example\./.test(domain)) {
+  if (/^(test|example|invalid|localhost|local|lan|internal)$/.test(tld) || inSet(FAKE_DOMAINS, domain) || /^example\./.test(domain)) {
     return { ok: false, message: 'Enter your own email address, not an example or test one' };
   }
-  if (THROWAWAY_DOMAINS.has(domain)) return { ok: false, message: 'Throw-away email addresses are not accepted. Use an address you keep.' };
+  if (inSet(THROWAWAY_DOMAINS, domain)) return { ok: false, message: 'Throw-away email addresses are not accepted. Use an address you keep.' };
   if (local.includes('+')) return { ok: false, message: 'Addresses with a + in them are not accepted. Use your main email address.' };
   const plain = local.replace(/[._-]/g, '');
   if (plain.length < 3) return { ok: false, message: 'That email address looks made up. Enter your real one.' };

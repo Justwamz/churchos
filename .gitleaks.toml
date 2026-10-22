@@ -1,0 +1,19 @@
+title = "ChurchOS gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation and obviously fake test values"
+paths = [
+  '''docs/security/.*''',
+  '''pnpm-lock\.yaml''',
+  '''(^|/)[^/]*\.test\.ts$''',
+  '''\.env\.example$''',
+]
+regexes = [
+  '''test-key''',
+  '''test-secret''',
+  '''test-passkey''',
+  '''dev-[A-Za-z0-9_-]*''',
+]

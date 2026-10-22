@@ -16,7 +16,7 @@ interface Quote { count: number; subtotal: number; serviceFee: number; total: nu
 interface CreditInfo { allowed: boolean; amount: number; why?: string | null }
 interface OrderTicket { id: string; serial: string; type: string; holder: string; status: string; url: string; token: string }
 interface Order { id: string; secret: string; code: string; status: string; subtotal: number; serviceFee: number; total: number; method?: string; payUrl?: string | null; message?: string; event?: { title: string; code: string }; eventStatus?: string; refund?: Refund; credit?: CreditInfo; creditUsed?: number; creditIssued?: number; covered?: boolean; tickets: OrderTicket[] }
-interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; postponed?: boolean; movedFrom?: string | null; posterUrl?: string | null; branding?: BrandInfo | null }; order?: { id: string; code: string; secret: string; refund?: Refund } }
+interface TicketView { serial: string; type: string; holder: string; status: 'valid' | 'used' | 'cancelled'; usedAt?: string | null; url: string; qrSvg: string; event: { code: string; title: string; startsAt: string; endsAt?: string | null; location?: string | null; church: string; cancelled: boolean; postponed?: boolean; movedFrom?: string | null; posterUrl?: string | null; branding?: BrandInfo | null }; order?: { code: string } }
 
 const METHODS: [string, string][] = [['mpesa', 'M-Pesa'], ['airtel', 'Airtel Money'], ['tkash', 'T-Kash'], ['card', 'Card']];
 const eat = (d: string, o: Intl.DateTimeFormatOptions) => new Date(d).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', ...o });
@@ -572,7 +572,6 @@ export function TicketPage() {
   const cancelled = t.status === 'cancelled' || t.event.cancelled;
   const used = t.status === 'used' && !cancelled;
   const dim = cancelled || used;
-  const manage = t.order?.secret && (t.order.refund?.allowed || t.order.refund?.request) ? t.order.secret : null;
   return (
     <TkShell branding={t.event.branding} church={t.event.church}>
       <article className="tk-ticket" aria-label={`Ticket for ${t.event.title}`}>
@@ -609,8 +608,8 @@ export function TicketPage() {
       <div className="tk-actions no-print">
         <Button kind="ghost" onClick={() => window.print()}>Print ticket</Button>
         <Button kind="ghost" onClick={() => downloadIcs(t)}>Add to calendar</Button>
-        {manage && <Link className="btn ghost" to={`/tickets/${encodeURIComponent(manage)}`}>Manage this order</Link>}
       </div>
+      <p className="tiny no-print" style={{ textAlign: 'center', marginTop: 8 }}>To change or cancel your order, use the link in your confirmation email.</p>
     </TkShell>
   );
 }

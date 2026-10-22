@@ -8,7 +8,7 @@ import './people.css';
 import { ScaledCard } from './Records';
 
 const MAX_LOGO = 500 * 1024;
-const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/svg+xml'];
+const LOGO_TYPES = ['image/png', 'image/jpeg'];
 const CHIPS = ['name', 'date', 'place', 'officiant', 'church', 'parents', 'sponsors'];
 
 type Sig = { name: string; title: string };
@@ -57,7 +57,7 @@ function TemplateEditor({ data, reload }: { data: any; reload: () => void }) {
   const pickLogo = async (f?: File) => {
     setError('');
     if (!f) return;
-    if (!LOGO_TYPES.includes(f.type)) { setError('Please use a PNG, JPG or SVG logo.'); return; }
+    if (!LOGO_TYPES.includes(f.type)) { setError('Please use a PNG or JPG logo.'); return; }
     if (f.size > MAX_LOGO) { setError('That logo is larger than 500 KB. Please choose a smaller one.'); return; }
     try {
       const url = await readDataUrl(f);
@@ -147,13 +147,13 @@ function TemplateEditor({ data, reload }: { data: any; reload: () => void }) {
                 {shownLogo ? <img src={shownLogo} alt="Current logo" style={{ maxHeight: 64, maxWidth: 160 }} /> : <span className="pp-tiny">No logo yet.</span>}
                 {!ro && (
                   <>
-                    <input ref={logoInput} type="file" accept=".png,.jpg,.jpeg,.svg" style={{ display: 'none' }} onChange={(e) => pickLogo(e.target.files?.[0])} />
+                    <input ref={logoInput} type="file" accept=".png,.jpg,.jpeg" style={{ display: 'none' }} onChange={(e) => pickLogo(e.target.files?.[0])} />
                     <Button small kind="ghost" onClick={() => logoInput.current?.click()}>{shownLogo ? 'Replace logo' : 'Upload logo'}</Button>
                     {shownLogo && <Button small kind="ghost" onClick={() => setLogo(null)}>Remove</Button>}
                   </>
                 )}
               </div>
-              <p className="pp-note" style={{ marginBottom: 16 }}>PNG, JPG or SVG, up to 500 KB.</p>
+              <p className="pp-note" style={{ marginBottom: 16 }}>PNG or JPG, up to 500 KB.</p>
               <label className={`pp-choice ${cfg.showQr ? 'on' : ''}`}>
                 <input type="checkbox" disabled={ro} checked={cfg.showQr} onChange={(e) => set('showQr', e.target.checked)} /> <span>Show a QR code to verify the card</span>
               </label>

@@ -67,7 +67,7 @@ describe('setting up tickets (L170)', () => {
     expect((await call(TREAS, 'PUT', `/events/${id}/ticketing`, { ticketed: true, types: [{ name: 'x', price: 100, quantity: 1 }] })).statusCode).toBe(404);
     const row = (await call(OWNER, 'GET', '/events')).json().find((e: any) => e.id === id);
     expect(row).toMatchObject({ ticketed: true, rsvp: false, capacity: null, ticketsSold: 0 }); // replies make no sense next to tickets
-    expect(row.code).toMatch(/^[A-F0-9]{6}$/);
+    expect(row.code).toMatch(/^[A-F0-9]{8}$/);
     const summary = (await call(OWNER, 'GET', `/events/${id}/tickets`)).json();
     expect(summary.types.map((t: any) => [t.name, t.price, t.quantity, t.left])).toEqual([['Delegate', 300000, 100, 100], ['Student', 100000, 40, 40]]);
     expect(summary.shareUrl).toContain(`/?event=${row.code}`);
@@ -406,7 +406,7 @@ describe('adverts that sell tickets (L178)', () => {
     await call(ADMIN, 'POST', `/adverts/${made.json().id}/decide`, { approve: true });
     const ad = (await call(JANE, 'GET', '/me/adverts')).json().find((a: any) => a.title === 'Praise concert');
     expect(ad.action).toMatchObject({ kind: 'event', eventId: praiseId, event: { title: 'Easter concert', from: 0, available: true } });
-    expect(ad.action.event.code).toMatch(/^[A-F0-9]{6}$/);
+    expect(ad.action.event.code).toMatch(/^[A-F0-9]{8}$/);
   });
 });
 

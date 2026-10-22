@@ -2,13 +2,12 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { BrandInfo } from '@churchos/ui';
 import { usePageBranding } from './brand';
-import { BrandMark, Button, Card, Field, Spinner, createApi, kes } from '@churchos/ui';
+import { BrandMark, Button, Card, Field, Spinner, createApi } from '@churchos/ui';
 
 const api = createApi('churchos:giving:statement');
 
-type Result = { valid: false } | { valid: true; church: string; year: number; total: number; issued: string; memberInitials: string; branding?: BrandInfo | null };
+type Result = { valid: false } | { valid: true; church: string; year: number; branding?: BrandInfo | null };
 
-const longDate = (iso: string) => new Date(`${iso}T12:00:00+03:00`).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' });
 
 /** Public page: check that a giving statement number is real. */
 export function StatementPage() {
@@ -75,7 +74,7 @@ export function StatementPage() {
           {failed && <div className="st-bad" role="alert">We could not check right now. Please try again.</div>}
           {res && res.valid && (
             <div className="st-ok" role="status">
-              <b>This statement is real.</b> Issued by {res.church} on {longDate(res.issued)} for {res.year}: total {kes(res.total)}, for {res.memberInitials}{res.memberInitials.endsWith('.') ? '' : '.'}
+              <b>This statement is real.</b> Issued by {res.church} for {res.year}.
             </div>
           )}
           {res && !res.valid && <div className="st-bad" role="alert">We could not find that statement. Check the number.</div>}

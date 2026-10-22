@@ -14,7 +14,9 @@ export function csv(rows: Record<string, unknown>[]): string {
   if (rows.length === 0) return '';
   const cols = Object.keys(rows[0]);
   const esc = (v: unknown) => {
-    const s = v == null ? '' : String(v);
+    let s = v == null ? '' : String(v);
+    // A spreadsheet runs a cell that starts with = + - @ (or tab or CR) as a formula. Numbers stay numbers; any other text gets a quote in front.
+    if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n');

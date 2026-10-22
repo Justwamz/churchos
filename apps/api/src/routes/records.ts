@@ -105,7 +105,7 @@ export function recordRoutes(app: FastifyInstance, ctx: Ctx) {
     for (const [col, val] of [['r.kind', q.kind], ['r.status', q.status]] as const) {
       if (val) { params.push(String(val)); where += ` AND ${col}=$${params.length}`; }
     }
-    if (q.q) { params.push(`%${String(q.q).toLowerCase()}%`); where += ` AND (lower(r.subject_name) LIKE $${params.length} OR lower(COALESCE(r.serial,'')) LIKE $${params.length} OR lower(COALESCE(r.register_number,'')) LIKE $${params.length})`; }
+    if (q.q) { params.push(`%${String(q.q).toLowerCase().replace(/[\\%_]/g, (c) => '\\' + c)}%`); where += ` AND (lower(r.subject_name) LIKE $${params.length} OR lower(COALESCE(r.serial,'')) LIKE $${params.length} OR lower(COALESCE(r.register_number,'')) LIKE $${params.length})`; }
     return ctx.db.query<any>(
       `${LIST_SQL} WHERE ${where} ORDER BY (CASE WHEN r.status='pending_approval' OR r.pending_changes IS NOT NULL THEN 0 ELSE 1 END), r.updated_at DESC LIMIT 300`,
       params,

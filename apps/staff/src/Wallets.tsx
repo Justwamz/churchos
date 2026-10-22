@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, Empty, ErrorNote, Field, Note, Spinner, Table, kes, phonePretty, shortDate, useAsync } from '@churchos/ui';
+import { Button, Empty, ErrorNote, Field, Note, Spinner, Table, kes, openExternal, phonePretty, shortDate, useAsync } from '@churchos/ui';
 import { api, friendly, methodLabel, useSession, type Session } from './session';
 import { Load } from './bits';
 import { Card as UCard, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip } from './ui';
@@ -78,8 +78,7 @@ function TopUp({ wallet, onClose, onDone }: { wallet: WalletInfo; onClose: () =>
       const r: any = await api.post(`/wallets/${wallet.id}/topup`, { amount, method, phone: method === 'mpesa' ? phone : undefined });
       setTopup(r); setPhase('waiting');
       if (method === 'card' && r.checkoutUrl) {
-        const w = window.open(r.checkoutUrl, '_blank');
-        if (!w) setPopupBlocked(true);
+        if (!openExternal(r.checkoutUrl)) setPopupBlocked(true);
       }
       poll(r.id);
     } catch (e: any) { setError(friendly(e.message)); setPhase('idle'); }

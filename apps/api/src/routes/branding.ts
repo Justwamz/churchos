@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { churchWideOrg } from '../scope';
+import { checkUpload } from '../uploads';
 
 /**
  * A church's own logo (Slice 26). The staff app turns the uploaded logo into the app icons in the browser (so no image library is needed here)
@@ -38,6 +40,7 @@ function png(v: unknown, label: string, max: number, exact?: number): Buffer {
   if (buf.length > max) throw new HttpError(400, `The ${label} is too big`, 'bad_image');
   const s = pngSize(buf);
   if (!s) throw new HttpError(400, `The ${label} is not a PNG picture`, 'bad_image');
+  checkUpload(buf, 'image/png', { kinds: ['image'], code: 'bad_image', label });
   if (exact && (s.w !== exact || s.h !== exact)) throw new HttpError(400, `The ${label} must be ${exact} by ${exact} pixels`, 'bad_image');
   if (!exact && (s.w > 1024 || s.h > 1024)) throw new HttpError(400, `The ${label} is too large (at most 1024 pixels)`, 'bad_image');
   return buf;
@@ -66,9 +69,7 @@ export function brandingRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.put('/church/branding', auth, async (req) => {
-    const rows = await branchesFor(ctx.db, req.session!.uid, 'church.settings');
-    if (!rows.length) throw new HttpError(403, 'missing permission church.settings', 'forbidden');
-    const orgId = rows[0].orgId;
+    const orgId = await churchWideOrg(ctx, req, 'church.settings');
     const b = (req.body ?? {}) as any;
     const icons = b.icons ?? {};
     const files = {
@@ -106,7 +107,7 @@ export function brandingRoutes(app: FastifyInstance, ctx: Ctx) {
   /** The pictures themselves: public, so a browser can fetch a favicon or a home-screen icon. The version in the address changes whenever the logo does. */
   app.get('/public/branding/:orgId/:file', async (req, reply) => {
     const { orgId, file } = req.params as any;
-    const spec = file === 'logo.png' ? { col: 'logo' } : FILES[file as FileName];
+    const spec = file === 'logo.png' ? { col: 'logo' } : typeof file === 'string' && Object.hasOwn(FILES, file) ? FILES[file as FileName] : undefined;
     if (!spec) throw new HttpError(404, 'not found', 'not_found');
     const row = (await ctx.db.query<any>(`SELECT ${spec.col} AS data FROM church_branding WHERE org_id=$1`, [orgId]))[0];
     if (!row?.data) throw new HttpError(404, 'not found', 'not_found');

@@ -89,3 +89,10 @@ export async function staffWith(ctx: Ctx, orgId: string, branchId: string, perm:
   }
   return out;
 }
+
+/** The church whose church-level settings the person may use: they must hold the permission over every branch of it (AZ-19). */
+export async function churchWideOrg(ctx: Ctx, req: FastifyRequest, permission: Permission): Promise<string> {
+  const g = await grantsFor(ctx, req, permission);
+  if (!g.wholeOrg) throw new HttpError(403, 'Only people who manage every branch of the church can use this', 'forbidden');
+  return g.orgId;
+}

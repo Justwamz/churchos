@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { branchesFor } from '../auth';
+import { formGuard } from '../abuse';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
 import { grantsFor, inStaffScope } from '../scope';
@@ -37,6 +38,7 @@ export function suggestionRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/me/suggestions', auth, async (req) => {
+    formGuard(ctx, req.session!.uid, 'suggestion');
     const uid = req.session!.uid;
     const b = (req.body ?? {}) as any;
     const body = clean(b.body, 1000);
@@ -87,7 +89,7 @@ export function suggestionRoutes(app: FastifyInstance, ctx: Ctx) {
     if (q.branchId) { params.push(String(q.branchId)); where += ` AND s.branch_id=$${params.length}`; }
     if (q.status) { params.push(String(q.status)); where += ` AND s.status=$${params.length}`; }
     if (q.category) { params.push(String(q.category)); where += ` AND s.category=$${params.length}`; }
-    if (q.q) { params.push(`%${String(q.q).replace(/[%_]/g, '')}%`); where += ` AND (s.body ILIKE $${params.length} OR s.author_name ILIKE $${params.length})`; }
+    if (q.q) { params.push(`%${String(q.q).replace(/[\\%_]/g, (c) => '\\' + c)}%`); where += ` AND (s.body ILIKE $${params.length} OR s.author_name ILIKE $${params.length})`; }
     const rows = await ctx.db.query<any>(`SELECT s.*, b.name AS branch FROM suggestions s JOIN branches b ON b.id=s.branch_id WHERE ${where} ORDER BY (s.status='new') DESC, s.created_at DESC LIMIT 500`, params);
     const view = rows.map((s) => ({ id: s.id, category: s.category, categoryLabel: CATEGORIES[s.category] ?? s.category, body: s.body, author: s.author_name ?? 'Anonymous', anonymous: s.membership_id === null, branch: s.branch, status: s.status, statusLabel: STATUS_LABEL[s.status], response: s.response, respondedAt: s.responded_at, published: s.published, createdAt: s.created_at }));
     if (q.csv) return csv(view.map((v) => ({ Date: v.createdAt, From: v.author, Branch: v.branch, Category: v.categoryLabel, Suggestion: v.body, Status: v.statusLabel, Reply: v.response ?? '', Published: v.published ? 'yes' : '' })));

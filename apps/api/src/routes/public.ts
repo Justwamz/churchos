@@ -1,10 +1,13 @@
 import { brandingInfo } from './branding';
 import type { FastifyInstance } from 'fastify';
 import { networkMismatch } from '@churchos/shared';
-import { buildReference, computeFee, normalizeMethod, toCents } from './helpers';
+import { buildReference, computeFee, normalizeMethod } from './helpers';
 import { normalizePhone } from '../auth';
 import { checkoutLink, HttpError, requireSession, type Ctx } from '../ctx';
 import { isGivingPurpose } from './giving-ledger';
+import { promptGuard } from '../abuse';
+import type { FastifyRequest } from 'fastify';
+import { parseKes, str } from '../limits';
 
 const MIN_CENTS = 1000; // KES 10
 const MAX_CENTS = 15_000_000; // KES 150,000 per transaction
@@ -13,7 +16,7 @@ export async function churchByCode(ctx: Ctx, code: string) {
   const rows = await ctx.db.query<any>(
     `SELECT b.id, b.code, b.name, b.region, b.org_id, o.name AS org_name, o.fee_bearer, o.fee_schedule
        FROM branches b JOIN organisations o ON o.id = b.org_id WHERE b.code = $1`,
-    [String(code ?? '').trim().toUpperCase()],
+    [str(code, { max: 40, label: 'The church code' }).toUpperCase()],
   );
   return rows[0];
 }
@@ -49,23 +52,19 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     const q = req.query as any;
     const b = await churchByCode(ctx, q.code);
     if (!b) throw new HttpError(404, 'unknown church', 'unknown_church');
-    const base = toCents(q.amount);
+    const base = parseKes(q.amount, { min: 0, max: 1_000_000, label: 'the amount' });
     const fee = computeFee(b.fee_schedule, normalizeMethod(q.method), base, b.fee_bearer);
     return { bearer: b.fee_bearer, amountPaid: fee.amountPaid, memberFee: b.fee_bearer === 'member' ? fee.totalFee : 0 };
   });
 
   /** A gift. When `anon` is set the giver stays unknown to the church: the link to them lives only in anonymous_gifts (L217, L218). */
-  async function giveCore(body: any, anon: { userId: string } | null) {
+  async function giveCore(req: FastifyRequest, body: any, anon: { userId: string } | null, uid: string | null = null) {
     const b = await churchByCode(ctx, body.code);
     if (!b) throw new HttpError(404, 'We could not find a church with that code', 'unknown_church');
-    const phone = normalizePhone(body.phone);
+    const phone = normalizePhone(str(body.phone, { max: 20, label: 'The phone number', allowNumber: true }));
     if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number, for example 0712 345 678', 'bad_phone');
     let base: number;
-    try {
-      base = toCents(body.amount);
-    } catch {
-      throw new HttpError(400, 'Enter a valid amount', 'bad_amount');
-    }
+    base = parseKes(body.amount, { min: 0, max: 1_000_000_000, label: 'a valid amount' }); // the 150,000 per-gift cap below keeps its own message
     if (base < MIN_CENTS) throw new HttpError(400, 'The minimum gift is KES 10', 'amount_too_small');
     if (base > MAX_CENTS) throw new HttpError(400, 'The maximum for one gift is KES 150,000', 'amount_too_large');
     const method = normalizeMethod(body.method);
@@ -74,7 +73,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     const mismatch = networkMismatch(method, phone);
     if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
 
-    const purpose = String(body.purpose ?? 'OFFERING').trim().toUpperCase();
+    const purpose = (str(body.purpose, { max: 60, label: 'The purpose' }) || 'OFFERING').toUpperCase();
     if (anon && !isGivingPurpose(purpose)) throw new HttpError(400, 'Only tithe, offering and project gifts can be given anonymously', 'anonymous_purpose');
     let projectId: string | null = null;
     if (purpose.startsWith('PROJ-')) {
@@ -105,6 +104,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     const reference = buildReference(b.code, purpose);
     // Cards are paid on the payment provider's own page, so card details never reach ChurchOS. Mobile money gets a prompt on the phone.
     const isCard = method === 'card';
+    promptGuard(ctx, req, { phone, uid });
     const started = isCard
       ? await ctx.provider.initiateCardCheckout({ amount: fee.amountPaid, reference, phone })
       : await ctx.provider.initiateStkPush({ phone, amount: fee.amountPaid, reference, method });
@@ -134,7 +134,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     };
   }
 
-  app.post('/public/give', async (req) => giveCore((req.body ?? {}) as any, null));
+  app.post('/public/give', async (req) => giveCore(req, (req.body ?? {}) as any, null));
 
   /** A signed-in member gives, optionally anonymously: the church never learns who (L217). Members of the church only. */
   app.post('/me/give', { preHandler: requireSession }, async (req) => {
@@ -143,7 +143,7 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!b) throw new HttpError(404, 'We could not find a church with that code', 'unknown_church');
     const m = (await ctx.db.query<any>(`SELECT id FROM memberships WHERE user_id=$1 AND org_id=$2 AND status='active' AND category='adult'`, [req.session!.uid, b.org_id]))[0];
     if (!m) throw new HttpError(403, 'Anonymous giving is for members of this church', 'not_a_member');
-    return giveCore({ ...body, phone: body.phone ? body.phone : req.session!.phone }, body.anonymous ? { userId: req.session!.uid } : null);
+    return giveCore(req, { ...body, phone: body.phone ? body.phone : req.session!.phone }, body.anonymous ? { userId: req.session!.uid } : null, req.session!.uid);
   });
 
   app.get('/public/give/:id', async (req) => {

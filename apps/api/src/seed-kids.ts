@@ -32,5 +32,5 @@ export async function seedKidsDemo(ctx: Ctx) {
   await member({ id: 'm_tom', user: null, name: 'Tom Kamau', phone: null, number: 'M00103', hh: 'hh_kamau', category: 'child', dob: dateOf(4, 90), sex: 'male' });
   await guardian('m_tom', 'm_mary');
   await db.query(`INSERT INTO kids_classes (id, org_id, branch_id, name, room, teachers, created_at) VALUES ('kcl_sunday','org_grace','br_grc001','Sunday School','Hall B','["u_lucy","u_owner"]',$1) ON CONFLICT DO NOTHING`, [now]);
-  await db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, created_by, created_at) VALUES ('kpp_grace','org_grace','m_jane','Grace Wanjiru','254733000011','Aunt','12345678','u_jane',$1) ON CONFLICT DO NOTHING`, [now]);
+  await db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, created_by, created_at) VALUES ('kpp_grace','org_grace','m_jane','Grace Wanjiru','254733000011','Aunt','••••5678','u_jane',$1) ON CONFLICT DO NOTHING`, [now]);
 }

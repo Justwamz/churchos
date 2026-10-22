@@ -1,11 +1,14 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { maskEmail, maskPhone, toCents } from '@churchos/shared';
+import { maskEmail, maskPhone } from '@churchos/shared';
+import { parseKes } from '../limits';
 import { branchesFor, normalizePhone } from '../auth';
+import { promptGuard } from '../abuse';
 import { assertEmail, checkEmail } from '../email-rules';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { checkoutLink, HttpError, isMock, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 import { activeBands, costOf, priceInfo, unitsUsed } from '../pricing';
 import { checkLowBalance, emailRequired, requireVerifiedEmail, sendEmail, CHANNELS, DEFAULT_THRESHOLD, ensureWallets, integrationSettings, PAYBILL_PREFIX, RATES, walletFor, walletView, type Channel, type WalletRow } from '../wallets';
+import { consentOf } from '../consent';
 import { csv } from './helpers';
 
 const INTEGRATION_SPECS: FieldSpec[] = [
@@ -29,6 +32,12 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     return s;
   }
 
+  /** True when the branches cover every branch of the church. Church-level things (the church wallet, alert emails) need this, not one branch (AZ-19). */
+  async function coversChurch(orgId: string, branchIds: string[]) {
+    const all = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM branches WHERE org_id=$1`, [orgId]))[0].n);
+    return all > 0 && new Set(branchIds).size === all;
+  }
+
   async function namesOf(orgId: string) {
     const org = (await ctx.db.query<any>(`SELECT name FROM organisations WHERE id=$1`, [orgId]))[0]?.name ?? '';
     const branches = new Map((await ctx.db.query<any>(`SELECT id, name FROM branches WHERE org_id=$1`, [orgId])).map((b) => [b.id, b.name]));
@@ -42,7 +51,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     const w = (await ctx.db.query<any>(`SELECT * FROM wallets WHERE id=$1`, [id]))[0] as WalletRow | undefined;
     // A wallet in another church looks exactly like one that does not exist.
     const inOrg = w && rows.some((r) => r.orgId === w.org_id);
-    const inScope = w && (!w.branch_id || rows.some((r) => r.branchId === w.branch_id));
+    const inScope = w && (w.branch_id ? rows.some((r) => r.branchId === w.branch_id) : await coversChurch(w.org_id, rows.filter((r) => r.orgId === w.org_id).map((r) => r.branchId)));
     if (!w || !inOrg || !inScope) throw new HttpError(404, 'wallet not found', 'not_found');
     return w;
   }
@@ -55,7 +64,9 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     const can = async (perm: 'wallets.topup' | 'wallets.manage') => (await branchesFor(ctx.db, req.session!.uid, perm)).filter((r) => r.orgId === s.orgId).map((r) => r.branchId);
     const topup = new Set(await can('wallets.topup'));
     const manage = new Set(await can('wallets.manage'));
-    const rows = await ctx.db.query<any>(`SELECT * FROM wallets WHERE org_id=$1 AND (branch_id IS NULL OR branch_id = ANY($2::text[])) ORDER BY (branch_id IS NOT NULL), branch_id, channel`, [s.orgId, s.branchIds]);
+    const churchWide = await coversChurch(s.orgId, s.branchIds);
+    // The church's own wallet is only for people who hold wallets.view over every branch (AZ-19).
+    const rows = await ctx.db.query<any>(`SELECT * FROM wallets WHERE org_id=$1 AND ((branch_id IS NULL AND $3::boolean) OR branch_id = ANY($2::text[])) ORDER BY (branch_id IS NOT NULL), branch_id, channel`, [s.orgId, s.branchIds, churchWide]);
     const wallets = [];
     for (const w of rows as WalletRow[]) {
       const v = await walletView(ctx, w, { org: n.org, branch: w.branch_id ? n.branches.get(w.branch_id) ?? null : null });
@@ -84,7 +95,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = (req.body ?? {}) as any;
     const w = await loadWallet(req, 'wallets.topup', (req.params as any).id);
     let amount: number;
-    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter an amount', 'bad_amount'); }
+    amount = parseKes(b.amount, { min: 0, max: 1_000_000, label: 'an amount' });
     if (amount < 10_000) throw new HttpError(400, 'The minimum top-up is KES 100', 'amount_too_small');
     if (amount > 5_000_000) throw new HttpError(400, 'The maximum top-up is KES 50,000', 'amount_too_large');
     if (b.method !== 'mpesa' && b.method !== 'card') throw new HttpError(400, 'Choose M-Pesa or card', 'bad_method');
@@ -94,11 +105,13 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     if (b.method === 'mpesa') {
       const phone = normalizePhone(b.phone);
       if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
+      promptGuard(ctx, req, { phone, uid: req.session!.uid, staff: true });
       const { providerTxId } = await ctx.provider.initiateStkPush({ phone, amount, reference, method: 'mpesa' });
       await ctx.db.query(`INSERT INTO wallet_topups (id, wallet_id, org_id, amount, method, phone, provider_tx_id, created_by, created_at) VALUES ($1,$2,$3,$4,'mpesa',$5,$6,$7,$8)`, [id, w.id, w.org_id, amount, phone, providerTxId, req.session!.uid, now]);
       return { id, method: 'mpesa', status: 'initiated', message: `Check ${phone.replace(/^254/, '0')} and enter your PIN to complete the top-up.` };
     }
     // Card: the person pays on the payment provider's own page, so card details never reach ChurchOS.
+    promptGuard(ctx, req, { uid: req.session!.uid, staff: true });
     const card = await ctx.provider.initiateCardCheckout({ amount, reference, phone: req.session!.phone });
     const { providerTxId } = card;
     await ctx.db.query(`INSERT INTO wallet_topups (id, wallet_id, org_id, amount, method, provider_tx_id, created_by, created_at) VALUES ($1,$2,$3,$4,'card',$5,$6,$7)`, [id, w.id, w.org_id, amount, providerTxId, req.session!.uid, now]);
@@ -118,7 +131,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
   app.put('/wallets/:id/threshold', auth, async (req) => {
     const w = await loadWallet(req, 'wallets.manage', (req.params as any).id);
     let threshold: number;
-    try { threshold = toCents((req.body as any)?.threshold); } catch { throw new HttpError(400, 'Enter an amount', 'bad_amount'); }
+    threshold = parseKes((req.body as any)?.threshold, { min: 0, max: 1_000_000, label: 'an amount' });
     if (threshold < 0 || threshold > 5_000_000) throw new HttpError(400, 'The warning level can be between KES 0 and KES 50,000', 'bad_amount');
     await ctx.db.query(`UPDATE wallets SET low_threshold=$2 WHERE id=$1`, [w.id, threshold]);
     await ctx.ledger.audit({ orgId: w.org_id, branchId: w.branch_id, actor: req.session!.uid, action: 'wallet.threshold', category: 'config', entity: 'wallet', entityId: w.id, summary: 'Changed the low-balance warning level', changes: [{ field: 'low_threshold', label: 'Warning level (cents)', before: Number(w.low_threshold), after: threshold }] });
@@ -134,7 +147,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     if (from.id === to.id) throw new HttpError(400, 'Choose two different wallets', 'same_wallet');
     if (from.org_id !== to.org_id || from.channel !== to.channel) throw new HttpError(400, 'Credit can only move between wallets of the same church and channel', 'bad_transfer');
     let amount: number;
-    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter an amount', 'bad_amount'); }
+    amount = parseKes(b.amount, { min: 1, max: 100_000_000, label: 'an amount' });
     if (!(amount > 0)) throw new HttpError(400, 'The amount must be more than zero', 'bad_amount');
     const key = ctx.newId('mv');
     if (!(await ctx.ledger.transferWallet(from.id, to.id, amount, key))) throw new HttpError(409, 'The wallet you are moving credit from does not have enough', 'insufficient');
@@ -168,17 +181,29 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     if (rows.length === 0) throw new HttpError(403, 'missing permission integrations.manage', 'forbidden');
     const wanted = (req.query as any).org as string | undefined;
     const orgId = wanted && rows.some((r) => r.orgId === wanted) ? wanted : rows[0].orgId;
-    const canEdit = (await branchesFor(ctx.db, req.session!.uid, 'integrations.manage')).some((r) => r.orgId === orgId);
+    const mine = rows.filter((r) => r.orgId === orgId).map((r) => r.branchId);
+    const wholeChurch = await coversChurch(orgId, mine);
+    const canEdit = wholeChurch && (await branchesFor(ctx.db, req.session!.uid, 'integrations.manage')).some((r) => r.orgId === orgId);
     const n = await namesOf(orgId);
     const prices: Record<string, any> = {};
     for (const ch of CHANNELS) prices[ch] = await priceInfo(ctx, orgId, ch);
-    return { organisation: { id: orgId, name: n.org }, canEdit, rates: { sms: prices.sms.currentPrice, whatsapp: prices.whatsapp.currentPrice }, prices, defaultThresholds: DEFAULT_THRESHOLD, ...(await integrationView(orgId)) };
+    const view = await integrationView(orgId);
+    // Church-level settings (alert emails, the full WhatsApp number, other branches' overrides) are for people who cover the whole church (AZ-19).
+    const shown = wholeChurch ? view : {
+      ...view,
+      whatsappNumber: view.whatsappNumber ? maskPhone(view.whatsappNumber) : null,
+      alertEmails: [],
+      branches: view.branches.filter((b: any) => mine.includes(b.id)).map((b: any) => ({ ...b, whatsappNumber: b.whatsappNumber ? maskPhone(b.whatsappNumber) : null })),
+      requests: view.requests.filter((q: any) => q.branchId && mine.includes(q.branchId)),
+    };
+    return { organisation: { id: orgId, name: n.org }, canEdit, restricted: !wholeChurch, rates: { sms: prices.sms.currentPrice, whatsapp: prices.whatsapp.currentPrice }, prices, defaultThresholds: DEFAULT_THRESHOLD, ...shown };
   });
 
   app.put('/integrations', auth, async (req) => {
     const b = (req.body ?? {}) as any;
     const scope = await walletScope(req, 'integrations.manage');
     const orgId = scope.orgId;
+    if (!(await coversChurch(orgId, scope.branchIds))) throw new HttpError(403, 'Only people who manage every branch can change the church settings', 'forbidden');
     const before = await integrationView(orgId);
     if (b.walletMode !== 'shared' && b.walletMode !== 'per_branch') throw new HttpError(400, 'Choose shared or per branch', 'bad_mode');
     const sender = (v: unknown) => {
@@ -257,7 +282,7 @@ export function walletRoutes(app: FastifyInstance, ctx: Ctx) {
     const scope = await walletScope(req, 'integrations.manage');
     const phone = req.session!.phone;
     if (channel === 'whatsapp') {
-      const p = (await ctx.db.query<any>(`SELECT whatsapp_opt_in FROM contact_prefs WHERE phone=$1`, [phone]))[0];
+      const p = await consentOf(ctx, scope.orgId, phone);
       if (!p?.whatsapp_opt_in) throw new HttpError(409, 'WhatsApp only goes to numbers that have agreed to it. Turn on WhatsApp for your own number in My profile first.', 'not_opted_in');
     }
     const branchId = scope.branchIds[0] ?? null;

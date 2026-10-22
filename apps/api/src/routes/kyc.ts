@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { maskAccount } from '@churchos/shared';
 import { HttpError, requireAdmin, requireSession, staffScope, type Ctx } from '../ctx';
 import { sendPrivateFile } from '../serve';
+import { checkUpload, cleanFileName } from '../uploads';
 
 export const KYC_TYPES = ['registration_certificate', 'kra_pin', 'signatory_id', 'payout_proof'] as const;
 const ORG_TYPES = ['registration_certificate', 'kra_pin', 'signatory_id'] as const;
@@ -79,13 +80,15 @@ export function kycRoutes(app: FastifyInstance, ctx: Ctx) {
     const bytes = Buffer.from(b.data, 'base64');
     if (bytes.length === 0) throw new HttpError(400, 'That file is empty', 'empty_file');
     if (bytes.length > MAX_BYTES) throw new HttpError(413, 'That file is larger than 3 MB', 'too_large');
+    const checked = checkUpload(bytes, b.mime, { kinds: ['image', 'pdf'], code: 'bad_file_type', label: 'document' });
+    const fileName = cleanFileName(b.filename, 'document');
     const id = ctx.newId('kyc');
     await ctx.db.query(
       `INSERT INTO kyc_documents (id, org_id, branch_id, type, filename, mime, size, data, note, submitted_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [id, scope.orgId, b.type === 'payout_proof' ? b.branchId : null, b.type, String(b.filename ?? 'document').slice(0, 120), b.mime, bytes.length, b.data, b.note ?? null, req.session!.uid, ctx.clock.now().toISOString()],
+      [id, scope.orgId, b.type === 'payout_proof' ? b.branchId : null, b.type, fileName, checked.mime, bytes.length, b.data, b.note ?? null, req.session!.uid, ctx.clock.now().toISOString()],
     );
     await recomputeVerification(ctx, scope.orgId);
-    await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.type === 'payout_proof' ? b.branchId : null, actor: req.session!.uid, action: 'kyc.submit', entity: 'kyc_document', entityId: id, summary: `Uploaded a ${String(b.type).replace(/_/g, ' ')}`, links: { documentId: id }, meta: { type: b.type, filename: String(b.filename ?? 'document').slice(0, 120), bytes: bytes.length } });
+    await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.type === 'payout_proof' ? b.branchId : null, actor: req.session!.uid, action: 'kyc.submit', entity: 'kyc_document', entityId: id, summary: `Uploaded a ${String(b.type).replace(/_/g, ' ')}`, links: { documentId: id }, meta: { type: b.type, filename: fileName, bytes: bytes.length } });
     return { id, status: 'submitted' };
   });
 

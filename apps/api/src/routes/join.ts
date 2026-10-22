@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { maskPhone } from '@churchos/shared';
-import { branchesFor } from '../auth';
+import { branchesFor, PERMISSIONS } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
-import { clientIp, rateLimit } from '../ratelimit';
+import { clientIp, rateLimit, tooMany } from '../ratelimit';
 import { nextMemberNumber } from '../members';
 import { addNotification } from '../notifications';
 import { wordsFor } from './words';
-import { inStaffScope, staffWith } from '../scope';
+import { churchWideOrg, inStaffScope, staffWith } from '../scope';
 
 /**
  * Finding a church and joining it (Slice 29). Anyone can look a church up by name or code (the church can keep itself out of the name search).
@@ -31,29 +31,26 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!rateLimit(ctx, `church-search:${clientIp(req)}`, { max: 40, windowMs: 60_000 }).ok) throw new HttpError(429, 'Too many searches. Please wait a minute.', 'rate_limited');
     const q = String((req.query as any).q ?? '').trim().slice(0, 60);
     if (q.length < 3) return { churches: [] };
-    const like = `%${q.replace(/[%_\\]/g, '')}%`;
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
     const rows = await ctx.db.query<any>(
       `SELECT b.code, b.name AS branch, b.region, o.name AS church, COALESCE(s.listed, true) AS listed
          FROM branches b JOIN organisations o ON o.id=b.org_id LEFT JOIN org_settings s ON s.org_id=b.org_id
         WHERE upper(b.code)=upper($1) OR (COALESCE(s.listed, true) AND (b.name ILIKE $2 OR o.name ILIKE $2 OR b.region ILIKE $2 OR b.code ILIKE $3))
         ORDER BY (upper(b.code)=upper($1)) DESC, o.name, b.name LIMIT 8`,
-      [q, like, `${q.replace(/[%_\\]/g, '')}%`],
+      [q, like, `${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`],
     );
     return { churches: rows.map((r) => ({ code: r.code, branch: r.branch, church: r.church, region: r.region ?? null })) };
   });
 
   /** The church chooses whether people can find it by typing its name. Anyone with its code or link can always reach it. */
   app.get('/church/directory', auth, async (req) => {
-    const rows = await branchesFor(ctx.db, req.session!.uid, 'church.settings');
-    if (!rows.length) throw new HttpError(403, 'missing permission church.settings', 'forbidden');
-    const s = (await ctx.db.query<any>(`SELECT COALESCE(listed, true) AS listed FROM org_settings WHERE org_id=$1`, [rows[0].orgId]))[0];
+    const orgId = await churchWideOrg(ctx, req, 'church.settings');
+    const s = (await ctx.db.query<any>(`SELECT COALESCE(listed, true) AS listed FROM org_settings WHERE org_id=$1`, [orgId]))[0];
     return { listed: s ? !!s.listed : true };
   });
 
   app.put('/church/directory', auth, async (req) => {
-    const rows = await branchesFor(ctx.db, req.session!.uid, 'church.settings');
-    if (!rows.length) throw new HttpError(403, 'missing permission church.settings', 'forbidden');
-    const orgId = rows[0].orgId;
+    const orgId = await churchWideOrg(ctx, req, 'church.settings');
     const listed = (req.body as any)?.listed !== false;
     await ctx.db.query(`INSERT INTO org_settings (org_id, listed) VALUES ($1,$2) ON CONFLICT (org_id) DO UPDATE SET listed=$2`, [orgId, listed]);
     await ctx.ledger.audit({ orgId, actor: req.session!.uid, action: 'church.directory', entity: 'organisation', entityId: orgId, summary: listed ? 'The church can now be found by name in the search' : 'The church is hidden from the name search (people can still use its code or link)' });
@@ -61,6 +58,13 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   // ======================= the person without a church =======================
+
+  /** Branches where the person holds a role that grants at least one permission (AZ-22). A role at the church that gives nothing at that branch does not count. */
+  async function roleBranches(uid: string) {
+    const out = new Set<string>();
+    for (const p of PERMISSIONS) for (const r of await branchesFor(ctx.db, uid, p)) out.add(`${r.orgId}:${r.branchId}`);
+    return out;
+  }
 
   const branchByCode = async (code: unknown) => {
     const b = (await ctx.db.query<any>(`SELECT b.id, b.org_id, b.code, b.name, o.name AS church FROM branches b JOIN organisations o ON o.id=b.org_id WHERE upper(b.code)=upper($1)`, [String(code ?? '').trim()]))[0];
@@ -72,14 +76,34 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
     const uid = req.session!.uid;
     const ms = await ctx.db.query<any>(`SELECT m.org_id, o.name AS church, b.name AS branch FROM memberships m JOIN organisations o ON o.id=m.org_id JOIN branches b ON b.id=m.branch_id WHERE m.user_id=$1 AND m.status='active' ORDER BY m.joined_at`, [uid]);
     const requests = await ctx.db.query<any>(`SELECT r.id, r.status, r.decision_note, r.decided_at, r.created_at, b.name AS branch, o.name AS church FROM join_requests r JOIN branches b ON b.id=r.branch_id JOIN organisations o ON o.id=r.org_id WHERE r.user_id=$1 ORDER BY r.created_at DESC LIMIT 10`, [uid]);
-    const staffAt = await ctx.db.query<any>(`SELECT DISTINCT b.code, b.name AS branch, o.name AS church FROM role_assignments ra JOIN branches b ON b.org_id=ra.org_id JOIN organisations o ON o.id=ra.org_id WHERE ra.user_id=$1 AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id=$1 AND m.org_id=ra.org_id AND m.status='active') ORDER BY o.name, b.name`, [uid]);
+    const covered = await roleBranches(uid);
+    const staffAt = (await ctx.db.query<any>(`SELECT DISTINCT b.id AS bid, b.org_id AS oid, b.code, b.name AS branch, o.name AS church FROM role_assignments ra JOIN branches b ON b.org_id=ra.org_id JOIN organisations o ON o.id=ra.org_id WHERE ra.user_id=$1 AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.user_id=$1 AND m.org_id=ra.org_id AND m.status='active') ORDER BY o.name, b.name`, [uid])).filter((s) => covered.has(`${s.oid}:${s.bid}`));
+    const offers = await ctx.db.query<any>(`SELECT l.id, o.name AS church, b.name AS branch FROM link_offers l JOIN memberships m ON m.id=l.membership_id JOIN organisations o ON o.id=l.org_id JOIN branches b ON b.id=m.branch_id WHERE l.user_id=$1 AND l.status='pending' AND m.status='active' ORDER BY l.created_at DESC`, [uid]);
     return {
       linked: ms.length > 0,
       churches: ms.map((m) => ({ orgId: m.org_id, church: m.church, branch: m.branch })),
       requests: requests.map((r) => ({ id: r.id, status: r.status, church: r.church, branch: r.branch, note: r.decision_note, decidedAt: r.decided_at, requestedAt: r.created_at })),
       canLinkAtOnce: staffAt.map((s) => ({ code: s.code, church: s.church, branch: s.branch })),
+      /** Churches that added this person's number to their list. Nothing is linked until the person accepts (AZ-18). */
+      offers: offers.map((o) => ({ id: o.id, church: o.church, branch: o.branch })),
     };
   });
+
+  async function decideOffer(req: any, accept: boolean) {
+    const uid = req.session!.uid;
+    const o = (await ctx.db.query<any>(`SELECT l.*, m.full_name, m.branch_id, m.user_id AS m_user, m.phone AS m_phone, b.name AS bname, org.name AS church FROM link_offers l JOIN memberships m ON m.id=l.membership_id JOIN branches b ON b.id=m.branch_id JOIN organisations org ON org.id=l.org_id WHERE l.id=$1 AND l.user_id=$2 AND l.status='pending' AND m.status='active'`, [req.params.id, uid]))[0];
+    if (!o) throw new HttpError(404, 'That invitation is not waiting any more', 'not_found');
+    if (accept) {
+      const me = (await ctx.db.query<any>(`SELECT phone FROM users WHERE id=$1`, [uid]))[0];
+      if (o.m_user || me?.phone !== o.m_phone) throw new HttpError(409, 'That invitation can no longer be accepted', 'offer_stale');
+      await ctx.db.query(`UPDATE memberships SET user_id=$2 WHERE id=$1 AND user_id IS NULL`, [o.membership_id, uid]);
+    }
+    await ctx.db.query(`UPDATE link_offers SET status=$2, decided_at=$3 WHERE id=$1`, [o.id, accept ? 'accepted' : 'declined', nowIso()]);
+    await ctx.ledger.audit({ orgId: o.org_id, branchId: o.branch_id, actor: uid, action: accept ? 'member.link_offer_accepted' : 'member.link_offer_declined', entity: 'membership', entityId: o.membership_id, summary: `${o.full_name} ${accept ? 'accepted' : 'declined'} the invitation to link to ${o.church}, ${o.bname}` });
+    return { ok: true, status: accept ? 'accepted' : 'declined', church: o.church };
+  }
+  app.post('/me/link/offers/:id/accept', auth, async (req) => decideOffer(req, true));
+  app.post('/me/link/offers/:id/decline', auth, async (req) => decideOffer(req, false));
 
   app.post('/me/link/request', auth, async (req) => {
     const uid = req.session!.uid;
@@ -92,15 +116,20 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
     if (open) throw new HttpError(409, 'You already asked to join this church. Please wait for them to answer.', 'duplicate_request');
     const user = (await ctx.db.query<any>(`SELECT name, phone FROM users WHERE id=$1`, [uid]))[0];
     const name = clean(b.name, 80) ?? user.name;
+    // Limits against filling church inboxes (AZ-15): 5 requests a day in all, and one per church an hour.
+    const perChurch = rateLimit(ctx, `joinreq-church:${uid}:${branch.org_id}`, { max: 1, windowMs: 3600_000 });
+    if (!perChurch.ok) tooMany('You already asked this church a moment ago. Please wait an hour before asking again.', perChurch.retryAfterSec);
+    const perDay = rateLimit(ctx, `joinreq-day:${uid}`, { max: 5, windowMs: 86_400_000 });
+    if (!perDay.ok) tooMany('You have sent several requests today. Please try again tomorrow.', perDay.retryAfterSec);
     if (!name || name.length < 2) throw new HttpError(400, 'Enter your full name', 'bad_name');
     const id = ctx.newId('jrq');
     await ctx.db.query(
       `INSERT INTO join_requests (id, org_id, branch_id, user_id, name, phone, member_number, message, consent_at, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
       [id, branch.org_id, branch.id, uid, name, user.phone, clean(b.memberNumber, 40), clean(b.message, 200), nowIso()],
     );
-    await ctx.ledger.audit({ orgId: branch.org_id, branchId: branch.id, actor: uid, action: 'member.join_requested', entity: 'join_request', entityId: id, summary: `${name} asked to join ${branch.church}, ${branch.name}` });
+    await ctx.ledger.audit({ orgId: branch.org_id, branchId: branch.id, actor: uid, action: 'member.join_requested', entity: 'join_request', entityId: id, summary: `${user.name} asked to join ${branch.church}, ${branch.name}` });
     for (const s of await staffWith(ctx, branch.org_id, branch.id, 'members.edit')) {
-      await addNotification(ctx, { orgId: branch.org_id, userId: s.id, kind: 'announcement', title: 'Someone asked to join the church', body: `${name} asked to join ${branch.name}. Open People > Members > Join requests to approve or decline.`, link: 'staff:members?tab=requests', audience: 'staff' });
+      await addNotification(ctx, { orgId: branch.org_id, userId: s.id, kind: 'announcement', title: 'Someone asked to join the church', body: `${user.name} asked to join ${branch.name}. Open People > Members > Join requests to approve or decline.`, link: 'staff:members?tab=requests', audience: 'staff' });
     }
     return { id, status: 'pending', church: branch.church, branch: branch.name };
   });
@@ -115,8 +144,8 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
   app.post('/me/link/instant', auth, async (req) => {
     const uid = req.session!.uid;
     const branch = await branchByCode((req.body as any)?.code);
-    const role = (await ctx.db.query<any>(`SELECT 1 FROM role_assignments WHERE user_id=$1 AND org_id=$2`, [uid, branch.org_id]))[0];
-    if (!role) throw new HttpError(403, 'Only people who work for this church can link themselves. Send a join request instead.', 'not_staff');
+    // The person needs a role at this church that reaches this branch and grants something there (AZ-22).
+    if (!(await roleBranches(uid)).has(`${branch.org_id}:${branch.id}`)) throw new HttpError(403, 'Only people who work for this church at this branch can link themselves. Send a join request instead.', 'not_staff');
     const user = (await ctx.db.query<any>(`SELECT name, phone FROM users WHERE id=$1`, [uid]))[0];
     const m = await makeMember(branch, uid, user.name, user.phone, nowIso());
     await ctx.ledger.audit({ orgId: branch.org_id, branchId: branch.id, actor: uid, action: 'member.linked_self', entity: 'membership', entityId: m.id, summary: `${user.name}, who works for the church, linked themselves to ${branch.name} as a member` });
@@ -128,7 +157,10 @@ export function joinRoutes(app: FastifyInstance, ctx: Ctx) {
     if (phone) {
       const ex = (await ctx.db.query<any>(`SELECT id, member_number, user_id FROM memberships WHERE org_id=$1 AND phone=$2 AND category='adult' AND status='active' LIMIT 1`, [branch.org_id, phone]))[0];
       if (ex) {
-        if (!ex.user_id) await ctx.db.query(`UPDATE memberships SET user_id=$2 WHERE id=$1`, [ex.id, userId]);
+        if (!ex.user_id) {
+          await ctx.db.query(`UPDATE memberships SET user_id=$2 WHERE id=$1`, [ex.id, userId]);
+          await ctx.db.query(`UPDATE link_offers SET status='accepted', decided_at=$2 WHERE membership_id=$1 AND status='pending'`, [ex.id, nowIso()]);
+        }
         return { id: ex.id as string, number: ex.member_number as string };
       }
     }

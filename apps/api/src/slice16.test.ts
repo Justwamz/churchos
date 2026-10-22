@@ -97,8 +97,8 @@ describe('the weekly schedule (L204)', () => {
       expect(Date.parse(s.startsAt) - Date.parse(s.opensAt)).toBe(20 * MIN);
       expect(Date.parse(s.closesAt) - Date.parse(s.startsAt)).toBe(150 * MIN);
       expect(Date.parse(s.endsAt) - Date.parse(s.startsAt)).toBe(120 * MIN);
-      expect(s.liveLink).toMatch(/\/live\/[A-Z0-9]{6}$/);
-      expect(s.code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(s.liveLink).toMatch(/\/live\/[A-Z0-9]{8}$/);
+      expect(s.code).toMatch(/^[A-Z0-9]{8}$/);
     }
   });
 

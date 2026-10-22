@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { toCents } from '@churchos/shared';
+import { parseKes } from '../limits';
 import { branchesFor, type Permission } from '../auth';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { HttpError, requireSession, type Ctx } from '../ctx';
@@ -82,7 +82,7 @@ const intIn = (v: unknown, lo: number, hi: number, label: string, fallback?: num
 export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
   const nowIso = () => ctx.clock.now().toISOString();
-  const newCode = () => randomBytes(5).toString('hex').toUpperCase().slice(0, 6);
+  const newCode = () => randomBytes(6).toString('hex').toUpperCase(); // 48 bits: the code is a public secret (AZ-17)
 
   const notify = async (orgId: string, userIds: (string | null | undefined)[], title: string, body: string, link?: string, audience: NotificationAudience = 'member') => {
     for (const u of [...new Set(userIds.filter(Boolean) as string[])]) {
@@ -201,7 +201,7 @@ export function bookingRoutes(app: FastifyInstance, ctx: Ctx) {
     if (has('price')) {
       price = null;
       if (b.price !== null && b.price !== '' && b.price !== undefined) {
-        try { price = toCents(b.price); } catch { throw new HttpError(400, 'Enter the price in shillings, or leave it empty for free', 'bad_amount'); }
+        price = parseKes(b.price, { min: 0, max: 1_000_000, label: 'the price' });
         if (price === 0) price = null;
         else if (price < 1000 || price > 15_000_000) throw new HttpError(400, 'A price must be between KES 10 and KES 150,000', 'bad_amount');
       }

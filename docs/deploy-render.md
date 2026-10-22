@@ -14,10 +14,10 @@ This puts the API and the four web apps (staff, member, giving, admin) on Render
    |---|---|---|
    | churchos-api | `GIVING_URL` | `https://churchos-giving.onrender.com` |
    | churchos-api | `CORS_ORIGINS` | the four site addresses, comma separated: `https://churchos-staff.onrender.com,https://churchos-member.onrender.com,https://churchos-giving.onrender.com,https://churchos-admin.onrender.com` |
-   | each of the four sites | `VITE_API_URL` | `https://churchos-api.onrender.com` |
+   | each of the four sites | `VITE_API_URL` | `https://churchos-q152.onrender.com (your real API URL)` |
    | each of the four sites | `VITE_VERIFY_ORIGIN` | `https://churchos-giving.onrender.com` |
 
-3. Click **Apply**. The first build takes a few minutes. When all five are live, open `https://churchos-api.onrender.com/health`: it should say `{"ok":true,...}`.
+3. Click **Apply**. The first build takes a few minutes. When all five are live, open `https://churchos-q152.onrender.com (your real API URL)/health`: it should say `{"ok":true,...}`.
 4. If an address differs from the pattern above, edit the variables on the API and on each site (Environment tab) and **redeploy the four sites**, because their addresses are fixed in when they are built.
 5. Open the staff site and sign in with `0700000001` and the code `123456` (the owner of the demo church). The other demo logins are in the README.
 
@@ -83,7 +83,7 @@ The number is how many proxies sit between the internet and the API, counting Re
 
 ## Header rules for the four sites (enter these by hand in the dashboard)
 
-The four sites were created by hand, so the `headers:` in render.yaml is **not in force** until the services are recreated from the Blueprint. In Render: open each static site > **Settings > Headers** and add one rule per row (Path, Name, Value). Replace `https://churchos-api.onrender.com` in the policies if the API's address differs. Tested policies and the reasoning are in docs/security/headers.md. Tip: first add the Content-Security-Policy as `Content-Security-Policy-Report-Only` for a day, browse the app, then rename it to `Content-Security-Policy`. After saving, check with `curl -sI <site address>`.
+The four sites were created by hand, so the `headers:` in render.yaml is **not in force** until the services are recreated from the Blueprint. In Render: open each static site > **Settings > Headers** and add one rule per row (Path, Name, Value). Replace `https://churchos-q152.onrender.com (your real API URL)` in the policies if the API's address differs. Tested policies and the reasoning are in docs/security/headers.md. Tip: first add the Content-Security-Policy as `Content-Security-Policy-Report-Only` for a day, browse the app, then rename it to `Content-Security-Policy`. After saving, check with `curl -sI <site address>`.
 
 **All four sites, path `/*`** (the Strict-Transport-Security rule may already be added by Render; check first):
 
@@ -104,7 +104,7 @@ The four sites were created by hand, so the `headers:` in render.yaml is **not i
 |---|---|
 | `Referrer-Policy` | `strict-origin` |
 | `Permissions-Policy` | `camera=(self), geolocation=(self), microphone=(), payment=(), usb=(), bluetooth=(), interest-cohort=()` |
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'self'; frame-src blob:; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-q152.onrender.com (your real API URL); font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'self'; frame-src blob:; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
 
 ### churchos-member
 
@@ -112,7 +112,7 @@ The four sites were created by hand, so the `headers:` in render.yaml is **not i
 |---|---|
 | `Referrer-Policy` | `strict-origin` |
 | `Permissions-Policy` | `geolocation=(self), camera=(), microphone=(), payment=(), usb=(), bluetooth=(), interest-cohort=()` |
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'self'; frame-src 'none'; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-q152.onrender.com (your real API URL); font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'self'; frame-src 'none'; object-src 'self' blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
 
 ### churchos-giving
 
@@ -120,7 +120,7 @@ The four sites were created by hand, so the `headers:` in render.yaml is **not i
 |---|---|
 | `Referrer-Policy` | `no-referrer` |
 | `Permissions-Policy` | `geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()` |
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-q152.onrender.com (your real API URL); font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self' blob:; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
 
 ### churchos-admin
 
@@ -128,6 +128,6 @@ The four sites were created by hand, so the `headers:` in render.yaml is **not i
 |---|---|
 | `Referrer-Policy` | `strict-origin` |
 | `Permissions-Policy` | `geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()` |
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-api.onrender.com; font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://churchos-q152.onrender.com (your real API URL); font-src 'self' data:; connect-src 'self' https://churchos-api.onrender.com; manifest-src 'self'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests` |
 
 Not verifiable here (needs a real browser): opening a statement PDF in the member app with the policy on, as noted in docs/security/headers.md.

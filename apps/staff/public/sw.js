@@ -2,7 +2,7 @@
 // - The app shell and icons are cached, so the installed app opens fast and shows a friendly page when there is no signal.
 // - Nothing from the API is ever cached: staff screens hold members' details and money, so they are always read live and never stored on the phone.
 // - Every non-GET request is passed straight through.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL_CACHE = `churchos-staff-shell-${VERSION}`;
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png', '/icons/apple-touch-icon.png'];
 
@@ -34,7 +34,17 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(fetch(req).catch(() => caches.match('/').then((r) => r || OFFLINE)));
     return;
   }
-  // Built files, icons and the manifest: use the cache, refresh it in the background.
+  // A missing built file must stay missing: never answer it with the app shell.
+  if (url.pathname.startsWith('/assets/')) {
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((r) => {
+      const html = (r.headers.get('content-type') || '').includes('text/html');
+      if (r.ok && !html) { const copy = r.clone(); caches.open(SHELL_CACHE).then((c) => c.put(req, copy)); }
+      return r.ok && html ? Response.error() : r;
+    }).catch(() => OFFLINE)));
+    return;
+  }
+
+  // Icons and the manifest: use the cache, refresh it in the background.
   e.respondWith(
     caches.match(req).then((hit) => {
       const net = fetch(req)

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { computeFee, toCents } from '@churchos/shared';
+import { computeFee } from '@churchos/shared';
+import { parseKes } from '../limits';
 import { branchesFor, loadGrants, PERMISSIONS, type Permission } from '../auth';
 import { appendCashGifts, isGivingPurpose } from './giving-ledger';
 import { HttpError, inList, requireSession, staffScope, startOfDayEat, bearer, type Ctx } from '../ctx';
@@ -281,8 +282,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     const scope = await staffScope(ctx, req, 'cash.count', b.branchId);
     if (!b.branchId) throw new HttpError(400, 'Choose a branch', 'bad_branch');
     let amount: number;
-    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter the counted amount', 'bad_amount'); }
-    if (!(amount > 0)) throw new HttpError(400, 'The counted amount must be more than zero', 'bad_amount');
+    amount = parseKes(b.amount, { min: 1, max: 10_000_000, label: 'the counted amount' });
     const purpose = String(b.purpose ?? 'OFFERING').toUpperCase();
     // Cash given by members the church knows can be attached, so it lands in their giving record once the count is signed off (L222).
     const named: { membershipId: string; amount: number }[] = [];
@@ -291,8 +291,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
       let total = 0;
       for (const g of b.gifts) {
         let amt: number;
-        try { amt = toCents(g?.amount); } catch { throw new HttpError(400, 'Enter a valid amount for each member', 'bad_amount'); }
-        if (!(amt > 0)) throw new HttpError(400, 'Each member amount must be more than zero', 'bad_amount');
+        amt = parseKes(g?.amount, { min: 1, max: 10_000_000, label: 'the amount for each member' });
         const m = (await ctx.db.query<any>(`SELECT id FROM memberships WHERE id=$1 AND org_id=$2 AND status='active'`, [String(g?.membershipId ?? ''), scope.orgId]))[0];
         if (!m) throw new HttpError(404, 'One of the members was not found', 'unknown_member');
         const have = named.find((x) => x.membershipId === m.id);
@@ -383,8 +382,7 @@ export function staffRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!code) throw new HttpError(400, 'Give the project a short code, such as ROOF', 'bad_code');
     if (!String(b.name ?? '').trim()) throw new HttpError(400, 'Enter a project name', 'bad_name');
     let target: number;
-    try { target = toCents(b.target); } catch { throw new HttpError(400, 'Enter a target amount', 'bad_amount'); }
-    if (!(target > 0)) throw new HttpError(400, 'The target must be more than zero', 'bad_amount');
+    target = parseKes(b.target, { min: 1, max: 1_000_000_000, label: 'the target' });
     const dupe = (await ctx.db.query<any>(`SELECT 1 FROM projects WHERE branch_id=$1 AND code=$2`, [b.branchId, code]))[0];
     if (dupe) throw new HttpError(409, 'That project code is already used', 'duplicate_code');
     const id = ctx.newId('prj');

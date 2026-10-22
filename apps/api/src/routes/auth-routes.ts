@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { maskPhone } from '@churchos/shared';
 import { normalizePhone } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { str } from '../limits';
 import { authMode, badCodeError, checkSmsCode, DEV_CODE, requestSmsCode, warnIfDemoInProduction } from '../otp';
 import { clientIp, limiterFor, rateLimit, tooMany } from '../ratelimit';
 import { createSession, getHeaderSession, makeDownloadTicket, revokeAllSessions, revokeSession } from '../sessions';
@@ -22,7 +23,7 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/auth/mode', async () => ({ mode: authMode() }));
 
   app.post('/auth/otp/request', async (req) => {
-    const phone = normalizePhone((req.body as any)?.phone);
+    const phone = normalizePhone(str((req.body as any)?.phone, { max: 20, label: 'The phone number', allowNumber: true }));
     if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
     if (authMode() === 'demo') {
       const user = (await ctx.db.query<any>(`SELECT id FROM users WHERE phone = $1`, [phone]))[0];
@@ -35,7 +36,8 @@ export function authRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/auth/otp/verify', async (req) => {
     const body = (req.body ?? {}) as any;
-    const phone = normalizePhone(body.phone);
+    body.code = str(body.code, { max: 12, label: 'The code', allowNumber: true });
+    const phone = normalizePhone(str(body.phone, { max: 20, label: 'The phone number', allowNumber: true }));
     if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number', 'bad_phone');
     let user: any | null;
     if (authMode() === 'sms') {

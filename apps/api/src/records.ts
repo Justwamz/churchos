@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { Db } from '@churchos/ledger';
 import { HttpError, type Ctx } from './ctx';
 import { todayEat } from './members';
+import { checkUpload, cleanFileName } from './uploads';
 
 // ---------- the church's card template (L99) ----------
 
@@ -40,7 +41,7 @@ export function defaultTemplate(churchName: string): TemplateConfig {
 }
 
 const PLACEHOLDERS = ['name', 'date', 'place', 'officiant', 'church', 'parents', 'sponsors'];
-const LOGO_MIMES = new Set(['image/png', 'image/jpeg', 'image/svg+xml']);
+const LOGO_MIMES = new Set(['image/png', 'image/jpeg']);
 const MAX_LOGO = 500 * 1024;
 
 const text = (v: unknown, max: number, field: string, required = false): string => {
@@ -75,14 +76,12 @@ export function validateTemplate(raw: any): TemplateConfig {
 }
 
 export function validateLogo(logo: any): { mime: string; data: string } {
-  if (!logo || !LOGO_MIMES.has(logo.mime)) throw new HttpError(400, 'Use a PNG, JPG or SVG logo', 'bad_logo');
+  if (!logo || !LOGO_MIMES.has(logo.mime)) throw new HttpError(400, 'Use a PNG or JPG logo', 'bad_logo');
   const bytes = Buffer.from(String(logo.data ?? ''), 'base64');
   if (bytes.length === 0) throw new HttpError(400, 'That logo file is empty', 'bad_logo');
   if (bytes.length > MAX_LOGO) throw new HttpError(413, 'The logo is larger than 500 KB', 'logo_too_large');
-  if (logo.mime === 'image/svg+xml' && /<script|on\w+\s*=|javascript:|<foreignObject|<iframe/i.test(bytes.toString('utf8'))) {
-    throw new HttpError(400, 'That SVG contains scripts and cannot be used', 'bad_logo');
-  }
-  return { mime: logo.mime, data: String(logo.data) };
+  const checked = checkUpload(bytes, logo.mime, { kinds: ['image'], code: 'bad_logo', label: 'logo' });
+  return { mime: checked.mime, data: String(logo.data) };
 }
 
 export async function loadTemplate(q: Db, orgId: string): Promise<{ config: TemplateConfig; logo: string | null }> {
@@ -102,7 +101,8 @@ export function validateFile(f: any) {
   const bytes = Buffer.from(String(f.data ?? ''), 'base64');
   if (bytes.length === 0) throw new HttpError(400, 'That file is empty', 'empty_file');
   if (bytes.length > MAX_FILE) throw new HttpError(413, 'That file is larger than 3 MB', 'too_large');
-  return { name: String(f.filename ?? 'scan').slice(0, 120), mime: String(f.mime), data: String(f.data) };
+  const checked = checkUpload(bytes, f.mime, { kinds: ['image', 'pdf'], code: 'bad_file_type', label: 'file' });
+  return { name: cleanFileName(f.filename, 'scan'), mime: checked.mime, data: String(f.data) };
 }
 
 export interface RecordFields {

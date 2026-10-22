@@ -5,6 +5,7 @@ import { maskPhone } from '@churchos/shared';
 import { grantsFor, inStaffScope } from '../scope';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { rateLimit } from '../ratelimit';
+import { parseKes } from '../limits';
 import { addNotification, type NotificationAudience } from '../notifications';
 import { sendEmail } from '../wallets';
 import { showCode } from './event-credit';
@@ -19,11 +20,7 @@ const MIN_TRANSFER = 5_000; // KES 50
 const MAX_TRANSFERS_PER_DAY = 10;
 const REMIND_AFTER_MS = 30 * 86_400_000;
 const kesText = (c: number) => `KES ${(c / 100).toLocaleString('en-KE')}`;
-const cents = (v: unknown, label: string) => {
-  const n = Math.round(Number(v) * 100);
-  if (!Number.isFinite(n) || n <= 0) throw new HttpError(400, `Enter the ${label} in shillings`, 'bad_amount');
-  return n;
-};
+const cents = (v: unknown, label: string) => parseKes(v, { min: 1, max: 1_000_000, label: `the ${label}` });
 const text = (v: unknown, max: number) => {
   const s = String(v ?? '').trim().replace(/\s+/g, ' ');
   if (s.length > max) throw new HttpError(400, `That is too long (at most ${max} characters)`, 'bad_content');

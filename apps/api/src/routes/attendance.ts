@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto';
+import { maskPhone } from '@churchos/shared';
 import { brandingInfo } from './branding';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor, normalizePhone, signData, verifyData, type Permission } from '../auth';
@@ -5,6 +7,9 @@ import { HttpError, requireSession, type Ctx } from '../ctx';
 import { addDays, dueAt, eatDateOf, eatToday, isoWeekday, lastDayOfMonth, lastDayOfYear, weekStartOf, DAY } from '../eat';
 import { grantsFor, inStaffScope } from '../scope';
 import { notify } from '../sms';
+import { phoneSearchAllowed } from '../phone-search';
+import { abuse, abuseDisabled, safeSmsName, windowHit } from '../abuse';
+import { clientIp, rateLimit } from '../ratelimit';
 import { sendEmail } from '../wallets';
 import { csv } from './helpers';
 import { MAX_ACCURACY_M, metresBetween, parseGeo } from './kids';
@@ -28,7 +33,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const timeOk = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
 const when = (iso: string) => new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const dayText = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-KE', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
-const streamOk = (u: string | null) => !u || /^https:\/\/[^\s]+$/i.test(u);
+const streamOk = (u: string | null) => !u || (u.length <= 500 && /^https:\/\/[^\s]+$/i.test(u));
 
 /** The lectionary day that falls on the date of a service, if the church entered one (Slice 22). */
 const LECT_COLS = `ld.title AS lect_title, ld.season AS lect_season, ld.cycle AS lect_cycle, ld.colour AS lect_colour, ld.readings AS lect_readings, ld.note AS lect_note`;
@@ -133,7 +138,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
 
   async function genCode() {
     for (let i = 0; i < 20; i++) {
-      const code = [...Array(6)].map(() => '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 32)]).join('');
+      const code = [...Array(8)].map(() => '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[randomInt(32)]).join(''); // 40 bits, secure random (AZ-17)
       if (!(await ctx.db.query<any>(`SELECT 1 FROM services WHERE code=$1`, [code])).length) return code;
     }
     throw new HttpError(500, 'Could not make a code', 'internal');
@@ -220,7 +225,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     tpl.replace(/\{name\}/gi, v.name.split(' ')[0]).replace(/\{church\}/gi, v.church).replace(/\{branch\}/gi, v.branch).replace(/\{service\}/gi, v.service);
 
   /** A person who gave a name and a number: a member if the number is a member's, otherwise a visitor (L209, L210). */
-  async function identify(s: any, p: { name: string; phone: string; mode: 'in_person' | 'online'; via: string; invitedBy?: string | null; byUser?: string | null; byName?: string | null }) {
+  async function identify(s: any, p: { name: string; phone: string; mode: 'in_person' | 'online'; via: string; invitedBy?: string | null; byUser?: string | null; byName?: string | null; from?: { ip: string; token: string } }) {
     const m = await memberByPhone(s.org_id, p.phone);
     if (m) {
       const created = await record(s, { kind: 'member', membershipId: m.id, name: m.full_name, mode: p.mode, via: p.via, byUser: p.byUser, byName: p.byName });
@@ -243,14 +248,32 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
       const status = visits >= 2 && (v.status === 'new' || v.status === 'contacted') ? 'returning' : v.status;
       await ctx.db.query(`UPDATE visitors SET visits=$2, last_seen_at=$3, status=$4 WHERE id=$1`, [v.id, visits, nowIso(), status]);
     }
-    if (first) await welcome(s, v);
+    if (first) await welcome(s, v, p.from);
     return { kind: 'visitor' as const, name: v.name, first, already: !created, returning: !first };
   }
 
-  async function welcome(s: any, v: any) {
+  /**
+   * LG-04: the church pays for this SMS, so a stranger cannot use it to text an arbitrary number with text of their choosing.
+   * Only the first word of the typed name is used, after it is cleaned to letters; a name that does not survive gets no SMS. The number must not
+   * belong to a registered person or an opted-out number, gets one welcome per church per 30 days, and public callers are capped per door code and per IP.
+   */
+  async function welcome(s: any, v: any, from?: { ip: string; token: string }) {
     const set = await settingsFor(s.org_id);
     if (!set.welcome_enabled) { await ctx.db.query(`UPDATE visitors SET welcome_status='off' WHERE id=$1`, [v.id]); return; }
-    const body = renderWelcome(set.welcome_template, { name: v.name, church: s.church, branch: s.branch_name, service: s.name });
+    const skip = async (why: string) => { await ctx.db.query(`UPDATE visitors SET welcome_status=$2 WHERE id=$1`, [v.id, why]); };
+    const safe = safeSmsName(v.name);
+    if (!safe) return skip('not_sent');
+    const L = abuse();
+    if ((await ctx.db.query<any>(`SELECT 1 FROM users WHERE phone=$1`, [v.phone]))[0]) return skip('not_sent');
+    if ((await ctx.db.query<any>(`SELECT 1 FROM contact_prefs WHERE phone=$1 AND sms_opt_out`, [v.phone]))[0]) return skip('not_sent');
+    if (!abuseDisabled()) {
+      if (!rateLimit(ctx, `welcome:phone:${s.org_id}:${v.phone}`, { max: 1, windowMs: L.welcomePhoneDays * 86_400_000 }).ok) return skip('not_sent');
+      if (from) {
+        if (!rateLimit(ctx, `welcome:token:${from.token}`, { max: L.welcomeTokenHour, windowMs: 3600_000 }).ok) return skip('not_sent');
+        if (!rateLimit(ctx, `welcome:ip:${from.ip}`, { max: L.welcomeIpHour, windowMs: 3600_000 }).ok) return skip('not_sent');
+      }
+    }
+    const body = renderWelcome(set.welcome_template, { name: safe, church: s.church, branch: s.branch_name, service: s.name });
     const r = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: v.phone, kind: 'announcement', title: `Welcome to ${s.church}`, body, idemKey: `welcome:${v.id}`, sms: true });
     await ctx.db.query(`UPDATE visitors SET welcome_status=$2, welcome_at=$3 WHERE id=$1`, [v.id, r.sms === 'sent' ? 'sent' : 'not_sent', nowIso()]);
   }
@@ -492,10 +515,11 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const s = await serviceFor(req, (req.params as any).id, ['attendance.checkin', 'attendance.manage']);
     const q = cap((req.query as any).q, 40);
     if (q.length < 2) return { members: [] };
-    const like = `%${q.replace(/[%_]/g, '')}%`;
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    const byPhone = await phoneSearchAllowed(ctx, req, s.org_id, q); // real phone matches only for staff who may reveal it (AZ-08)
     const rows = await ctx.db.query<any>(
       `SELECT m.id, m.full_name, m.member_number, EXISTS (SELECT 1 FROM attendance a WHERE a.service_id=$3 AND a.membership_id=m.id AND a.mode='in_person') AS here
-         FROM memberships m WHERE m.org_id=$1 AND m.status='active' AND m.category='adult' AND (m.full_name ILIKE $2 OR m.member_number ILIKE $2 OR m.phone LIKE $2) ORDER BY m.full_name LIMIT 15`,
+         FROM memberships m WHERE m.org_id=$1 AND m.status='active' AND m.category='adult' AND (m.full_name ILIKE $2 OR m.member_number ILIKE $2${byPhone ? ' OR m.phone LIKE $2' : ''}) ORDER BY m.full_name LIMIT 15`,
       [s.org_id, like, s.id],
     );
     return { members: rows.map((m) => ({ id: m.id, name: m.full_name, memberNumber: m.member_number, here: m.here })) };
@@ -665,6 +689,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/public/here/:token', async (req) => {
+    windowHit(ctx, `checkin:token:${String((req.params as any).token).slice(0, 80)}`, 600, 10 * MIN, 'Too many check-ins on this code just now. Please wait a minute and try again.');
     const { kind, p } = readToken((req.params as any).token);
     const s = await serviceRow(String(p.s));
     const st = state(s);
@@ -674,7 +699,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = (req.body ?? {}) as any;
     const v = visitorBody(b);
     const mode = b.mode === 'online' && s.stream_url ? 'online' : 'in_person';
-    const r = await identify(s, { ...v, mode, via: kind === 'invite' ? 'invite' : 'door', invitedBy: kind === 'invite' ? String(p.m) : null });
+    const r = await identify(s, { ...v, mode, via: kind === 'invite' ? 'invite' : 'door', invitedBy: kind === 'invite' ? String(p.m) : null, from: { ip: clientIp(req), token: String((req.params as any).token).slice(0, 80) } });
     return { status: r.already ? 'already' : 'recorded', kind: r.kind, name: r.name.split(' ')[0], first: r.first, returning: r.returning, reading: readingOf(s, 'open'), streamUrl: mode === 'online' ? s.stream_url : null };
   });
 
@@ -699,6 +724,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/public/live/:code', async (req) => {
+    windowHit(ctx, `checkin:live:${String((req.params as any).code).slice(0, 40)}`, 600, 10 * MIN, 'Too many check-ins on this link just now. Please wait a minute and try again.');
     const s = await liveService((req.params as any).code);
     if (s.status === 'cancelled') throw await cancelledErr(s);
     if (!s.stream_url) throw new HttpError(409, 'The live stream link is not ready yet. Please try again a little later.', 'no_stream');
@@ -709,7 +735,7 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     // Counted while the service is on. Before or after, the person is still sent to the stream.
     let counted = false;
     let first = false;
-    if (state(s) === 'open') { const r = await identify(s, { ...v, mode: 'online', via: 'live_link', invitedBy }); counted = !r.already; first = r.first; }
+    if (state(s) === 'open') { const r = await identify(s, { ...v, mode: 'online', via: 'live_link', invitedBy, from: { ip: clientIp(req), token: `live:${s.id}` } }); counted = !r.already; first = r.first; }
     return { url: s.stream_url, counted, first, name: v.name.split(' ')[0] };
   });
 
@@ -726,14 +752,18 @@ export function attendanceRoutes(app: FastifyInstance, ctx: Ctx) {
     const q = req.query as any;
     const where = [`v.org_id=$1`, `v.branch_id = ANY($2::text[])`];
     const params: unknown[] = [sc.orgId, pickBranches(sc, q.branchId)];
+    // Full phone numbers (and phone search) only for staff who hold members.reveal over these branches; the rest see them masked (AZ-16).
+    const revealHeld = new Set((await branchesFor(ctx.db, req.session!.uid, 'members.reveal')).filter((r) => r.orgId === sc.orgId).map((r) => r.branchId));
+    const revealPhones = (params[1] as string[]).length > 0 && (params[1] as string[]).every((b) => revealHeld.has(b));
     if (q.status) { params.push(String(q.status)); where.push(`v.status=$${params.length}`); }
-    if (q.q) { params.push(`%${String(q.q).replace(/[%_]/g, '')}%`); where.push(`(v.name ILIKE $${params.length} OR v.phone LIKE $${params.length})`); }
+    if (q.q) { params.push(`%${String(q.q).replace(/[\\%_]/g, (c) => '\\' + c)}%`); where.push(`(v.name ILIKE $${params.length}${revealPhones && (await phoneSearchAllowed(ctx, req, sc.orgId, String(q.q), pickBranches(sc, q.branchId))) ? ` OR v.phone LIKE $${params.length}` : ''})`); }
     const rows = await ctx.db.query<any>(
       `SELECT v.*, b.name AS branch_name, s.name AS service_name, s.starts_at AS service_at, inv.full_name AS invited_name FROM visitors v JOIN branches b ON b.id=v.branch_id LEFT JOIN services s ON s.id=v.first_service_id LEFT JOIN memberships inv ON inv.id=v.invited_by
         WHERE ${where.join(' AND ')} ORDER BY (v.status='new') DESC, v.first_seen_at DESC LIMIT 500`,
       params,
     );
-    const view = rows.map((v) => ({ id: v.id, name: v.name, phone: `0${String(v.phone).slice(3)}`, branch: v.branch_name, firstService: v.service_name, firstSeenAt: v.first_seen_at, lastSeenAt: v.last_seen_at, visits: v.visits, status: v.status, welcome: v.welcome_status, invitedBy: v.invited_name, contactedBy: v.contacted_by_name, contactedAt: v.contacted_at, note: v.note }));
+    if (revealPhones && rows.length) await ctx.ledger.audit({ orgId: sc.orgId, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'visitor_list', entityId: sc.orgId, summary: `Saw the full phone numbers of ${rows.length} visitors${q.csv ? ' (download)' : ''}`, meta: { visitors: rows.length } });
+    const view = rows.map((v) => ({ id: v.id, name: v.name, phone: revealPhones ? `0${String(v.phone).slice(3)}` : maskPhone(v.phone), branch: v.branch_name, firstService: v.service_name, firstSeenAt: v.first_seen_at, lastSeenAt: v.last_seen_at, visits: v.visits, status: v.status, welcome: v.welcome_status, invitedBy: v.invited_name, contactedBy: v.contacted_by_name, contactedAt: v.contacted_at, note: v.note }));
     if (q.csv) return csv(view.map((v) => ({ Name: v.name, Phone: v.phone, Branch: v.branch, 'First came': v.firstService ?? '', Date: v.firstSeenAt, Visits: v.visits, Status: v.status, 'Invited by': v.invitedBy ?? '', 'Welcome SMS': v.welcome, Note: v.note ?? '' })));
     return { visitors: view, summary: { new: view.filter((v) => v.status === 'new').length, returning: view.filter((v) => v.status === 'returning').length, members: view.filter((v) => v.status === 'member').length } };
   });

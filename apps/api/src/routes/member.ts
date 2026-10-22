@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { toCents } from '@churchos/shared';
+import { parseKes } from '../limits';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { createReversalRequest } from './reversals';
 import { churchByCode } from './public';
@@ -68,8 +68,7 @@ export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
     const m = (await myMemberships(req.session!.uid)).find((x) => x.org_id === project.org_id);
     if (!m) throw new HttpError(403, 'You need to be a member of this church to pledge', 'not_a_member');
     let amount: number;
-    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter a valid amount', 'bad_amount'); }
-    if (!(amount > 0)) throw new HttpError(400, 'The pledge must be more than zero', 'bad_amount');
+    amount = parseKes(b.amount, { min: 1, max: 1_000_000_000, label: 'the pledge' });
     const id = ctx.newId('plg');
     await ctx.db.query(`INSERT INTO pledges (id, org_id, project_id, membership_id, amount, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [
       id, project.org_id, project.id, m.id, amount, ctx.clock.now().toISOString(),

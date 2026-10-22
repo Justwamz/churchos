@@ -5,6 +5,7 @@ import { decideReversal, listReversalRequests } from './reversals';
 import { handleWebhook } from './core';
 import { devToolsEnabled } from '../guards';
 import { maskPhoneSql } from './helpers';
+import { parseKes, LIMITS } from '../limits';
 import { applyDuePayoutChanges } from './kyc';
 import { diff, FEE_SPECS, flattenFees, maskedSnapshot, recordVersion } from '../audit';
 import { runMemberHousekeeping } from '../members';
@@ -26,7 +27,7 @@ function validSchedule(s: any): s is FeeSchedule {
   if (!okRule) return false;
   for (const m of Object.keys(DEFAULT_FEE_SCHEDULE.psp)) {
     const p = s?.psp?.[m];
-    if (!p || !Number.isFinite(p.bps) || !Number.isFinite(p.fixed) || p.bps < 0 || p.fixed < 0) return false;
+    if (!p || !Number.isFinite(p.bps) || !Number.isFinite(p.fixed) || p.bps < 0 || p.bps > 2000 || p.fixed < 0 || p.fixed > 10_000_000) return false;
   }
   return true;
 }
@@ -170,8 +171,7 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.post('/admin/simulate/paybill', devAdm, async (req) => {
     const b = (req.body ?? {}) as any;
-    let amount: number;
-    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter an amount', 'bad_amount'); }
+    const amount = parseKes(b.amount, { min: 0, max: LIMITS.PAYMENT_KES, label: 'the amount' });
     const out = await mockOnly(ctx).simulatePaybill({ phone: String(b.phone ?? '254700000000'), amount, reference: String(b.reference ?? ''), method: b.method ?? 'mpesa', duplicate: !!b.duplicate });
     return { ok: true, ...out };
   });

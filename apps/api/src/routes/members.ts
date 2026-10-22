@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
 import { diff, logAccess, MEMBER_SPECS, maskedSnapshot, NUMBER_FORMAT_SPECS, recordVersion } from '../audit';
+import { phoneSearchAllowed } from '../phone-search';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import {
   ageOn, cleanCustomNumber, daysToBirthday, decorate, getSettings, householdLabel, nextMemberNumber, parseDob, renderNumber,
@@ -58,8 +59,11 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     let where = `m.branch_id IN (${inList(1, scope.branchIds.length)}) AND m.status='active'`;
     if (q.category === 'adult' || q.category === 'child') { params.push(q.category); where += ` AND m.category=$${params.length}`; }
     if (q.q) {
-      params.push(`%${String(q.q).toLowerCase()}%`);
-      where += ` AND (lower(m.full_name) LIKE $${params.length} OR lower(m.member_number) LIKE $${params.length} OR m.phone LIKE $${params.length})`;
+      const term = String(q.q).slice(0, 60);
+      params.push(`%${term.toLowerCase().replace(/[\\%_]/g, (c) => '\\' + c)}%`);
+      // The real phone only matches for staff who may reveal it, and that is logged (AZ-08).
+      const byPhone = await phoneSearchAllowed(ctx, req, scope.orgId, term, scope.branchIds);
+      where += ` AND (lower(m.full_name) LIKE $${params.length} OR lower(m.member_number) LIKE $${params.length}${byPhone ? ` OR m.phone LIKE $${params.length}` : ''})`;
     }
     const rows = await ctx.db.query<any>(`${BASE} WHERE ${where} ORDER BY m.full_name LIMIT 500`, params);
     const out = await decorate(ctx, rows, await viewerFor(ctx, req.session!.uid));
@@ -147,6 +151,26 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     return id;
   }
 
+  /**
+   * Who a staff-added membership belongs to (AZ-18). A phone with no account gets one made here and is linked at that person's first
+   * sign-in, as before. A phone that already belongs to a person who has signed in (a session, a role, an admin, or a membership at
+   * another church) is NOT linked: the membership stays unlinked and the person is offered it, and it appears in their app only if they accept.
+   */
+  async function linkTarget(phone: string, name: string, orgId: string, q: import('@churchos/ledger').Db = ctx.db): Promise<{ userId: string | null; offerTo: string | null }> {
+    const u = (await q.query<any>(`SELECT id, is_platform_admin FROM users WHERE phone=$1`, [phone]))[0];
+    if (!u) return { userId: await userForPhone(phone, name, q), offerTo: null };
+    const known = u.is_platform_admin
+      || (await q.query<any>(`SELECT 1 FROM sessions WHERE user_id=$1 LIMIT 1`, [u.id])).length > 0
+      || (await q.query<any>(`SELECT 1 FROM role_assignments WHERE user_id=$1 LIMIT 1`, [u.id])).length > 0
+      || (await q.query<any>(`SELECT 1 FROM memberships WHERE user_id=$1 AND org_id <> $2 LIMIT 1`, [u.id, orgId])).length > 0;
+    return known ? { userId: null, offerTo: u.id } : { userId: u.id, offerTo: null };
+  }
+
+  async function makeOffer(q: import('@churchos/ledger').Db, orgId: string, membershipId: string, userId: string) {
+    await q.query(`UPDATE link_offers SET status='declined', decided_at=$2 WHERE membership_id=$1 AND status='pending'`, [membershipId, ctx.clock.now().toISOString()]);
+    await q.query(`INSERT INTO link_offers (id, org_id, membership_id, user_id, status, created_at) VALUES ($1,$2,$3,$4,'pending',$5)`, [ctx.newId('lof'), orgId, membershipId, userId, ctx.clock.now().toISOString()]);
+  }
+
   async function adultPhoneFree(orgId: string, phone: string, exceptId?: string) {
     const dupe = (await ctx.db.query<any>(`SELECT id, full_name, member_number FROM memberships WHERE org_id=$1 AND phone=$2 AND status='active' AND id <> $3`, [orgId, phone, exceptId ?? '']))[0];
     if (dupe) throw new HttpError(409, `That phone number already belongs to ${dupe.full_name} (${dupe.member_number}). Each adult needs their own number.`, 'phone_in_use');
@@ -159,6 +183,7 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     const now = ctx.clock.now();
     const name = String(b.fullName ?? '').trim().replace(/\s+/g, ' ');
     if (name.length < 2) throw new HttpError(400, 'Enter the member’s full name', 'bad_name');
+    if (name.length > 80) throw new HttpError(400, 'A name can be up to 80 characters', 'too_long');
     if (b.category !== 'adult' && b.category !== 'child') throw new HttpError(400, 'Choose adult or child', 'bad_category');
     if (b.consent !== true) throw new HttpError(400, b.category === 'child' ? 'Confirm that a guardian agreed to the church keeping these details' : 'Confirm that the member agreed to the church keeping these details', 'consent_required');
     if (b.sex && b.sex !== 'male' && b.sex !== 'female') throw new HttpError(400, 'Choose male or female, or leave it blank', 'bad_sex');
@@ -203,7 +228,8 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
         householdId = guardians.find((g) => g.household_id)?.household_id ?? null;
       }
 
-      const userId = phone ? await userForPhone(phone, name, q) : null;
+      const lt = phone ? await linkTarget(phone, name, scope.orgId, q) : { userId: null, offerTo: null };
+      const userId = lt.userId;
       const hasPrimary = householdId ? !!(await q.query<any>(`SELECT 1 FROM memberships WHERE household_id=$1 AND is_primary_contact AND status='active'`, [householdId]))[0] : true;
       await q.query(
         `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, household_id, is_primary_contact, category, dob, sex, consent_at, consent_by, joined_at)
@@ -211,6 +237,7 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
         [id, scope.orgId, b.branchId, userId, name, phone, number, householdId, !!householdId && !hasPrimary && b.category === 'adult', b.category, dob, b.sex ?? null, now.toISOString(), req.session!.uid],
       );
       for (const g of guardians) await q.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ($1,$2,$3)`, [id, g.id, scope.orgId]);
+      if (lt.offerTo) await makeOffer(q, scope.orgId, id, lt.offerTo);
       return { memberNumber: number, householdId };
     });
     const flat = await memberFlat(ctx, id);
@@ -244,7 +271,11 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     }
     await ctx.db.tx(async (q) => {
       let userId = m.user_id;
-      if (phone && phone !== m.phone) userId = await userForPhone(phone, name, q);
+      if (phone && phone !== m.phone) {
+        const lt = await linkTarget(phone, name, m.org_id, q);
+        userId = lt.userId;
+        if (lt.offerTo) await makeOffer(q, m.org_id, m.id, lt.offerTo);
+      }
       await q.query(`UPDATE memberships SET full_name=$2, dob=$3, sex=$4, phone=$5, user_id=$6 WHERE id=$1`, [m.id, name, dob, b.sex !== undefined ? b.sex || null : m.sex, phone, userId]);
       if (m.category === 'child' && b.guardianIds !== undefined) {
         const gs = await loadGuardians(m.org_id, b.guardianIds, q);

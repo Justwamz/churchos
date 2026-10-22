@@ -6,6 +6,7 @@ export { createApi, ApiError, API_URL } from './api';
 export { applyBranding, brandFile, BrandMark, useChurchBranding, type BrandApp, type BrandInfo } from './brand';
 export type { Api } from './api';
 export { HelpButton, HelpMarkdown } from './help';
+export { safeHttpUrl, openExternal } from './safeUrl';
 export { CertificateCard, QrCode, printCertificate, VERIFY_ORIGIN } from './certificate';
 export { AuditLog, AuditHistory, HistoryButton, ChangeTable } from './audit';
 export type { CertificatePayload } from './certificate';
@@ -171,6 +172,7 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
   const signOut = () => {
     void p.api.signOut(); // ends the session on the server too; the token is cleared here at once
     try { localStorage.removeItem(`${p.title}:user`); } catch { /* ignore */ }
+    try { navigator.serviceWorker?.controller?.postMessage('clear-caches'); } catch { /* ignore */ }
     setUser(null);
     setStep('phone');
     setCode('');

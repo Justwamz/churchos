@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { toCents } from '@churchos/shared';
+import { parseKes } from '../limits';
 import { branchesFor, type Permission } from '../auth';
 import { diff, maskedSnapshot, recordVersion, sha, type FieldSpec } from '../audit';
 import { validateArtwork } from '../artwork';
@@ -113,7 +113,7 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
     if ('advertiser' in b) {
       price = null;
       if (name) {
-        try { price = toCents(b.advertiser?.price); } catch { throw new HttpError(400, 'Enter the price the advertiser pays', 'bad_amount'); }
+        price = parseKes(b.advertiser?.price, { min: 0, max: 1_000_000, label: 'the price the advertiser pays' });
         if (!(price >= 1000)) throw new HttpError(400, 'The price must be at least KES 10', 'bad_amount');
         if (price > 15_000_000) throw new HttpError(400, 'The price cannot be more than KES 150,000, the limit for one payment', 'bad_amount');
       }
@@ -204,7 +204,7 @@ export function advertRoutes(app: FastifyInstance, ctx: Ctx) {
   }
 
   const reload = async (id: string) => (await ctx.db.query<any>(`${SELECT} WHERE a.id=$1`, [id]))[0];
-  const newCode = () => randomBytes(5).toString('hex').toUpperCase().slice(0, 6);
+  const newCode = () => randomBytes(6).toString('hex').toUpperCase(); // 48 bits: the code is a public secret (AZ-17)
 
   // ---------- church side ----------
 

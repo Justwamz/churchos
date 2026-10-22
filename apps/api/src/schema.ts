@@ -230,6 +230,35 @@ CREATE TABLE IF NOT EXISTS contact_prefs (
   updated_by text
 );
 
+-- One church's own record of a person's consent (AZ-07). contact_prefs above stays the person's own choice and wins for every church.
+CREATE TABLE IF NOT EXISTS contact_prefs_org (
+  org_id text NOT NULL,
+  phone text NOT NULL,
+  whatsapp_opt_in boolean NOT NULL DEFAULT false,
+  sms_opt_out boolean NOT NULL DEFAULT false,
+  source text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  updated_by text,
+  PRIMARY KEY (org_id, phone)
+);
+-- Earlier staff-recorded rows lived in the global table: move them to the churches the person belongs to, then drop them from the global one.
+INSERT INTO contact_prefs_org (org_id, phone, whatsapp_opt_in, sms_opt_out, source, updated_at, updated_by)
+  SELECT DISTINCT m.org_id, c.phone, c.whatsapp_opt_in, c.sms_opt_out, c.source, c.updated_at, c.updated_by FROM contact_prefs c JOIN memberships m ON m.phone=c.phone WHERE c.source LIKE 'staff:%'
+  ON CONFLICT DO NOTHING;
+DELETE FROM contact_prefs WHERE source LIKE 'staff:%';
+
+-- A church added the phone number of someone who already has an account. Nothing links until that person accepts (AZ-18).
+CREATE TABLE IF NOT EXISTS link_offers (
+  id text PRIMARY KEY,
+  org_id text NOT NULL,
+  membership_id text NOT NULL,
+  user_id text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined')),
+  created_at text NOT NULL,
+  decided_at text
+);
+CREATE INDEX IF NOT EXISTS link_offers_user ON link_offers(user_id, status);
+
 CREATE TABLE IF NOT EXISTS wallet_topups (
   id text PRIMARY KEY,
   wallet_id text NOT NULL,
@@ -1561,6 +1590,12 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent text
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id);
+
+ALTER TABLE kids_pickup_people ADD COLUMN IF NOT EXISTS id_hash text;
+ALTER TABLE kids_pickup_people ADD COLUMN IF NOT EXISTS id_salt text;
+-- LG-21: older rows kept the full national ID number. Keep the last 4 digits and a salted hash, drop the rest.
+UPDATE kids_pickup_people SET id_salt=md5(id || random()::text), id_hash=NULL WHERE id_number IS NOT NULL AND id_number NOT LIKE '••••%' AND id_salt IS NULL;
+UPDATE kids_pickup_people SET id_hash=encode(sha256(convert_to(id_salt || ':' || upper(replace(id_number,' ','')), 'UTF8')),'hex'), id_number='••••' || right(replace(id_number,' ',''), 4) WHERE id_number IS NOT NULL AND id_number NOT LIKE '••••%' AND id_hash IS NULL;
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;

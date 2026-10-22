@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
+import { churchWideOrg } from '../scope';
 
 /**
  * What a church calls its gatherings (Slice 25): Service, Mass, Gathering, Meeting or its own word. One setting, held by the owner, that the apps
@@ -48,9 +49,7 @@ export function wordsRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.put('/church/words', auth, async (req) => {
-    const rows = await branchesFor(ctx.db, req.session!.uid, 'church.settings');
-    if (!rows.length) throw new HttpError(403, 'missing permission church.settings', 'forbidden');
-    const orgId = rows[0].orgId;
+    const orgId = await churchWideOrg(ctx, req, 'church.settings');
     const b = (req.body ?? {}) as any;
     const one = clean(b.one, 'word for one gathering');
     const many = clean(b.many, 'word for several gatherings');

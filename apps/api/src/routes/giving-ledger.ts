@@ -144,7 +144,7 @@ export function givingLedgerRoutes(app: FastifyInstance, ctx: Ctx) {
     const branchIds = [...new Set(rows.filter((r) => r.orgId === orgId).map((r) => r.branchId))];
     const q = String((req.query as any).q ?? '').trim().slice(0, 40);
     if (q.length < 2) return { members: [] };
-    const like = `%${q.replace(/[%_]/g, '')}%`;
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
     const found = await ctx.db.query<any>(
       `SELECT m.id, m.full_name, m.member_number, b.name AS branch FROM memberships m JOIN branches b ON b.id=m.branch_id
         WHERE m.org_id=$1 AND m.branch_id = ANY($2::text[]) AND m.status='active' AND m.category='adult' AND (m.full_name ILIKE $3 OR m.member_number ILIKE $3) ORDER BY m.full_name LIMIT 15`,

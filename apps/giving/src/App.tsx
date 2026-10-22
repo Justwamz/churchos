@@ -4,7 +4,7 @@ import { Checkout } from './Checkout';
 import { HerePage, LivePage } from './Attend';
 import { EventPage, OrderPage, TicketPage } from './Tickets';
 import { StatementPage } from './Statement';
-import { BrandMark, ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes } from '@churchos/ui';
+import { BrandMark, ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes, safeHttpUrl } from '@churchos/ui';
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import type { BrandInfo } from '@churchos/ui';
 import { usePageBranding } from './brand';
@@ -324,7 +324,7 @@ function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertIn
       const r = await api.post('/public/give', { code: church.code, purpose, phone: phone.replace(/[\s-]/g, ''), amount, method });
       store.set(PHONE_KEY, phone);
       // A card is paid on the payment provider's own page, then that page brings the person back with their receipt.
-      if (r.checkoutUrl) { window.location.assign(r.checkoutUrl); return; }
+      if (r.checkoutUrl) { const to = safeHttpUrl(r.checkoutUrl); if (to) { window.location.assign(to); return; } }
       setPhase({ t: 'waiting', id: r.intentId, message: r.message, slow: false, amount, purpose });
     } catch (err) {
       setApiError(errMsg(err));

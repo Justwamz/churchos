@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Card, Empty, ErrorNote, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, Card, Empty, ErrorNote, Note, safeHttpUrl, useAsync, useToast } from '@churchos/ui';
 import { api, errText } from './api';
 import { useGeo } from './Family';
 import { Icon, Sheet, Skeleton } from './ui';
@@ -215,7 +215,9 @@ export function ServicesPage({ hasMembership }: { hasMembership: boolean }) {
     const w = window.open('', '_blank');
     try {
       const r = await api.post(`/me/services/${encodeURIComponent(s.id)}/watch`, {});
-      if (w) { try { w.opener = null; } catch { /* ignore */ } w.location.href = r.url; } else window.location.assign(r.url);
+      const to = safeHttpUrl(r.url, { httpsOnly: true });
+      if (!to) { w?.close(); throw new Error('That live link is not a safe address. Ask the church for a new one.'); }
+      if (w) { try { w.opener = null; } catch { /* ignore */ } w.location.href = to; } else window.location.assign(to);
       svc.reload(); att.reload();
     } catch (e: any) {
       if (w) w.close();

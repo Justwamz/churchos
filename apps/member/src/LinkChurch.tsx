@@ -5,7 +5,7 @@ import { Icon, Sheet, Skeleton } from './ui';
 
 type Hit = { code: string; branch: string; church: string; region?: string };
 type Req = { id: string; status: 'pending' | 'approved' | 'declined' | 'cancelled'; church: string; branch: string; note?: string | null; decidedAt?: string | null; requestedAt?: string };
-type Status = { linked: boolean; churches: { orgId: string; church: string; branch: string }[]; requests: Req[]; canLinkAtOnce: { code: string; church: string; branch: string }[] };
+type Status = { linked: boolean; churches: { orgId: string; church: string; branch: string }[]; requests: Req[]; canLinkAtOnce: { code: string; church: string; branch: string }[]; offers?: { id: string; church: string; branch: string }[] };
 
 const friendly = (e: any) => {
   if (e?.code === 'rate_limited' || e?.status === 429) return 'Too many searches. Please wait a minute and try again.';
@@ -94,6 +94,15 @@ export function LinkHome({ user, first, onLinked }: { user: any; first: string; 
     try { await api.post(`/me/link/request/${id}/cancel`, {}); setJustSent(null); status.reload(); } catch (e) { setError(friendly(e)); }
     setBusy(null);
   };
+  const answer = async (o: { id: string; church: string }, accept: boolean) => {
+    setBusy(o.id); setError(undefined);
+    try {
+      await api.post(`/me/link/offers/${encodeURIComponent(o.id)}/${accept ? 'accept' : 'decline'}`, {});
+      if (accept) { toast.show(`You are linked to ${o.church}`); onLinkedRef.current(); }
+      status.reload();
+    } catch (e) { setError(friendly(e)); }
+    setBusy(null);
+  };
   const instant = async (c: { code: string; church: string }) => {
     setBusy(c.code); setError(undefined);
     try { await api.post('/me/link/instant', { code: c.code }); toast.show(`You are linked to ${c.church}`); status.reload(); onLinkedRef.current(); } catch (e) { setError(friendly(e)); }
@@ -121,6 +130,21 @@ export function LinkHome({ user, first, onLinked }: { user: any; first: string; 
           <Button disabled={busy === c.code} onClick={() => instant(c)}>{busy === c.code ? 'Linking…' : `Link me to ${c.church} now`}</Button>
         </section>
       ))}
+
+      {(s?.offers ?? []).length > 0 && (
+        <Card title="A church added you">
+          <ul className="lk-reqs">
+            {(s?.offers ?? []).map((o) => (
+              <li key={o.id}>
+                <div className="lk-req-top"><strong>{o.church}</strong></div>
+                <span className="tiny">{o.branch}. They have your phone number on their member list. Link only if you belong to this church.</span>
+                <Button disabled={busy === o.id} onClick={() => answer(o, true)}>Accept</Button>
+                <Button kind="ghost" small disabled={busy === o.id} onClick={() => answer(o, false)}>Decline</Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {pending.length > 0 && (
         <Card title="Waiting for approval">

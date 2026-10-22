@@ -5,7 +5,8 @@ import { branchesFor } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
 import { buildPdf, textWidth, wrap, type PdfItem } from '../pdf';
-import { inStaffScope } from '../scope';
+import { churchWideOrg, inStaffScope } from '../scope';
+import { clientIp, limitRoute } from '../ratelimit';
 import { REASONS } from './giving-ledger';
 
 /**
@@ -114,7 +115,7 @@ export function statementRoutes(app: FastifyInstance, ctx: Ctx) {
       byPurpose.set(name, (byPurpose.get(name) ?? 0) + Number(r.amount));
       return { date: eatDate(r.at), what: r.kind === 'reversal' ? `Reversal: ${name}` : name, how: HOW[r.method ?? ''] ?? 'Payment', ref: String(r.ref ?? ''), amount: Number(r.amount), reversal: r.kind === 'reversal' };
     });
-    const number = `GS-${y}-${randomBytes(3).toString('hex').toUpperCase()}`;
+    const number = `GS-${y}-${randomBytes(5).toString('hex').toUpperCase()}`; // 40 bits (AZ-17); older 6-hex numbers still check
     const snap: Snapshot = {
       number, year: y, yearToDate: y === thisYear(), generatedAt: nowIso(),
       church: org.name, branch: m.branch, address: [prof?.address, prof?.town].filter(Boolean).join(', ') || null, phone: prof?.phone ?? null, email: prof?.email ?? null,
@@ -219,22 +220,19 @@ export function statementRoutes(app: FastifyInstance, ctx: Ctx) {
     return pdfReply(reply, row);
   });
 
-  /** Anyone with a statement can check it is real: church, year, total and the member's initials. */
-  app.get('/public/statement/:number', async (req) => {
+  /** Anyone with a statement can check it is real: church and year only. */
+  app.get('/public/statement/:number', { preHandler: limitRoute(app, ctx, { name: 'statement-check', max: 20, windowMs: 60_000, key: (req) => clientIp(req) }) }, async (req) => {
     const n = String((req.params as any).number ?? '').toUpperCase().slice(0, 30);
     const row = (await ctx.db.query<any>(`SELECT s.number, s.year, s.total, s.generated_at, s.snapshot, s.org_id, o.name AS church FROM giving_statements s JOIN organisations o ON o.id=s.org_id WHERE s.number=$1`, [n]))[0];
     if (!row) return { valid: false };
-    const snap = JSON.parse(row.snapshot) as Snapshot;
-    const initials = snap.member.name.split(/\s+/).filter(Boolean).map((p) => `${p[0].toUpperCase()}.`).join(' ');
-    return { valid: true, church: row.church, branding: await brandingInfo(ctx, row.org_id), year: row.year, total: Number(row.total), issued: eatDate(row.generated_at), memberInitials: initials };
+    // Only that it is real, who issued it and for which year: no amount, no date, no name (AZ-17).
+    return { valid: true, church: row.church, branding: await brandingInfo(ctx, row.org_id), year: row.year };
   });
 
   // ======================= what appears on a statement =======================
 
   async function settingsOrg(req: any) {
-    const rows = await branchesFor(ctx.db, req.session!.uid, 'giving.ledger');
-    if (!rows.length) throw new HttpError(403, 'missing permission giving.ledger', 'forbidden');
-    return rows[0].orgId as string;
+    return churchWideOrg(ctx, req, 'giving.ledger');
   }
 
   app.get('/statements/settings', auth, async (req) => {

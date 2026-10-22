@@ -6,6 +6,7 @@ import { Clock, createDb, Ledger, type Db } from '@churchos/ledger';
 import { createProviderFromEnv, friendlyPspMessage, isMock, PspError, type Provider } from '@churchos/payments';
 import { MockEmailProvider, MockMessagingProvider, createEmailFromEnv, createMessagingFromEnv, type Channel, type EmailProvider, type MessagingProvider, type OutboundEmail, type OutboundMessage } from '@churchos/messaging';
 import { HttpError, type Ctx } from './ctx';
+import { registerAbuseHooks } from './abuse';
 import { loadHelp } from './help';
 import { adminRoutes } from './routes/admin';
 import { auditRoutes } from './routes/audit';
@@ -49,6 +50,10 @@ import { APP_SCHEMA } from './schema';
 import { als, auditContext } from './audit';
 import { CORS_HEADERS, CORS_METHODS, corsAllows, isProduction } from './cors';
 import { trustProxyHops } from './guards';
+
+/** The app named in X-Churchos-App is recorded in the audit trail, so only our own apps are believed (IN-03). */
+const KNOWN_APPS = new Set(['staff', 'member', 'giving', 'admin']);
+export const clampApp = (v: unknown): string | null => (typeof v !== 'string' ? null : KNOWN_APPS.has(v) ? v : 'unknown');
 
 export const DEFAULT_BODY_LIMIT = 64 * 1024;
 const MB = 1024 * 1024;
@@ -170,7 +175,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   // Every event written while handling a request carries where it came from (L104).
   app.addHook('onRequest', (req, _reply, done) => {
     const app = req.headers['x-churchos-app'];
-    als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: typeof app === 'string' ? app.slice(0, 20) : null, requestId: String(req.id) }, done);
+    als.run({ ip: req.ip ?? null, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 200) || null, app: clampApp(app), requestId: String(req.id) }, done);
   });
   // CORS fails closed in production (no CORS_ORIGINS = no browser origin allowed; start-up also refuses, see guards.ts). Bearer tokens, no cookies: credentials stay off.
   await app.register(cors, {
@@ -194,6 +199,7 @@ export async function buildApp(opts: BuildOptions = {}) {
 
   app.setErrorHandler((err: any, req, reply) => {
     if (err instanceof PspError) return reply.status(err.kind === 'rejected' || err.kind === 'unsupported' ? 400 : 503).send({ error: friendlyPspMessage(err), code: `psp_${err.kind}` });
+    if (err instanceof HttpError && err.status === 429 && !reply.hasHeader('retry-after')) reply.header('retry-after', String(Math.max(1, Math.ceil(Number((err as any).retryAfterSec) || 60))));
     if (err instanceof HttpError) return reply.status(err.status).send({ error: err.message, code: err.code });
     const fst = typeof err?.code === 'string' && err.code.startsWith('FST_');
     if (fst) {
@@ -211,6 +217,7 @@ export async function buildApp(opts: BuildOptions = {}) {
 
   await loadHelp(db);
 
+  registerAbuseHooks(app, ctx);
   coreRoutes(app, ctx);
   pspWebhookRoutes(app, ctx);
   helpRoutes(app, ctx);

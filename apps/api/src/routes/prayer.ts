@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { formGuard } from '../abuse';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
 import { grantsFor, inStaffScope } from '../scope';
@@ -83,6 +84,7 @@ export function prayerRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/me/prayer', auth, async (req) => {
+    formGuard(ctx, req.session!.uid, 'prayer');
     const uid = req.session!.uid;
     const b = (req.body ?? {}) as any;
     const body = String(b.body ?? '').trim().replace(/[ \t]+/g, ' ').slice(0, 600);

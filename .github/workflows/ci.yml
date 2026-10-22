@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      # TODO: pin each action below to a full commit SHA (Dependabot can keep the SHAs current).
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r build
+        env:
+          VITE_API_URL: https://api.example.test
+      - run: pnpm test
+      - name: Audit production dependencies (blocks on high or critical)
+        run: pnpm audit --audit-level=high --prod
+      - name: Audit all dependencies (warning only)
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      # TODO: pin to a full commit SHA.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Organisation repositories also need GITLEAKS_LICENSE (free key from gitleaks.io).
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_CONFIG: .gitleaks.toml

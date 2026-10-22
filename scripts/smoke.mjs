@@ -585,7 +585,7 @@ const s21List = await call('GET', '/me/statements', undefined, janeTok);
 step('A member sees the years with gifts and no statement made by itself', s21List.status === 200 && s21List.json.churches[0].years.length > 0);
 const s21Year = s21List.json.churches[0].years[0].year;
 const s21Make = await call('POST', '/me/statements', { orgId: s21List.json.churches[0].orgId, year: s21Year }, janeTok);
-step('A member asks for a statement and gets a numbered one', s21Make.status === 200 && /^GS-\d{4}-[0-9A-F]{6}$/.test(s21Make.json.number));
+step('A member asks for a statement and gets a numbered one', s21Make.status === 200 && /^GS-\d{4}-[0-9A-F]{10}$/.test(s21Make.json.number));
 const s21Pdf = await fetch(`${API}/me/statements/${s21Make.json.id}/pdf`, { headers: { authorization: `Bearer ${janeTok}` } });
 const s21Bytes = Buffer.from(await s21Pdf.arrayBuffer());
 step('The statement is a real PDF', s21Pdf.status === 200 && s21Bytes.subarray(0, 5).toString() === '%PDF-');

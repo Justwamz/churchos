@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { toCents } from '@churchos/shared';
+import { intParam, parseKes } from '../limits';
+import { checkUpload, cleanFileName } from '../uploads';
 import { branchesFor, type Permission } from '../auth';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
@@ -82,7 +83,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     if (mode !== 'all' && mode !== 'above_limit') throw new HttpError(400, 'Choose whether every expense needs approval, or only those above a limit', 'bad_mode');
     const money = (v: unknown, label: string, allowNull = false) => {
       if (allowNull && (v === null || v === '' || v === undefined)) return null;
-      try { const c = toCents(v as any); if (c < 0 || c > MAX_AMOUNT) throw new Error('range'); return c; } catch { throw new HttpError(400, `Enter a valid ${label}`, 'bad_amount'); }
+      return parseKes(v, { min: 0, max: 1_000_000, label: `a valid ${label}` });
     };
     const limit = money(b.approvalLimit ?? 0, 'approval limit')!;
     const two = money(b.twoApproverLimit, 'amount for two approvers', true);
@@ -159,7 +160,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     const q = req.query as any;
     const branchId = String(q.branchId ?? sc.all[0]);
     if (!sc.all.includes(branchId)) throw new HttpError(404, 'not found', 'not_found');
-    const year = Number(q.year) || Number(today().slice(0, 4));
+    const year = intParam(q.year, { min: 2000, max: 2100, def: Number(today().slice(0, 4)) });
     const cats = await categoriesOf(sc.orgId);
     const budgets = new Map((await ctx.db.query<any>(`SELECT category_id, amount FROM expense_budgets WHERE branch_id=$1 AND year=$2`, [branchId, year])).map((b) => [b.category_id, Number(b.amount)]));
     const spent = new Map((await ctx.db.query<any>(`SELECT category_id, SUM(amount) AS n FROM expenses WHERE branch_id=$1 AND status='approved' AND date >= $2 AND date <= $3 GROUP BY category_id`, [branchId, `${year}-01-01`, `${year}-12-31`])).map((r) => [r.category_id, Number(r.n)]));
@@ -186,7 +187,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     for (const c of Array.isArray(b.categories) ? b.categories : []) {
       if (!cats.has(String(c?.categoryId))) throw new HttpError(404, 'One of the categories was not found', 'not_found');
       let amt = 0;
-      if (c.amount !== null && c.amount !== '' && c.amount !== undefined) { try { amt = toCents(c.amount); } catch { throw new HttpError(400, 'Enter a valid amount for each budget', 'bad_amount'); } }
+      if (c.amount !== null && c.amount !== '' && c.amount !== undefined) { amt = parseKes(c.amount, { min: 0, max: 10_000_000, label: 'the amount for each budget' }); }
       if (amt < 0 || amt > MAX_AMOUNT * 10) throw new HttpError(400, 'Enter a valid amount for each budget', 'bad_amount');
       await ctx.db.query(`INSERT INTO expense_budgets (org_id, branch_id, year, category_id, amount) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (branch_id, year, category_id) DO UPDATE SET amount=$5`, [g.orgId, b.branchId, year, c.categoryId, amt]);
     }
@@ -200,7 +201,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     const p = (await ctx.db.query<any>(`SELECT id, branch_id, name FROM projects WHERE id=$1 AND org_id=$2`, [String(b.projectId ?? ''), g.orgId]))[0];
     if (!p || !g.branchIds.includes(p.branch_id)) throw new HttpError(404, 'not found', 'not_found');
     let amt: number | null = null;
-    if (b.amount !== null && b.amount !== '' && b.amount !== undefined) { try { amt = toCents(b.amount); } catch { throw new HttpError(400, 'Enter a valid budget', 'bad_amount'); } if (amt < 0) throw new HttpError(400, 'Enter a valid budget', 'bad_amount'); }
+    if (b.amount !== null && b.amount !== '' && b.amount !== undefined) { amt = parseKes(b.amount, { min: 0, max: 1_000_000_000, label: 'the budget' }); }
     await ctx.db.query(`UPDATE projects SET budget=$2 WHERE id=$1`, [p.id, amt]);
     await ctx.ledger.audit({ orgId: g.orgId, branchId: p.branch_id, actor: req.session!.uid, action: 'expense.project_budget', entity: 'project', entityId: p.id, summary: amt === null ? `Removed the budget of the project ${p.name}` : `Set the budget of the project ${p.name} to ${kes(amt)}` });
     return { ok: true };
@@ -235,7 +236,8 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
       const data = String(f?.data ?? '').replace(/^data:[^,]*,/, '');
       const size = Math.floor((data.length * 3) / 4);
       if (!data || size > MAX_FILE_BYTES) throw new HttpError(400, 'A receipt can be at most 1.2 MB. Photos are shrunk automatically: try a smaller picture.', 'file_too_big');
-      return { name: cap(f?.name, 80) || 'receipt', mime, size, data };
+      const checked = checkUpload(Buffer.from(data, 'base64'), mime, { kinds: ['image', 'pdf'], code: 'bad_file', label: 'receipt' });
+      return { name: cleanFileName(cap(f?.name, 80), 'receipt'), mime: checked.mime, size, data };
     });
   }
 
@@ -250,8 +252,7 @@ export function expenseRoutes(app: FastifyInstance, ctx: Ctx) {
     const t = today();
     if (b.date > t || b.date < `${Number(t.slice(0, 4)) - 1}${t.slice(4)}`) throw new HttpError(400, 'The date must be within the last year and not in the future', 'bad_date');
     let amount: number;
-    try { amount = toCents(b.amount); } catch { throw new HttpError(400, 'Enter a valid amount', 'bad_amount'); }
-    if (!(amount > 0) || amount > MAX_AMOUNT) throw new HttpError(400, 'Enter an amount between KES 1 and KES 1,000,000', 'bad_amount');
+    amount = parseKes(b.amount, { min: 1, max: 1_000_000, label: 'an amount' });
     const cat = (await categoriesOf(g.orgId)).find((c) => c.id === String(b.categoryId ?? '') && c.active);
     if (!cat) throw new HttpError(400, 'Choose a category', 'bad_category');
     let projectId: string | null = null;

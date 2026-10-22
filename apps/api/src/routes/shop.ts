@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { buildReference, computeFee, networkMismatch, toCents } from '@churchos/shared';
+import { buildReference, computeFee, networkMismatch } from '@churchos/shared';
+import { parseKes } from '../limits';
+import { checkUpload } from '../uploads';
 import { maskPhone } from '@churchos/shared';
 import { normalizePhone, type Permission } from '../auth';
-import { imageSize } from '../artwork';
+import { promptGuard } from '../abuse';
 import { diff, maskedSnapshot, recordVersion, type FieldSpec } from '../audit';
 import { checkoutLink, HttpError, requireSession, staffScope, type Ctx } from '../ctx';
 import { addNotification } from '../notifications';
@@ -40,8 +42,7 @@ const intIn = (v: unknown, lo: number, hi: number, label: string, fallback?: num
   return n;
 };
 const money = (v: unknown, label: string, allowZero = false): number => {
-  let c: number;
-  try { c = toCents(v as any); } catch { throw new HttpError(400, `Enter ${label} in shillings`, 'bad_amount'); }
+  const c = parseKes(v, { min: 0, max: 1_000_000, label });
   if (c < 0 || (!allowZero && c === 0) || c > 100_000_000) throw new HttpError(400, `${label[0].toUpperCase()}${label.slice(1)} must be between ${allowZero ? '0' : 'KES 1'} and KES 1,000,000`, 'bad_amount');
   return c;
 };
@@ -233,6 +234,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
       if (!phone && method !== 'card') throw new HttpError(400, 'Enter the buyer phone number to send the payment prompt to', 'bad_phone');
       const mismatch = phone ? networkMismatch(method, phone) : null;
       if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
+      if (method !== 'card' || phone) promptGuard(ctx, req, { phone, uid: req.session!.uid, staff: true });
     }
     // The stock is checked again inside the transaction, so two sales cannot take the last one.
     const stockNow = await stockOf(lines.map((l) => l.itemId));
@@ -409,9 +411,9 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     const bytes = Buffer.from(String(raw.data ?? ''), 'base64');
     if (!bytes.length) throw new HttpError(400, 'That picture is empty', 'bad_picture');
     if (bytes.length > MAX_PICTURE) throw new HttpError(413, 'The picture is larger than 500 KB. Use a smaller one.', 'picture_too_large');
-    const size = imageSize(bytes, raw.mime);
-    if (!size || size.width < 200 || size.height < 200) throw new HttpError(400, 'The picture must be a valid image at least 200 pixels wide and tall', 'bad_picture');
-    return { mime: raw.mime, data: String(raw.data) };
+    const checked = checkUpload(bytes, raw.mime, { kinds: ['image'], code: 'bad_picture', label: 'picture' });
+    if (!checked.width || !checked.height || checked.width < 200 || checked.height < 200) throw new HttpError(400, 'The picture must be a valid image at least 200 pixels wide and tall', 'bad_picture');
+    return { mime: checked.mime, data: String(raw.data) };
   }
 
   app.post('/shop/items/:id/image', auth, async (req) => {
@@ -507,6 +509,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!phone && method !== 'card') throw new HttpError(400, 'Enter the phone number to send the payment prompt to', 'bad_phone');
     const mismatch = phone ? networkMismatch(method, phone) : null;
     if (mismatch) throw new HttpError(400, mismatch, 'wrong_network');
+    promptGuard(ctx, req, { phone, uid });
     const stockNow = await stockOf(lines.map((l) => l.itemId));
     for (const l of lines) if ((stockNow.get(l.itemId) ?? 0) < l.qty) throw new HttpError(409, (stockNow.get(l.itemId) ?? 0) === 0 ? `"${l.item.name}" is sold out` : `Only ${stockNow.get(l.itemId)} of "${l.item.name}" left`, 'out_of_stock');
     const advert = b.advertId ? (await ctx.db.query<any>(`SELECT id FROM adverts WHERE id=$1 AND org_id=$2`, [String(b.advertId), branch.org_id]))[0] : null;

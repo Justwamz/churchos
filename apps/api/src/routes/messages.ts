@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor } from '../auth';
 import { diff } from '../audit';
+import { consentFor, consentOf } from '../consent';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import { todayEat } from '../members';
 import { estimate, runScheduledMessages, SEND_CHANNELS, sendMessage, validateAudience, type AudienceSpec, type SendChannel } from '../messages';
@@ -156,19 +157,22 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
     if (b.channel !== 'whatsapp' && b.channel !== 'sms') throw new HttpError(400, 'Choose WhatsApp or SMS', 'bad_channel');
     if (b.confirmed !== true) throw new HttpError(400, 'Confirm that the person gave this choice themselves', 'confirmation_required');
     if (!['in_person', 'form', 'phone_call'].includes(b.source)) throw new HttpError(400, 'Say how the person told you: in person, on a form or by phone', 'bad_source');
-    const before = (await ctx.db.query<any>(`SELECT whatsapp_opt_in, sms_opt_out FROM contact_prefs WHERE phone=$1`, [m.phone]))[0] ?? { whatsapp_opt_in: false, sms_opt_out: false };
+    // This church's own record only (AZ-07): the person's own choice and other churches' records are never touched.
+    const before = (await ctx.db.query<any>(`SELECT whatsapp_opt_in, sms_opt_out FROM contact_prefs_org WHERE org_id=$1 AND phone=$2`, [m.org_id, m.phone]))[0] ?? { whatsapp_opt_in: false, sms_opt_out: false };
     const next = { whatsapp_opt_in: b.channel === 'whatsapp' ? !!b.optIn : before.whatsapp_opt_in, sms_opt_out: b.channel === 'sms' ? !b.optIn : before.sms_opt_out };
     await ctx.db.query(
-      `INSERT INTO contact_prefs (phone, whatsapp_opt_in, sms_opt_out, source, updated_at, updated_by) VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (phone) DO UPDATE SET whatsapp_opt_in=$2, sms_opt_out=$3, source=$4, updated_at=$5, updated_by=$6`,
-      [m.phone, next.whatsapp_opt_in, next.sms_opt_out, `staff:${b.source}`, ctx.clock.now().toISOString(), req.session!.uid],
+      `INSERT INTO contact_prefs_org (org_id, phone, whatsapp_opt_in, sms_opt_out, source, updated_at, updated_by) VALUES ($7,$1,$2,$3,$4,$5,$6)
+       ON CONFLICT (org_id, phone) DO UPDATE SET whatsapp_opt_in=$2, sms_opt_out=$3, source=$4, updated_at=$5, updated_by=$6`,
+      [m.phone, next.whatsapp_opt_in, next.sms_opt_out, `staff:${b.source}`, ctx.clock.now().toISOString(), req.session!.uid, m.org_id],
     );
     await ctx.ledger.audit({
       orgId: m.org_id, branchId: m.branch_id, actor: req.session!.uid, action: 'member.consent', category: 'member', entity: 'membership', entityId: m.id,
       summary: `Recorded that ${m.full_name} ${b.optIn ? 'agreed to' : 'declined'} ${b.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} messages (${b.source.replace('_', ' ')})`,
       changes: diff([{ field: 'whatsapp_opt_in', label: 'WhatsApp messages' }, { field: 'sms_opt_out', label: 'SMS opt-out' }], before, next), meta: { source: b.source },
     });
-    return { ok: true, whatsappOptIn: next.whatsapp_opt_in, smsOptOut: next.sms_opt_out };
+    // What this church may send now: the person's own choice still wins.
+    const eff = await consentOf(ctx, m.org_id, m.phone);
+    return { ok: true, whatsappOptIn: eff.whatsapp_opt_in, smsOptOut: eff.sms_opt_out, churchRecord: { whatsappOptIn: next.whatsapp_opt_in, smsOptOut: next.sms_opt_out } };
   });
 
   // ---------- a member's own choices (L119, L121) ----------
@@ -188,6 +192,8 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
        ON CONFLICT (phone) DO UPDATE SET whatsapp_opt_in=$2, sms_opt_out=$3, source='member', updated_at=$4, updated_by=$5`,
       [phone, next.whatsapp_opt_in, next.sms_opt_out, ctx.clock.now().toISOString(), req.session!.uid],
     );
+    // Withdrawing WhatsApp is the person's own choice and applies at every church.
+    if (b.whatsappOptIn === false) await ctx.db.query(`UPDATE contact_prefs_org SET whatsapp_opt_in=false WHERE phone=$1 AND whatsapp_opt_in`, [phone]);
     const changes = diff([{ field: 'whatsapp_opt_in', label: 'WhatsApp messages' }, { field: 'sms_opt_out', label: 'SMS opt-out' }], before, next);
     if (changes.length) await ctx.ledger.audit({ actor: req.session!.uid, action: 'member.preferences', category: 'member', entity: 'user', entityId: req.session!.uid, summary: 'Changed their message preferences', changes });
     return { ok: true, whatsappOptIn: next.whatsapp_opt_in, smsOptOut: next.sms_opt_out };
@@ -251,15 +257,15 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.get('/groups/:id', auth, async (req) => {
-    const { g } = await loadGroup(req, 'members.view');
+    const { g, sc } = await loadGroup(req, 'members.view');
+    // Branch staff see only the members of their own branches, even in a church-wide group (AZ-19).
     const rows = await ctx.db.query<any>(
       `SELECT gm.membership_id, gm.role, m.full_name, m.member_number, m.category, m.phone, b.name AS branch_name
-         FROM group_members gm JOIN memberships m ON m.id=gm.membership_id JOIN branches b ON b.id=m.branch_id WHERE gm.group_id=$1 ORDER BY (gm.role='leader') DESC, m.full_name`,
-      [g.id],
+         FROM group_members gm JOIN memberships m ON m.id=gm.membership_id JOIN branches b ON b.id=m.branch_id WHERE gm.group_id=$1 AND ($2::boolean OR m.branch_id = ANY($3::text[])) ORDER BY (gm.role='leader') DESC, m.full_name`,
+      [g.id, sc.orgWide, sc.branchIds],
     );
-    const prefs = new Map<string, any>();
     const phones = rows.map((r) => r.phone).filter(Boolean);
-    if (phones.length) for (const p of await ctx.db.query<any>(`SELECT phone, whatsapp_opt_in, sms_opt_out FROM contact_prefs WHERE phone = ANY($1::text[])`, [phones])) prefs.set(p.phone, p);
+    const prefs = await consentFor(ctx, g.org_id, phones);
     return {
       id: g.id, name: g.name, description: g.description, branch_id: g.branch_id, joinPolicy: g.join_policy, posting: g.posting,
       members: rows.map((r) => ({

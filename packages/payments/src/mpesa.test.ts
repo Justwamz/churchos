@@ -1,12 +1,13 @@
 import { createPrivateKey, privateDecrypt, constants } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { fakeFetch } from './fakefetch';
 import { MpesaDaraja, darajaTimestamp, mpesaConfigFromEnv, type MpesaConfig } from './mpesa';
 import { PspError } from './http';
 
-const cert = readFileSync(new URL('../test-fixtures/test-cert.pem', import.meta.url), 'utf8');
-const key = readFileSync(new URL('../test-fixtures/test-key.pem', import.meta.url), 'utf8');
+import { makeTestCert } from './test-cert';
+
+// A fresh throwaway key and certificate for every run: no private key is committed.
+const { certPem: cert, keyPem: key } = makeTestCert();
 const cfg: MpesaConfig = {
   env: 'sandbox', consumerKey: 'test-key', consumerSecret: 'test-secret', shortcode: '174379', passkey: 'test-passkey',
   callbackBase: 'https://api.example.test', callbackToken: 'tok-123', initiatorName: 'testapi', initiatorPassword: 'test-pass', certificatePem: cert,

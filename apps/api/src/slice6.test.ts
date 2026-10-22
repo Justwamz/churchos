@@ -346,7 +346,7 @@ describe('adverts: a third party pays to be on the slider (L131)', () => {
     await call(ADMIN, 'POST', `/adverts/${made.id}/submit`);
     const approved = (await call(OWNER, 'POST', `/adverts/${made.id}/decide`, { approve: true })).json();
     expect(approved.status).toBe('awaiting_payment');
-    expect(approved.payUrl).toMatch(/\?ad=[A-F0-9]{6}$/);
+    expect(approved.payUrl).toMatch(/\?ad=[A-F0-9]{12}$/);
     expect(await titles(JANE)).not.toContain('Piano lessons');
     const detail = (await call(ADMIN, 'GET', `/adverts/${made.id}`)).json();
     expect(detail).toMatchObject({ state: 'awaiting_payment', paid: false });

@@ -5,6 +5,7 @@ import { addNotification } from '../notifications';
 import { notifyTicketBuyersOfCancel } from './tickets';
 import { audienceLabel, audienceMatchSql, audienceOf, audienceUserIds, grantsFor, inStaffScope, type Audience } from '../scope';
 import type { Permission } from '../auth';
+import { formGuard } from '../abuse';
 
 const NOTICE_SPECS: FieldSpec[] = [
   { field: 'title', label: 'Headline' },
@@ -353,6 +354,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post('/me/groups/:id/wall', auth, async (req) => {
+    formGuard(ctx, req.session!.uid, 'wall');
     const b = (req.body ?? {}) as any;
     const mine = await memberOf(req);
     const id = (req.params as any).id;
@@ -378,6 +380,7 @@ export function communityRoutes(app: FastifyInstance, ctx: Ctx) {
   }
 
   app.post('/me/groups/:id/wall/:pid/comments', auth, async (req) => {
+    formGuard(ctx, req.session!.uid, 'wall');
     const mine = await memberOf(req);
     const p = await postOf(req, mine);
     const body = text((req.body as any)?.body, 500, 'comment', true)!;

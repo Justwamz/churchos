@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
+import { safeReturn } from './safeReturn';
 import { ApiError, Button, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:checkout');
@@ -14,8 +15,11 @@ export function Checkout() {
   const { id = '' } = useParams();
   const [search] = useSearchParams();
   const gift = search.get('gift') ?? '';
-  // Where to send the person afterwards. Only the same site (any port) is allowed, so the link cannot be used to redirect elsewhere.
-  const back = (() => { try { const u = new URL(search.get('return') ?? '/', location.href); return u.hostname === location.hostname ? u.toString() : '/'; } catch { return '/'; } })();
+  // Where to send the person afterwards. Only this origin, a listed app origin, or (when run locally) the same host are allowed; the link is rebuilt from the parsed address.
+  const back = safeReturn(search.get('return'), location, {
+    allowedOrigins: String((import.meta as any).env?.VITE_RETURN_ORIGINS ?? '').split(',').map((s: string) => s.trim()).filter(Boolean),
+    dev: !(import.meta as any).env?.PROD,
+  });
   const [receipt, setReceipt] = useState<{ church: string; purpose: string; receipt: string | null } | undefined>();
   const [info, setInfo] = useState<{ amount: number; merchant: string } | undefined>();
   const [state, setState] = useState<'loading' | 'ready' | 'expired' | 'paid'>('loading');

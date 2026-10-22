@@ -1,5 +1,6 @@
 import { deflateSync } from 'node:zlib';
 import { HttpError } from './ctx';
+import { checkUpload } from './uploads';
 
 export const ART_MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 export const MAX_ART_BYTES = 1024 * 1024;
@@ -44,12 +45,12 @@ export function validateArtwork(img: any): { mime: string; data: string; width: 
   const bytes = Buffer.from(String(img.data ?? ''), 'base64');
   if (bytes.length === 0) throw new HttpError(400, 'That image is empty', 'bad_artwork');
   if (bytes.length > MAX_ART_BYTES) throw new HttpError(413, 'The image is larger than 1 MB. Export it at a lower quality or size.', 'artwork_too_large');
-  const size = imageSize(bytes, img.mime);
-  if (!size || !size.width || !size.height) throw new HttpError(400, 'That file is not a valid image of the type you chose', 'bad_artwork');
+  const checked = checkUpload(bytes, img.mime, { kinds: ['image'], code: 'bad_artwork', label: 'image' });
+  const size = { width: checked.width!, height: checked.height! };
   if (size.width < MIN_ART_WIDTH) throw new HttpError(400, `The image is ${size.width} pixels wide. It must be at least ${MIN_ART_WIDTH}.`, 'artwork_too_small');
   const ratio = size.width / size.height;
   if (Math.abs(ratio - 16 / 9) / (16 / 9) > 0.03) throw new HttpError(400, `The image must be widescreen (16:9), for example 1280 x 720. This one is ${size.width} x ${size.height}.`, 'artwork_ratio');
-  return { mime: img.mime, data: String(img.data), width: size.width, height: size.height };
+  return { mime: checked.mime, data: String(img.data), width: size.width, height: size.height };
 }
 
 // ---------- demo artwork for the seed ----------

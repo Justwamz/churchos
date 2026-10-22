@@ -2,7 +2,7 @@
 // - The app shell and icons are cached, so the installed app opens instantly and shows its screens offline.
 // - Sign-in, personal data and every non-GET request are never cached.
 // - Public reads (church pages) go network first and fall back to the last copy.
-const VERSION = 'v27';
+const VERSION = 'v28';
 const SHELL_CACHE = `churchos-member-shell-${VERSION}`;
 const PUBLIC_CACHE = `churchos-member-public-${VERSION}`;
 const SHELL = [
@@ -31,9 +31,13 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('message', (e) => {
   if (e.data === 'skip-waiting') self.skipWaiting();
+  // Sent on sign-out: forget every stored public read.
+  if (e.data === 'clear-caches') e.waitUntil(caches.delete(PUBLIC_CACHE));
 });
 
-const PRIVATE = ['/auth', '/me', '/wallets', '/messages', '/groups', '/members', '/records', '/staff', '/admin', '/audit', '/kyc'];
+const PRIVATE = ['/auth', '/me', '/wallets', '/messages', '/groups', '/members', '/records', '/staff', '/admin', '/audit', '/kyc', '/public/tickets', '/public/give', '/public/credit', '/public/statement', '/public/here'];
+// Only these public reads are ever kept: nothing with a secret in the URL.
+const PUBLIC_ALLOW = ['/public/church/', '/public/branding/'];
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
@@ -42,7 +46,7 @@ self.addEventListener('fetch', (e) => {
 
   // The API lives on another origin in development. Only public reads are ever kept.
   if (url.origin !== location.origin) {
-    if (PRIVATE.some((p) => url.pathname.startsWith(p)) || !url.pathname.startsWith('/public')) return;
+    if (PRIVATE.some((p) => url.pathname.startsWith(p)) || !PUBLIC_ALLOW.some((p) => url.pathname.startsWith(p))) return;
     e.respondWith(
       fetch(req)
         .then((r) => {
@@ -57,6 +61,15 @@ self.addEventListener('fetch', (e) => {
   // Pages: network first so updates arrive, the cached shell when there is no network.
   if (req.mode === 'navigate') {
     e.respondWith(fetch(req).catch(() => caches.match('/')));
+    return;
+  }
+
+  // A missing built file must stay missing: never answer it with the app shell.
+  if (url.pathname.startsWith('/assets/')) {
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((r) => {
+      if (r.ok && !(r.headers.get('content-type') || '').includes('text/html')) { const copy = r.clone(); caches.open(SHELL_CACHE).then((c) => c.put(req, copy)); }
+      return r.ok && (r.headers.get('content-type') || '').includes('text/html') ? Response.error() : r;
+    })));
     return;
   }
 

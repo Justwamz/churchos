@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import type { BrandInfo } from '@churchos/ui';
 import { usePageBranding } from './brand';
-import { BrandMark, ApiError, Button, Card, ErrorNote, Field, Note, Spinner, createApi } from '@churchos/ui';
+import { BrandMark, ApiError, Button, Card, ErrorNote, Field, Note, Spinner, createApi, safeHttpUrl } from '@churchos/ui';
 import './attend.css';
 
 const api = createApi('churchos:giving:attend');
@@ -239,7 +239,9 @@ export function LivePage() {
       const r = await api.post<{ url: string }>(`/public/live/${encodeURIComponent(code)}`, { name: name.trim(), phone: phone.trim(), ...(ref ? { ref } : {}) });
       saveVisitor(name.trim(), phone.trim());
       setUrl(r.url);
-      window.location.href = r.url;
+      const to = safeHttpUrl(r.url, { httpsOnly: true });
+      if (!to) { setErr('This live link is not a safe address. Ask the church for a new one.'); return; }
+      window.location.href = to;
       return;
     } catch (e2) { setErr(errOf(e2)); }
     setBusy(false);

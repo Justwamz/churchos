@@ -1,11 +1,14 @@
-import { createHash, randomInt } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { branchesFor, normalizePhone, signData, verifyData } from '../auth';
+import { formGuard } from '../abuse';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { activeBands, costOf, recordUnits, unitsUsed } from '../pricing';
 import { grantsFor, inStaffScope, staffWith } from '../scope';
 import { notify } from '../sms';
 import { checkLowBalance, integrationSettings, sendEmail, walletFor } from '../wallets';
+import { consentOf } from '../consent';
+import { phoneSearchAllowed } from '../phone-search';
 import { csv } from './helpers';
 import { qrSvg } from './tickets';
 
@@ -143,7 +146,7 @@ export async function kidsLog(ctx: Ctx, e: KidsLog) {
 /** One WhatsApp message paid for by the church's WhatsApp wallet. Never fails the caller. */
 async function sendWhatsapp(ctx: Ctx, a: { orgId: string; branchId: string; phone: string; body: string; idemKey: string }): Promise<'sent' | 'skipped'> {
   try {
-    const pref = (await ctx.db.query<any>(`SELECT whatsapp_opt_in FROM contact_prefs WHERE phone=$1`, [a.phone]))[0];
+    const pref = await consentOf(ctx, a.orgId, a.phone);
     if (!pref?.whatsapp_opt_in) return 'skipped';
     const w = await walletFor(ctx, a.orgId, a.branchId, 'whatsapp');
     if (!w) return 'skipped';
@@ -185,7 +188,7 @@ function kidsInternals(ctx: Ctx) {
     for (const g of await guardiansOf(ctx, r.child_id)) {
       if (!g.phone || seen.has(g.phone)) continue;
       seen.add(g.phone);
-      const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${r.child_name} is waiting to be collected`, body, idemKey: `kids:late:${r.id}:${g.id}`, sms: true, link: 'member:kids' });
+      const res = await notify(ctx, { essential: true, orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${r.child_name} is waiting to be collected`, body, idemKey: `kids:late:${r.id}:${g.id}`, sms: true, link: 'member:kids' });
       const wa = await sendWhatsapp(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, body, idemKey: `kids:late:wa:${r.id}:${g.id}` });
       let mail = 'none';
       if (g.email && g.email_verified) mail = (await sendEmail(ctx, s.org_id, g.email, `${r.child_name} is waiting to be collected`, `Hello ${String(g.name).split(' ')[0]},\n\n${body}\n`)) ? 'sent' : 'failed';
@@ -198,7 +201,7 @@ function kidsInternals(ctx: Ctx) {
     const people = await staffWith(ctx, s.org_id, s.branch_id, 'kids.manage');
     const body = `${r.child_name} (tag ${r.tag}) has not been collected from ${s.class_name}. ${kind === 'manual' ? `${by ?? 'The teacher'} asked for help.` : 'The guardians were told and have not come.'} Open Children in the staff app to see who to call.`;
     for (const u of people) {
-      const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: u.phone, kind: 'announcement', title: `Child not collected: ${r.child_name}`, body, idemKey: `kids:esc:${r.id}:${u.id}`, sms: true, link: 'staff:children', audience: 'staff' });
+      const res = await notify(ctx, { essential: true, orgId: s.org_id, branchId: s.branch_id, phone: u.phone, kind: 'announcement', title: `Child not collected: ${r.child_name}`, body, idemKey: `kids:esc:${r.id}:${u.id}`, sms: true, link: 'staff:children', audience: 'staff' });
       await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, action: 'alert_sent', result: 'ok', method: 'staff', subjectId: u.id, subjectName: u.name, children: r.child_name, detail: `Staff alert: SMS ${res.sms === 'sent' ? 'sent' : 'not sent'}${res.inApp ? ', in-app sent' : ''}` });
     }
   }
@@ -268,10 +271,20 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const phone = normalizePhone(String(b.phone ?? ''));
     if (!name) throw new HttpError(400, 'Enter the name of the person', 'bad_content');
     if (!phone) throw new HttpError(400, 'Enter a valid Kenyan phone number, like 0712 345 678', 'bad_phone');
-    return { name, phone, relation: cap(b.relation, 30) || null, idNumber: cap(b.idNumber, 20) || null };
+    // The national ID number of a third party is not kept (LG-21): only the last 4 digits for showing, and a salted hash so the
+    // same number can still be matched. The full number is never stored, listed or returned.
+    const rawId = cap(b.idNumber, 20).replace(/\s+/g, '');
+    const salt = rawId ? randomBytes(8).toString('hex') : null;
+    return {
+      name, phone, relation: cap(b.relation, 30) || null,
+      idNumber: rawId ? `••••${rawId.slice(-4)}` : null,
+      idSalt: salt,
+      idHash: rawId && salt ? createHash('sha256').update(`${salt}:${rawId.toUpperCase()}`).digest('hex') : null,
+    };
   };
 
   app.post('/me/family/pickup-people', auth, async (req) => {
+    formGuard(ctx, req.session!.uid, 'pickup');
     const b = (req.body ?? {}) as any;
     const m = (await ctx.db.query<any>(`SELECT id, org_id, branch_id, full_name FROM memberships WHERE id=$1 AND user_id=$2 AND status='active'`, [String(b.membershipId ?? ''), req.session!.uid]))[0];
     if (!m) throw new HttpError(404, 'not found', 'not_found');
@@ -279,7 +292,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const n = Number((await ctx.db.query<any>(`SELECT count(*)::int AS n FROM kids_pickup_people WHERE guardian_id=$1 AND active`, [m.id]))[0].n);
     if (n >= 8) throw new HttpError(400, 'You can list up to 8 people. Remove one first.', 'too_many');
     const id = ctx.newId('kpp');
-    await ctx.db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, m.org_id, m.id, p.name, p.phone, p.relation, p.idNumber, req.session!.uid, nowIso()]);
+    await ctx.db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, id_hash, id_salt, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$10,$11,$8,$9)`, [id, m.org_id, m.id, p.name, p.phone, p.relation, p.idNumber, req.session!.uid, nowIso(), p.idHash, p.idSalt]);
     await kidsLog(ctx, { orgId: m.org_id, branchId: m.branch_id, action: 'pickup_person_added', result: 'ok', subjectId: m.id, subjectName: m.full_name, detail: `${p.name}${p.relation ? `, ${p.relation}` : ''}, ${maskPhone(p.phone)}`, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, method: 'app' });
     return { id };
   });
@@ -527,11 +540,12 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     const { s } = await sessionRow(req, (req.params as any).id);
     const q = cap((req.query as any).q, 40);
     if (q.length < 2) return { guardians: [] };
-    const like = `%${q.replace(/[%_]/g, '')}%`;
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    const byPhone = await phoneSearchAllowed(ctx, req, s.org_id, q); // real phone matches only for staff who may reveal it (AZ-08)
     const rows = await ctx.db.query<any>(
       `SELECT m.id, m.full_name, m.member_number, m.phone, m.user_id FROM memberships m
         WHERE m.org_id=$1 AND m.status='active' AND m.category='adult' AND m.phone IS NOT NULL AND EXISTS (SELECT 1 FROM guardians g WHERE g.guardian_id=m.id)
-          AND (m.full_name ILIKE $2 OR m.member_number ILIKE $2 OR m.phone LIKE $2) ORDER BY m.full_name LIMIT 15`,
+          AND (m.full_name ILIKE $2 OR m.member_number ILIKE $2${byPhone ? ' OR m.phone LIKE $2' : ''}) ORDER BY m.full_name LIMIT 15`,
       [s.org_id, like],
     );
     const out = [];
@@ -611,13 +625,13 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     let code: string | null = null;
     if (!hasApp || p.method === 'search') code = await createCode(s, { kind: 'dropoff', ids: rows.map((r) => r.id), name: g.full_name, phone: g.phone, subjectKind: 'guardian', subjectId: g.id });
     const text = `${who} checked in to ${s.class_name} at ${hm(nowIso())}, tag ${rows[0].tag}. To collect, ${hasApp ? 'show your QR code in the app' : 'tell the teacher your pick-up code'}${code ? `${hasApp ? ' or' : ':'} pick-up code ${code}` : ''}.`;
-    const r = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${who} checked in`, body: text, idemKey: `kids:in:${rows[0].id}`, sms: !hasApp || p.method === 'search', link: 'member:kids' });
+    const r = await notify(ctx, { essential: true, orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${who} checked in`, body: text, idemKey: `kids:in:${rows[0].id}`, sms: !hasApp || p.method === 'search', link: 'member:kids' });
     await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, action: 'message_sent', result: r.sms === 'skipped_no_balance' ? 'sms_not_sent' : 'ok', subjectId: g.id, subjectName: g.full_name, children: who, detail: `Drop-off confirmation: ${r.sms === 'sent' ? 'SMS' : ''}${r.sms === 'sent' && r.inApp ? ' and ' : ''}${r.inApp ? 'in-app' : ''}${r.sms !== 'sent' && !r.inApp ? 'not delivered' : ''}`.trim() });
     // The other guardians of these children hear about it in the app (no SMS cost).
     for (const row of rows) {
       for (const o of await guardiansOf(ctx, row.childId)) {
         if (o.id === g.id || !o.phone || !o.user_id) continue;
-        await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: o.phone, kind: 'announcement', title: `${row.name} checked in`, body: `${g.full_name} dropped off ${row.name} at ${s.class_name}, tag ${row.tag}.`, idemKey: `kids:in:${row.id}:${o.id}`, sms: false, link: 'member:kids' });
+        await notify(ctx, { essential: true, orgId: s.org_id, branchId: s.branch_id, phone: o.phone, kind: 'announcement', title: `${row.name} checked in`, body: `${g.full_name} dropped off ${row.name} at ${s.class_name}, tag ${row.tag}.`, idemKey: `kids:in:${row.id}:${o.id}`, sms: false, link: 'member:kids' });
       }
     }
     void c;
@@ -671,7 +685,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (recent >= 3) throw new HttpError(429, 'Three codes have been sent for this child. Wait a little or call the guardian.', 'too_many');
     const code = await createCode(s, { kind: 'collect', ids, name, phone, subjectKind: b.kind === 'guardian' ? 'guardian' : 'approved', subjectId: String(b.id) });
     const body = `Pick-up code for ${r.child_name}, ${s.class_name}: ${code}. Give it to the teacher to take ${r.child_name} home. If you did not expect this, call the church.`;
-    const res = await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone, kind: 'announcement', title: 'Your pick-up code', body, idemKey: `kids:code:${r.id}:${code}`, sms: true, link: 'member:kids' });
+    const res = await notify(ctx, { essential: true, orgId: s.org_id, branchId: s.branch_id, phone, kind: 'announcement', title: 'Your pick-up code', body, idemKey: `kids:code:${r.id}:${code}`, sms: true, link: 'member:kids' });
     await kidsLog(ctx, { orgId: s.org_id, branchId: s.branch_id, sessionId: s.id, className: s.class_name, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, staffDevice: dev, action: 'code_sent', result: res.sms === 'sent' ? 'ok' : 'sms_not_sent', method: 'sms', subjectName: name, children: r.child_name, detail: `Pick-up code sent by SMS to ${maskPhone(phone)} (${b.kind === 'guardian' ? 'guardian' : 'approved person'})` });
     if (res.sms !== 'sent') throw new HttpError(502, 'The SMS could not be sent. Check the church\'s SMS balance, or scan the guardian\'s code.', 'sms_failed');
     return { sentTo: maskPhone(phone), name };
@@ -745,7 +759,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
           void mine;
           const kids = done.map((d) => d.child_name).join(' and ');
           const sms = !g.user_id || (r.dropper_id === g.id && r.collector_id !== g.id);
-          await notify(ctx, { orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${kids} collected`, body: `${kids} collected from ${s.class_name} at ${hm(nowIso())} by ${r.collector_name}.`, idemKey: `kids:out:${r.id}:${g.id}`, sms, link: 'member:kids' });
+          await notify(ctx, { essential: true, orgId: s.org_id, branchId: s.branch_id, phone: g.phone, kind: 'announcement', title: `${kids} collected`, body: `${kids} collected from ${s.class_name} at ${hm(nowIso())} by ${r.collector_name}.`, idemKey: `kids:out:${r.id}:${g.id}`, sms, link: 'member:kids' });
         }
       }
     }
@@ -790,7 +804,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (q.to) { params.push(new Date(new Date(`${String(q.to)}T00:00:00+03:00`).getTime() + 86400_000).toISOString()); where.push(`at < $${params.length}`); }
     if (q.action) { params.push(String(q.action)); where.push(`action = $${params.length}`); }
     if (q.sessionId) { params.push(String(q.sessionId)); where.push(`session_id = $${params.length}`); }
-    if (q.q) { params.push(`%${String(q.q).replace(/[%_]/g, '')}%`); where.push(`(coalesce(staff_name,'') || ' ' || coalesce(subject_name,'') || ' ' || coalesce(children,'') || ' ' || coalesce(detail,'') || ' ' || coalesce(class_name,'')) ILIKE $${params.length}`); }
+    if (q.q) { params.push(`%${String(q.q).replace(/[\\%_]/g, (c) => '\\' + c)}%`); where.push(`(coalesce(staff_name,'') || ' ' || coalesce(subject_name,'') || ' ' || coalesce(children,'') || ' ' || coalesce(detail,'') || ' ' || coalesce(class_name,'')) ILIKE $${params.length}`); }
     const rows = await ctx.db.query<any>(`SELECT * FROM kids_log WHERE ${where.join(' AND ')} ORDER BY at DESC LIMIT 500`, params);
     const place = (r: any) => (r.location ? { locationStatus: ({ ok: 'At the branch', away: 'Away from the branch', unknown: 'Location not shared', unchecked: 'Not checked' } as Record<string, string>)[r.location.status] ?? '', distanceM: r.location.distanceM, locationSource: r.location.source, teacherLocation: geoText(r.location.teacher), guardianLocation: geoText(r.location.guardian) } : { locationStatus: '', distanceM: null, locationSource: null, teacherLocation: null, guardianLocation: null });
     const view = rows.map((r) => ({ id: r.id, at: r.at, action: r.action, result: r.result, className: r.class_name, teacher: r.staff_name, teacherDevice: r.staff_device, guardian: r.subject_name, guardianDevice: r.subject_device, method: r.method, children: r.children, detail: r.detail, ...place(r) }));
@@ -827,7 +841,7 @@ export function kidsRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!m || !g.branchIds.includes(m.branch_id)) throw new HttpError(404, 'not found', 'not_found');
     const p = pickupBody((req.body ?? {}) as any);
     const id = ctx.newId('kpp');
-    await ctx.db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [id, m.org_id, m.id, p.name, p.phone, p.relation, p.idNumber, req.session!.uid, nowIso()]);
+    await ctx.db.query(`INSERT INTO kids_pickup_people (id, org_id, guardian_id, name, phone, relation, id_number, id_hash, id_salt, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$10,$11,$8,$9)`, [id, m.org_id, m.id, p.name, p.phone, p.relation, p.idNumber, req.session!.uid, nowIso(), p.idHash, p.idSalt]);
     await kidsLog(ctx, { orgId: m.org_id, branchId: m.branch_id, action: 'pickup_person_added', result: 'ok', subjectId: m.id, subjectName: m.full_name, detail: `${p.name}${p.relation ? `, ${p.relation}` : ''}, ${maskPhone(p.phone)}`, staffId: req.session!.uid, geo: tg(req), staffName: req.session!.name, method: 'staff' });
     return { id };
   });

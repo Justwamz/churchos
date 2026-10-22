@@ -97,6 +97,7 @@ describe('a person with no church asks to join', () => {
     expect((await call(ADMIN, 'POST', `/members/join-requests/${reqId}/decide`, { approve: true })).json().code).toBe('already_decided');
     const mine = ((await call(NEWBIE, 'GET', '/me/notifications')).json().rows as any[]).find((n) => n.title === 'About your request to join');
     expect(mine.body).toMatch(/bring your member card/);
+    ctx.clock.advance(61 * 60_000); // AZ-15: one request per church an hour
     const again = await call(NEWBIE, 'POST', '/me/link/request', { code: 'GRC001', consent: true });
     expect(again.statusCode).toBe(200);
     reqId = again.json().id;

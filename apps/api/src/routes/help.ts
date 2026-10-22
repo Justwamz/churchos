@@ -3,6 +3,7 @@ import { loadGrants } from '../auth';
 import { HttpError, type Ctx } from '../ctx';
 import { getSession } from '../sessions';
 import type { HelpAudience } from '../help';
+import { intParam } from '../limits';
 
 /**
  * Which audiences this caller may read (L86). Member help is open to everyone, staff help needs a signed-in staff user,
@@ -72,7 +73,7 @@ export function helpRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!text) return { query: '', results: [] };
     const aud = wanted(await allowedAudiences(ctx, req), q.audience);
     if (aud.length === 0) return { query: text, results: [] };
-    const limit = Math.min(Math.max(Number(q.limit ?? 8), 1), 20);
+    const limit = intParam(q.limit, { min: 1, max: 20, def: 8 });
     const lang = String(q.lang ?? 'en');
     const full = q.full === '1' || q.full === 'true';
     const rows = await ctx.db.query<any>(

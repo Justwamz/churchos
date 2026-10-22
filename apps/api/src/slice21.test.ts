@@ -67,7 +67,7 @@ describe('annual giving statements, on request only (L245 to L249)', () => {
     expect(made.json()).toMatchObject({ year: y1, total: base.total + 150000, gifts: base.gifts + 2 });
     id1 = made.json().id;
     number1 = made.json().number;
-    expect(number1).toMatch(/^GS-\d{4}-[0-9A-F]{6}$/);
+    expect(number1).toMatch(/^GS-\d{4}-[0-9A-F]{10}$/);
     const pdf = await call(JANE, 'GET', `/me/statements/${id1}/pdf`);
     expect(pdf.statusCode).toBe(200);
     expect(pdf.headers['content-type']).toBe('application/pdf');
@@ -93,10 +93,12 @@ describe('annual giving statements, on request only (L245 to L249)', () => {
     expect((await call(COAST, 'GET', `/statements/${id1}/pdf`)).statusCode).toBeGreaterThanOrEqual(403);
   });
 
-  it('is checked by its number: church, year, total and initials only', async () => {
+  it('is checked by its number: church and year only', async () => {
     const v = (await call(null, 'GET', `/public/statement/${number1}`)).json();
-    expect(v).toMatchObject({ valid: true, church: 'Grace Community Church', year: y1, total: base.total + 150000 });
-    expect(v.memberInitials).toMatch(/^([A-Z]\. )+[A-Z]\.$|^[A-Z]\.$/);
+    // AZ-17: only church and year come back now (no total, no initials, no date)
+    expect(v).toMatchObject({ valid: true, church: 'Grace Community Church', year: y1 });
+    expect(v.total).toBeUndefined();
+    expect(v.memberInitials).toBeUndefined();
     expect(JSON.stringify(v)).not.toMatch(/Jane Wanjiku|0711/);
     expect((await call(null, 'GET', '/public/statement/GS-2000-ZZZZZZ')).json()).toEqual({ valid: false });
   });
@@ -156,7 +158,8 @@ describe('annual giving statements, on request only (L245 to L249)', () => {
 
   it('puts the church details and a signature on the statement when the church sets them', async () => {
     expect((await call(ADMIN, 'GET', '/statements/settings')).statusCode).toBeGreaterThanOrEqual(403);
-    expect((await call(TREAS, 'PUT', '/statements/settings', { registrationNo: 'NGO/2012/4471', kraPin: 'P051234567Z', signatoryName: 'Esther Njeri', signatoryTitle: 'Treasurer', footer: 'Thank you for your faithful giving.' })).statusCode).toBe(200);
+    expect((await call(OWNER, 'PUT', '/statements/settings', { registrationNo: 'NGO/2012/4471', kraPin: 'P051234567Z', signatoryName: 'Esther Njeri', signatoryTitle: 'Treasurer', footer: 'Thank you for your faithful giving.' })).statusCode).toBe(200);
+    expect((await call(TREAS, 'PUT', '/statements/settings', { footer: 'x' })).statusCode).toBe(403); // AZ-19: church-level settings need every branch
     expect((await call(OWNER, 'GET', '/statements/settings')).json()).toMatchObject({ registrationNo: 'NGO/2012/4471', signatoryName: 'Esther Njeri' });
     const s = (await call(PETER, 'POST', '/me/statements', { year: year() })).json();
     expect(s.code).toBe('no_gifts'); // Peter has given nothing as a member yet

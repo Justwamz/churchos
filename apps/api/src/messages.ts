@@ -1,5 +1,6 @@
 import { HttpError, type Ctx } from './ctx';
 import { addNotification } from './notifications';
+import { consentFor } from './consent';
 import { ageBand, ageOn } from './members';
 import { CHANNEL_LABEL, checkLowBalance, integrationSettings, walletFor, walletLabel, type Channel } from './wallets';
 import { activeBands, allocate, costOf, recordUnits, unitsUsed } from './pricing';
@@ -126,10 +127,10 @@ export async function resolveAudience(ctx: Ctx, orgId: string, spec: AudienceSpe
 type Skip = 'skipped_no_phone' | 'skipped_opted_out' | 'skipped_not_opted_in';
 
 /** Splits recipients into those who may receive a channel and those who may not, with the reason (L119). */
-async function eligibility(ctx: Ctx, recipients: Recipient[], channel: Channel) {
+async function eligibility(ctx: Ctx, orgId: string, recipients: Recipient[], channel: Channel) {
   const phones = recipients.map((r) => r.phone).filter(Boolean) as string[];
-  const prefs = new Map<string, any>();
-  if (phones.length) for (const p of await ctx.db.query<any>(`SELECT phone, whatsapp_opt_in, sms_opt_out FROM contact_prefs WHERE phone = ANY($1::text[])`, [phones])) prefs.set(p.phone, p);
+  // The person's own choice first, then this church's own record (AZ-07).
+  const prefs = await consentFor(ctx, orgId, phones);
   const ok: Recipient[] = [];
   const skipped: { r: Recipient; status: Skip }[] = [];
   for (const r of recipients) {
@@ -170,7 +171,7 @@ export async function estimate(ctx: Ctx, orgId: string, spec: AudienceSpec, chan
   const out: any = { people: recipients.length, inApp: { reachable: recipients.filter((r) => r.userId).length, noAccount: recipients.filter((r) => !r.userId).length }, wallets: [] as any[], totalCost: 0, shortBranches: [] as string[] };
   for (const ch of ['sms', 'whatsapp'] as Channel[]) {
     if (!channels.includes(ch)) continue;
-    const el = await eligibility(ctx, recipients, ch);
+    const el = await eligibility(ctx, orgId, recipients, ch);
     const reasons = { noPhone: 0, optedOut: 0, notOptedIn: 0 };
     for (const s of el.skipped) {
       if (s.status === 'skipped_no_phone') reasons.noPhone++;
@@ -244,7 +245,7 @@ export async function sendMessage(ctx: Ctx, messageId: string): Promise<any> {
     const touched = new Set<string>();
     for (const ch of ['sms', 'whatsapp'] as Channel[]) {
       if (!channels.includes(ch)) continue;
-      const el = await eligibility(ctx, recipients, ch);
+      const el = await eligibility(ctx, m.org_id, recipients, ch);
       const stat = { sent: 0, failed: 0, noPhone: 0, optedOut: 0, notOptedIn: 0, noBalance: 0, cost: 0 };
       for (const s of el.skipped) {
         rows.push({ m: m.id, membership: s.r.membershipId, channel: ch, status: s.status, cost: 0, wallet: null });

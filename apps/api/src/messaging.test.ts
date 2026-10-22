@@ -62,7 +62,7 @@ describe('wallets: balances people can see (L113, L116)', () => {
     expect((await call(COAST, 'GET', '/wallets')).json().code).toBe('email_required'); // Fatuma has not confirmed an email yet
     await confirmEmail(COAST, 'fatuma@gracechurch.org');
     const ids = (await wallets(ADMIN)).wallets.map((x: any) => x.id);
-    expect(ids).toContain(SMS_ORG);
+    expect(ids).not.toContain(SMS_ORG); // AZ-19: the church wallet is for people who cover every branch
     expect(ids).toContain(SMS_NBO);
     expect(ids).not.toContain(SMS_MSA);
     const coast = (await wallets(COAST)).wallets.map((x: any) => x.id);
