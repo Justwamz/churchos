@@ -69,6 +69,16 @@ export function teamRoutes(app: FastifyInstance, ctx: Ctx) {
     );
     const owners = rows.filter((r) => r.role_name === OWNER_ROLE && r.scope_type === 'org').length;
     const people = new Map<string, any>();
+    // Same rule as the remove route (AZ-05): to take a role away you must hold every permission in it over that place yourself.
+    const mineByPerm = new Map<string, Set<string>>();
+    const holdsAll = async (perms: string[], ids: string[]) => {
+      for (const perm of perms) {
+        if (!mineByPerm.has(perm)) mineByPerm.set(perm, new Set((await branchesFor(ctx.db, uid, perm as Permission)).filter((r) => r.orgId === g.orgId).map((r) => r.branchId)));
+        const mine = mineByPerm.get(perm)!;
+        if (!ids.length || !ids.every((b) => mine.has(b))) return false;
+      }
+      return true;
+    };
     for (const a of rows) {
       const { ids } = await branchesOf(g.orgId, { type: a.scope_type, id: a.scope_id });
       if (!ids.some((b) => g.branchIds.includes(b))) continue; // only people who touch the branches you may see
@@ -76,7 +86,8 @@ export function teamRoutes(app: FastifyInstance, ctx: Ctx) {
       p.assignments.push({
         id: a.id, roleId: a.role_id, role: a.role_name, builtIn: BUILT_IN.has(a.role_name), scopeType: a.scope_type, scopeId: a.scope_id, scope: await scopeName(g.orgId, a),
         permissionCount: (a.permissions as string[]).length,
-        canRemove: ids.every((b) => manageBranches.includes(b)) && !(a.role_name === OWNER_ROLE && a.scope_type === 'org' && owners <= 1),
+        lastOwner: a.role_name === OWNER_ROLE && a.scope_type === 'org' && owners <= 1,
+        canRemove: ids.every((b) => manageBranches.includes(b)) && (await holdsAll(a.permissions as string[], ids)) && !(a.role_name === OWNER_ROLE && a.scope_type === 'org' && owners <= 1),
       });
       people.set(a.user_id, p);
     }

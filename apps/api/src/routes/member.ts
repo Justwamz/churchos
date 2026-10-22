@@ -3,6 +3,7 @@ import { parseKes } from '../limits';
 import { HttpError, requireSession, type Ctx } from '../ctx';
 import { createReversalRequest } from './reversals';
 import { churchByCode } from './public';
+import { phoneSince } from '../dataprotection';
 
 export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
   const auth = { preHandler: requireSession };
@@ -42,8 +43,8 @@ export function memberRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get('/me/giving', auth, async (req) => {
     const rows = await ctx.db.query<any>(
       `SELECT p.id, p.received_at AS date, p.method, p.purpose, p.amount_paid AS amount, p.stage AS status, p.provider_tx_id AS receipt, b.name AS church, p.anonymous
-         FROM payments p LEFT JOIN branches b ON b.id=p.branch_id WHERE p.payer_phone=$1 OR p.id IN (SELECT payment_id FROM anonymous_gifts WHERE user_id=$2 AND payment_id IS NOT NULL) ORDER BY p.received_at DESC LIMIT 200`,
-      [req.session!.phone, req.session!.uid],
+         FROM payments p LEFT JOIN branches b ON b.id=p.branch_id WHERE (p.payer_phone=$1 AND p.received_at >= $3) OR p.id IN (SELECT payment_id FROM anonymous_gifts WHERE user_id=$2 AND payment_id IS NOT NULL) ORDER BY p.received_at DESC LIMIT 200`,
+      [req.session!.phone, req.session!.uid, await phoneSince(ctx, req.session!.phone)],
     );
     const total = rows.filter((r) => r.status !== 'reversed' && r.status !== 'refunded').reduce((t, r) => t + r.amount, 0);
     return { rows, total };

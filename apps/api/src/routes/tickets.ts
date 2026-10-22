@@ -18,6 +18,7 @@ import { csv, normalizeMethod } from './helpers';
 import { refundStateFor, runRefundJobs } from './ticket-refunds';
 import { creditStateFor, findCredits, restoreUsed, retakeUsed, spendIn } from './event-credit';
 import { runCreditReminders } from './credit-extras';
+import { errLine } from '../redact';
 
 const HOLD_MINUTES = 15;
 const MAX_PER_ORDER = 20;
@@ -649,7 +650,7 @@ export async function sendConfirmationFor(ctx: Ctx, orderId: string) {
 /** Holds that ran out are released, and ticket holders get a reminder the day before (L173, L177). */
 export async function runTicketJobs(ctx: Ctx): Promise<{ lapsed: number; reminders: number; refunded: number }> {
   const refunds = await runRefundJobs(ctx);
-  await runCreditReminders(ctx).catch((e) => console.error("credit reminders failed", e));
+  await runCreditReminders(ctx).catch((e) => console.error(`credit reminders failed ${errLine(e)}`));
   const now = ctx.clock.now().toISOString();
   const lapsed = await ctx.db.query<any>(`UPDATE ticket_orders SET status='lapsed' WHERE status='awaiting_payment' AND hold_until <= $1 RETURNING id, org_id, branch_id, code`, [now]);
   for (const o of lapsed) await restoreUsed(ctx, o.id);

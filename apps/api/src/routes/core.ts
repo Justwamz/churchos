@@ -1,3 +1,4 @@
+import { errLine } from '../redact';
 import { planRunPaid } from './giving-plans';
 import { appendGift } from './giving-ledger';
 import { advertPaid } from './adverts';
@@ -111,7 +112,7 @@ export async function handleWebhook(ctx: Ctx, rawBody: string, headers: Record<s
         sms: !anon, // an anonymous gift: the in-app receipt stays, but no SMS row or reference carries the giver's number (LG-09)
       });
     } catch (e) {
-      console.error('receipt notification failed', e);
+      console.error(`receipt notification failed ${errLine(e)}`);
     }
   }
   if (intent) {

@@ -5,6 +5,7 @@ import type { BrandInfo, CertificatePayload } from '@churchos/ui';
 import { api, errText, useOnline } from './api';
 import { Inbox, LinkCtx, parseLink, useOpenMessage } from './Inbox';
 import { MessageChoices } from './Choices';
+import { MyData } from './MyData';
 import { Groups } from './Groups';
 import { EventsPage, HomeEvents, HomeNotices, NoticesPage } from './Community';
 import { BookPage, HomeBookings } from './Booking';
@@ -20,7 +21,7 @@ import { HomeServices, ServicesPage } from './Services';
 import { HomePrayer, PrayerPage } from './Prayer';
 import { HomeSaid, SuggestionsPage } from './Suggestions';
 import { WordsProvider, useWords } from './Words';
-import { LinkHome, Locked, VisitorGiveTab } from './LinkChurch';
+import { LinkHome, LinkOffers, Locked, VisitorGiveTab } from './LinkChurch';
 import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
 
 type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
@@ -193,14 +194,14 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
               {tab === 'home' && unlinked && <LinkHome user={user} first={String(user?.name ?? '').split(' ')[0]} onLinked={onLinked} />}
-              {tab === 'home' && !unlinked && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
+              {tab === 'home' && !unlinked && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home onLinked={onLinked} me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} unlinked={unlinked} />}
               {tab === 'services' && (unlinked ? <Locked onLink={() => go('home')} /> : <ServicesPage hasMembership={!!me.data?.memberships?.length} />)}
               {tab === 'kids' && unlinked && <Locked onLink={() => go('home')} />}
               {tab === 'kids' && !unlinked && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
               {tab === 'groups' && (unlinked ? <Locked onLink={() => go('home')} /> : <Groups />)}
-              {tab === 'me' && <Me me={me.data} user={user} reload={me.reload} signOut={signOut} onLink={() => go('home')} />}
+              {tab === 'me' && <Me me={me.data} user={user} reload={() => { me.reload(); fams.reload(); notif.reload(); }} signOut={signOut} onLink={() => go('home')} />}
             </>
           )}
         </div>
@@ -230,7 +231,7 @@ function greeting() {
   return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
 
-function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; families: any[]; user: any; go: Go; notif: any; openSub: (s: HomeSub) => void; openShop: (i?: ShopIntent) => void }) {
+function Home({ onLinked, me, user, go, families, notif, openSub, openShop }: { me: any; families: any[]; user: any; go: Go; notif: any; onLinked: () => void; openSub: (s: HomeSub) => void; openShop: (i?: ShopIntent) => void }) {
   const m = me?.memberships?.[0];
   const giving = useAsync<any>(() => api.get('/me/giving'));
   const first = String(m?.full_name ?? user?.name ?? '').split(' ')[0];
@@ -260,6 +261,7 @@ function Home({ me, user, go, families, notif, openSub, openShop }: { me: any; f
         <h1>{greeting()}{first ? `, ${first}` : ''}</h1>
         {m ? <p>{m.branch_name} · {m.org_name}</p> : <p>You are not linked to a church yet. Ask your church to add you, or request a move in the Me tab.</p>}
       </div>
+      <LinkOffers onLinked={onLinked} />
 
       <InstallBanner />
 
@@ -699,6 +701,7 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
       <InstallCard />
 
       {!linked && <Card title="My church"><Locked onLink={onLink}>Your membership, records and certificates show here once your church has approved you.</Locked></Card>}
+      <LinkOffers onLinked={reload} />
       {linked && <Card title="My membership">
         {!ms.length ? <Empty>You are not linked to a church yet.</Empty> : (
           <ul className="list">
@@ -741,6 +744,8 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
           </ul>
         </Card>
       )}
+
+      <MyData signOut={signOut} />
 
       <div className="menu">
         {linked && <><button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-tickets'))}><Icon name="ticket" /><span>My tickets</span><Icon name="chev" size={18} /></button>

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
 import { diff, logAccess, MEMBER_SPECS, maskedSnapshot, NUMBER_FORMAT_SPECS, recordVersion } from '../audit';
 import { phoneSearchAllowed } from '../phone-search';
+import { addNotification } from '../notifications';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import {
   ageOn, cleanCustomNumber, daysToBirthday, decorate, getSettings, householdLabel, nextMemberNumber, parseDob, renderNumber,
@@ -169,6 +170,9 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
   async function makeOffer(q: import('@churchos/ledger').Db, orgId: string, membershipId: string, userId: string) {
     await q.query(`UPDATE link_offers SET status='declined', decided_at=$2 WHERE membership_id=$1 AND status='pending'`, [membershipId, ctx.clock.now().toISOString()]);
     await q.query(`INSERT INTO link_offers (id, org_id, membership_id, user_id, status, created_at) VALUES ($1,$2,$3,$4,'pending',$5)`, [ctx.newId('lof'), orgId, membershipId, userId, ctx.clock.now().toISOString()]);
+    // Tell the person in their inbox. The Home screen shows the Accept / Decline card; nothing is linked until they accept.
+    const church = (await q.query<any>(`SELECT name FROM organisations WHERE id=$1`, [orgId]))[0]?.name ?? 'A church';
+    await addNotification({ db: q, newId: ctx.newId, clock: ctx.clock }, { orgId: null, userId, kind: 'announcement', title: `${church} added you`, body: `${church} has your phone number on their member list. Open Home to accept or decline.`, link: 'member:home' });
   }
 
   async function adultPhoneFree(orgId: string, phone: string, exceptId?: string) {

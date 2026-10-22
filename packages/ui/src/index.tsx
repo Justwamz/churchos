@@ -164,6 +164,20 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
   const [devCode, setDevCode] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
+  // 'demo' shows the fixed-code hint; 'sms' sends a real code. Until /auth/mode answers (or if it fails) nothing about a code is shown beyond what the server returns.
+  const [mode, setMode] = useState<'demo' | 'sms' | undefined>();
+  const [wait, setWait] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    p.api.get('/auth/mode').then((r: any) => { if (live && (r?.mode === 'demo' || r?.mode === 'sms')) setMode(r.mode); }).catch(() => {});
+    return () => { live = false; };
+  }, [p.api]);
+  useEffect(() => {
+    if (wait <= 0) return;
+    const t = setTimeout(() => setWait((w) => Math.max(0, w - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [wait]);
 
   useEffect(() => {
     if (user && !p.api.getToken()) setUser(null);
@@ -180,6 +194,15 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
 
   if (user && p.api.getToken()) return <>{p.children({ user, signOut })}</>;
 
+  const minutes = (sec: number) => (sec >= 90 ? `${Math.ceil(sec / 60)} minutes` : `${Math.max(1, Math.ceil(sec))} seconds`);
+  /** A 429 reads as a calm instruction with the real wait, never a raw error. */
+  const tooMany = (e: any, what: 'code' | 'try') => {
+    const sec = Number(e?.retryAfter) > 0 ? Number(e.retryAfter) : 0;
+    if (what === 'code' && sec) setWait(Math.ceil(sec));
+    if (what === 'try') return `Too many attempts. ${sec ? `Please wait ${minutes(sec)} and try again.` : 'Please wait a little and try again.'}`;
+    return e.status === 429 && /^Please wait d+ seconds/.test(e.message) ? e.message : `Too many code requests. ${sec ? `Please try again in ${minutes(sec)}.` : 'Please try again later.'}`;
+  };
+
   const requestCode = async () => {
     setBusy(true); setError(undefined);
     try {
@@ -190,9 +213,11 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
         setBusy(false);
         return;
       }
-      setDevCode(r.devCode);
+      setDevCode(mode === 'sms' ? undefined : r.devCode);
+      if (mode === 'sms') setWait(30);
+      setCode('');
       setStep('code');
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e.status === 429 ? tooMany(e, 'code') : e.message); }
     setBusy(false);
   };
   const verify = async () => {
@@ -207,7 +232,7 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
       p.api.setToken(r.token);
       try { localStorage.setItem(`${p.title}:user`, JSON.stringify(r.user)); } catch { /* ignore */ }
       setUser(r.user);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e.status === 429 ? tooMany(e, 'try') : e.message); }
     setBusy(false);
   };
 
@@ -224,10 +249,11 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
           </>
         ) : (
           <>
-            <Field label="One-time code" hint={devCode ? <>Development build: your code is <b>{devCode}</b></> : 'We sent a code to your phone.'}>
-              <input autoFocus inputMode="numeric" maxLength={6} placeholder="123456" value={code} onChange={(e) => setCode(e.target.value)} />
+            <Field label="One-time code" hint={mode === 'sms' ? 'We sent a 6-digit code to your phone.' : devCode ? <>Development build: your code is <b>{devCode}</b></> : 'We sent a code to your phone.'}>
+              <input autoFocus inputMode="numeric" maxLength={6} placeholder={mode === 'sms' ? '6-digit code' : '123456'} value={code} onChange={(e) => setCode(e.target.value)} />
             </Field>
             <Button type="submit" disabled={busy || code.length < 6}>{busy ? 'Checking…' : 'Sign in'}</Button>
+            {mode === 'sms' && <Button kind="ghost" disabled={busy || wait > 0} onClick={requestCode}>{wait > 0 ? `Send the code again in ${wait}s` : 'Send the code again'}</Button>}
             <Button kind="ghost" onClick={() => { setStep('phone'); setError(undefined); }}>Use a different number</Button>
           </>
         )}

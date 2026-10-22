@@ -50,7 +50,7 @@ export function useLinkParams(page: string): LinkParams | null {
 const CTA: Record<string, string> = {
   expenses: 'Review expense', 'my-claims': 'View claim', credit: 'Review refund', events: 'Review', bookings: 'Review booking', adverts: 'Review advert',
   suggestions: 'Read suggestion', shop: 'Open shop', integrations: 'Open settings', wallets: 'Top up credit', children: 'Open', today: 'Open Today',
-  cash: 'Review cash', members: 'Open', transfers: 'Decide', messages: 'Open',
+  cash: 'Review cash', 'held-payments': 'Review payment', members: 'Open', transfers: 'Decide', messages: 'Open',
 };
 export function ctaLabel(link: string | null | undefined, kind?: string): string {
   const l = parseLink(link);

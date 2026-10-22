@@ -1,5 +1,6 @@
 import { HttpError, type Ctx } from './ctx';
 import { addNotification } from './notifications';
+import { errLine } from './redact';
 import { consentFor } from './consent';
 import { ageBand, ageOn } from './members';
 import { CHANNEL_LABEL, checkLowBalance, integrationSettings, walletFor, walletLabel, type Channel } from './wallets';
@@ -317,7 +318,7 @@ export async function runScheduledMessages(ctx: Ctx): Promise<number> {
     try {
       if (await sendMessage(ctx, d.id)) n++;
     } catch (e) {
-      console.error('scheduled message failed', d.id, e);
+      console.error(`scheduled message failed ${errLine(e)}`);
     }
   }
   return n;

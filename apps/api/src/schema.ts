@@ -777,6 +777,10 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS member_id text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS for_name text;
 -- Members can delete messages from their own inbox (kept, hidden, so it can be undone).
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE held_payments ADD COLUMN IF NOT EXISTS resolution text;
+ALTER TABLE held_payments ADD COLUMN IF NOT EXISTS resolution_note text;
+ALTER TABLE held_payments ADD COLUMN IF NOT EXISTS resolved_by text;
+ALTER TABLE held_payments ADD COLUMN IF NOT EXISTS resolved_at timestamptz;
 -- Where the message points ("<app>:<page>?key=value") and which app shows it: staff tasks stay out of the member inbox.
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS link text;
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS audience text NOT NULL DEFAULT 'member' CHECK (audience IN ('member','staff'));
@@ -1596,6 +1600,31 @@ ALTER TABLE kids_pickup_people ADD COLUMN IF NOT EXISTS id_salt text;
 -- LG-21: older rows kept the full national ID number. Keep the last 4 digits and a salted hash, drop the rest.
 UPDATE kids_pickup_people SET id_salt=md5(id || random()::text), id_hash=NULL WHERE id_number IS NOT NULL AND id_number NOT LIKE '••••%' AND id_salt IS NULL;
 UPDATE kids_pickup_people SET id_hash=encode(sha256(convert_to(id_salt || ':' || upper(replace(id_number,' ','')), 'UTF8')),'hex'), id_number='••••' || right(replace(id_number,' ',''), 4) WHERE id_number IS NOT NULL AND id_number NOT LIKE '••••%' AND id_hash IS NULL;
+
+-- Slice 37 (data protection, LG-16): a person's request to close their account and have their data erased. The name shown to staff is
+-- kept only while the request is open and is cleared when it is completed.
+CREATE TABLE IF NOT EXISTS erasure_requests (
+  id text PRIMARY KEY,
+  user_id text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined','completed')),
+  reason text,
+  org_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+  subject_name text,
+  subject_phone text,
+  created_at timestamptz NOT NULL,
+  decided_by text,
+  decided_at timestamptz,
+  note text,
+  completed_at timestamptz,
+  result jsonb
+);
+CREATE INDEX IF NOT EXISTS erasure_requests_user ON erasure_requests(user_id, created_at);
+-- When a phone number was released by an erasure (a hash, never the number). Payments from before this moment, which keep the old
+-- payer phone for the financial record, are not shown to whoever registers the number next.
+CREATE TABLE IF NOT EXISTS erased_phones (
+  phone_hash text PRIMARY KEY,
+  erased_at timestamptz NOT NULL
+);
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;

@@ -21,6 +21,7 @@ import { advertRoutes } from './routes/adverts';
 import { communityRoutes } from './routes/community';
 import { bookingRoutes } from './routes/bookings';
 import { teamRoutes } from './routes/team';
+import { heldPaymentRoutes } from './routes/held-payments';
 import { shopRoutes } from './routes/shop';
 import { ticketRoutes } from './routes/tickets';
 import { kidsRoutes } from './routes/kids';
@@ -50,6 +51,8 @@ import { APP_SCHEMA } from './schema';
 import { als, auditContext } from './audit';
 import { CORS_HEADERS, CORS_METHODS, corsAllows, isProduction } from './cors';
 import { trustProxyHops } from './guards';
+import { errLine } from './redact';
+import { dataProtectionRoutes } from './routes/data-protection';
 
 /** The app named in X-Churchos-App is recorded in the audit trail, so only our own apps are believed (IN-03). */
 const KNOWN_APPS = new Set(['staff', 'member', 'giving', 'admin']);
@@ -79,8 +82,7 @@ const BAD_INPUT_SQLSTATES = new Set(['22021', '22P02', '22007', '22008', '22003'
 
 /** One short line, never a body, header, token, query string or phone number. */
 function logError(req: any, err: any) {
-  const msg = String(err?.message ?? '').replace(/\s+/g, ' ').slice(0, 200);
-  console.error(`error ${req?.method} ${String(req?.url ?? '').split('?')[0]} id=${req?.id} ${err?.constructor?.name ?? 'Error'}${err?.code ? ` [${err.code}]` : ''}: ${msg}`);
+  console.error(`error ${req?.method} ${String(req?.url ?? '').split('?')[0]} id=${req?.id} ${errLine(err)}`);
 }
 
 export interface BuildOptions {
@@ -131,7 +133,7 @@ export async function buildApp(opts: BuildOptions = {}) {
       try {
         await handleWebhook(ctx, raw, headers);
       } catch (e) {
-        console.error('webhook failed', e);
+        console.error(`webhook failed ${errLine(e)}`);
       }
     });
   }
@@ -182,7 +184,7 @@ export async function buildApp(opts: BuildOptions = {}) {
     origin: (origin, cb) => cb(null, corsAllows(origin)),
     methods: CORS_METHODS,
     allowedHeaders: CORS_HEADERS,
-    exposedHeaders: ['content-disposition'],
+    exposedHeaders: ['content-disposition', 'retry-after'],
     maxAge: 600,
   });
 
@@ -230,6 +232,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   communityRoutes(app, ctx);
   bookingRoutes(app, ctx);
   teamRoutes(app, ctx);
+  heldPaymentRoutes(app, ctx);
   shopRoutes(app, ctx);
   ticketRoutes(app, ctx);
   kidsRoutes(app, ctx);
@@ -252,6 +255,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   publicRoutes(app, ctx);
   staffRoutes(app, ctx);
   memberRoutes(app, ctx);
+  dataProtectionRoutes(app, ctx);
   memberRoutes2(app, ctx);
   recordRoutes(app, ctx);
   publicRecordRoutes(app, ctx);

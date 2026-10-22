@@ -1,3 +1,4 @@
+import { errLine } from '../redact';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { PSP_HEADER, PSP_IP_HEADER, PSP_TOKEN_HEADER, isMock, type PspName, type Provider } from '@churchos/payments';
 import type { Db } from '@churchos/ledger';
@@ -65,7 +66,7 @@ export function pspWebhookRoutes(app: FastifyInstance, ctx: Ctx) {
   const fail = (e: unknown): never => {
     if (e instanceof HttpError) throw e;
     // Never echo details to the caller or log the body (it holds phone numbers).
-    console.error('psp webhook failed', (e as Error)?.message);
+    console.error(`psp webhook failed ${errLine(e)}`);
     throw new HttpError(500, 'could not process', 'webhook_failed');
   };
 

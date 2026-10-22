@@ -3,7 +3,7 @@ export const API_URL: string =
   (import.meta as any).env?.VITE_API_URL ?? `${location.protocol}//${location.hostname}:4000`;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string, public code?: string) {
+  constructor(public status: number, message: string, public code?: string, public retryAfter?: number) {
     super(message);
   }
 }
@@ -48,7 +48,8 @@ export function createApi(tokenKey: string) {
     }
     if (!res.ok) {
       if (res.status === 401 && token) setToken(null);
-      throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, data?.code);
+      const ra = Number(res.headers.get('retry-after'));
+      throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, data?.code, Number.isFinite(ra) && ra > 0 ? ra : undefined);
     }
     return data as T;
   }

@@ -1,4 +1,5 @@
 import { HttpError, inList, type Ctx } from '../ctx';
+import { phoneSince } from '../dataprotection';
 import { maskPhoneSql } from './helpers';
 import { appendReversal } from './giving-ledger';
 
@@ -41,7 +42,7 @@ export async function createReversalRequest(
 
   // Verify the requester is entitled to ask: members only for payments from their own phone, staff only inside their scope.
   const anonOwner = payment.anonymous ? (await ctx.db.query<any>(`SELECT user_id FROM anonymous_gifts WHERE payment_id=$1`, [payment.id]))[0]?.user_id : null;
-  if (a.source === 'member' && (payment.anonymous ? !anonOwner || anonOwner !== a.userId : payment.payer_phone !== a.payerPhone)) {
+  if (a.source === 'member' && (payment.anonymous ? !anonOwner || anonOwner !== a.userId : payment.payer_phone !== a.payerPhone || new Date(payment.received_at).toISOString() < (await phoneSince(ctx, a.payerPhone ?? '')))) {
     throw new HttpError(403, 'That payment was not made from your phone number', 'not_your_payment');
   }
   if (a.source === 'staff' && payment.stage !== 'suspense' && !(a.branchIds ?? []).includes(payment.branch_id)) {

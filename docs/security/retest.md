@@ -22,9 +22,9 @@ Status after Waves 1 to 3. Checks run: full build, 697 API tests plus ledger, pa
 - LG-10: the database is in memory; use managed Postgres before launch.
 - AZ-20: row-level security is not the tenant boundary yet (handler checks held in testing).
 - AUTH-03: real SMS sign-in and a second factor for platform admins are not switched on.
-- LG-16: data export, erasure and retention are not built.
+- LG-16: export, erasure requests and automatic purges of codes, sessions and notifications are built (see docs/data-protection.md). Still open: legal review of retention periods and the privacy policy draft, manual purges for attendance, visitor and children records, and a platform-admin screen for erasure decisions (API only).
 - AZ-21: `?org=` left alone (no demo user has two churches).
-- AZ-18: link offers show only on the link screen; a person already in a church has no screen to accept one yet.
+- AZ-18: fixed: a person already in a church sees the offer on Home and in Me, and gets an inbox message.
 - No database CHECK constraints on amounts (parsing and ceilings are enforced in the API).
 - Giving checkout `?return=` for the member app needs `VITE_RETURN_ORIGINS` in production.
 - CI actions are pinned by major tag, not commit SHA.

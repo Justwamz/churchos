@@ -84,11 +84,12 @@ export async function checkPayment(ctx: Ctx, paymentId: string): Promise<Payment
   const paid = Number((await ctx.db.query<any>(`SELECT COALESCE(SUM(amount_paid),0) AS s FROM payments WHERE purpose=$1 AND org_id=$2 AND stage NOT IN ('reversed','refunded','suspense')`, [p.purpose, exp.orgId]))[0].s);
   const prefix = ACTION_PREFIX[exp.kind];
   const record = async (kind: 'underpaid' | 'overpaid', expected: number, shown: number, summary: string) => {
-    await ctx.db.query(`INSERT INTO held_payments (id, payment_id, purpose, expected, paid, kind, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [ctx.newId('hld'), p.id, p.purpose, expected, shown, kind, ctx.clock.now().toISOString()]);
+    const heldId = ctx.newId('hld');
+    await ctx.db.query(`INSERT INTO held_payments (id, payment_id, purpose, expected, paid, kind, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [heldId, p.id, p.purpose, expected, shown, kind, ctx.clock.now().toISOString()]);
     await ctx.ledger.audit({ orgId: p.org_id ?? exp.orgId, branchId: p.branch_id ?? null, actorType: 'psp', action: `${prefix}.${kind}`, category: 'money', entity: 'payment', entityId: p.id, summary, links: { paymentId: p.id }, meta: { purpose: p.purpose, expected, paid: shown } });
     if (p.branch_id) {
       for (const u of await staffWith(ctx, p.org_id, p.branch_id, 'collections.view')) {
-        await addNotification(ctx, { orgId: p.org_id, userId: u.id, kind: 'announcement', title: kind === 'underpaid' ? 'A payment is too small for its order' : 'A payment is more than its order', body: summary, link: 'staff:money', audience: 'staff' });
+        await addNotification(ctx, { orgId: p.org_id, userId: u.id, kind: 'announcement', title: kind === 'underpaid' ? 'A payment is too small for its order' : 'A payment is more than its order', body: summary, link: `staff:held-payments?id=${heldId}`, audience: 'staff' });
       }
     }
   };

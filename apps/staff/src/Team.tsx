@@ -8,7 +8,7 @@ import { useAction } from './prefill';
 import './team.css';
 import './setup.css';
 
-type Assignment = { id: string; roleId: string; role: string; builtIn: boolean; scopeType: string; scopeId: string | null; scope: string; permissionCount: number; canRemove: boolean };
+type Assignment = { id: string; roleId: string; role: string; builtIn: boolean; scopeType: string; scopeId: string | null; scope: string; permissionCount: number; canRemove: boolean; lastOwner?: boolean };
 type Person = { userId: string; name: string; phone: string; email?: string | null; you: boolean; assignments: Assignment[] };
 type Role = { id: string; name: string; builtIn: boolean; permissions: string[]; assigned: number };
 type Perm = { key: string; label: string; group: string; hint?: string };
@@ -125,7 +125,7 @@ function People({ data, catalog, reload, toast, addSignal, onSignal }: { data: T
   };
   const needle = q.trim().toLowerCase();
   const shown = data.people.filter((p) => !needle || [p.name, p.phone, p.email ?? '', ...p.assignments.map((a) => `${a.role} ${a.scope}`)].join(' ').toLowerCase().includes(needle));
-  const lastOwner = (a: Assignment) => a.role === OWNER && a.scopeType === 'org' && !a.canRemove;
+  const lastOwner = (a: Assignment) => !!a.lastOwner;
   return (
     <div className="stack">
       <StatTiles>
@@ -151,7 +151,7 @@ function People({ data, catalog, reload, toast, addSignal, onSignal }: { data: T
                       <span className="tm-access" key={a.id}>
                         <span>{a.role} · {a.scope}</span>
                         <button type="button" className="tm-x" aria-label={`Take the role ${a.role} for ${a.scope} away`} disabled={!a.canRemove}
-                          title={lastOwner(a) ? 'A church must always have an Organisation Owner' : a.canRemove ? 'Take this away' : 'You cannot change access for this place'}
+                          title={lastOwner(a) ? 'A church must always have an Organisation Owner' : a.canRemove ? 'Take this away' : a.role === OWNER ? 'Only an Organisation Owner can take this away' : 'You cannot change access for this place'}
                           onClick={() => { setErr(''); setRemoving({ p, a }); }}>x</button>
                       </span>
                     ))}

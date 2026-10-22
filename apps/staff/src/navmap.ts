@@ -10,7 +10,7 @@ export const AREAS: Area[] = [
   { id: 'people', label: 'People', icon: 'people', groups: [
     { ids: ['members', 'groups', 'children', 'transfers'] },
     { title: 'Care', ids: ['prayer', 'suggestions'] },
-    { title: 'Records', ids: ['records', 'template'] },
+    { title: 'Records', ids: ['records', 'template', 'data-requests'] },
   ] },
   { id: 'worship', label: 'Worship & events', icon: 'worship', groups: [
     { title: 'On the day', ids: ['usher', 'attendance', 'checkin'] },
@@ -18,7 +18,7 @@ export const AREAS: Area[] = [
     { title: 'Events and rooms', ids: ['events', 'credit', 'bookings', 'calendar', 'resources'] },
   ] },
   { id: 'money', label: 'Money', icon: 'money', groups: [
-    { title: 'Giving', ids: ['dashboard', 'collections', 'regular-giving', 'giving-records', 'cash'] },
+    { title: 'Giving', ids: ['dashboard', 'collections', 'regular-giving', 'giving-records', 'cash', 'held-payments'] },
     { title: 'Spending', ids: ['my-claims', 'expenses', 'projects'] },
     { title: 'Payouts', ids: ['settlements', 'payout', 'help'] },
     { title: 'Selling', ids: ['shop'] },

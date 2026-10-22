@@ -257,3 +257,38 @@ export function VisitorGiveTab({ onLink, renderGive }: { onLink: () => void; ren
     </div>
   );
 }
+
+/** A church added this person to its list. Shown to anyone signed in (Home, Me), whether or not they already belong to a church. Renders nothing when there is no offer. */
+export function LinkOffers({ onLinked }: { onLinked?: () => void }) {
+  const status = useAsync<Status>(() => api.get('/me/link/status'));
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | undefined>();
+  const toast = useToast();
+  const offers = status.data?.offers ?? [];
+  if (!offers.length) return null;
+  const answer = async (o: { id: string; church: string }, accept: boolean) => {
+    setBusy(o.id); setError(undefined);
+    try {
+      await api.post(`/me/link/offers/${encodeURIComponent(o.id)}/${accept ? 'accept' : 'decline'}`, {});
+      toast.show(accept ? `You are linked to ${o.church}` : 'Declined');
+      status.reload();
+      onLinked?.();
+    } catch (e) { setError(friendly(e)); }
+    setBusy(null);
+  };
+  return (
+    <Card title="A church added you">
+      {error && <ErrorNote>{error}</ErrorNote>}
+      <ul className="lk-reqs">
+        {offers.map((o) => (
+          <li key={o.id}>
+            <div className="lk-req-top"><strong>{o.church}</strong></div>
+            <span className="tiny">{o.branch}. They have your phone number on their member list. Link only if you belong to this church.</span>
+            <Button disabled={busy === o.id} onClick={() => answer(o, true)}>Accept</Button>
+            <Button kind="ghost" small disabled={busy === o.id} onClick={() => answer(o, false)}>Decline</Button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
