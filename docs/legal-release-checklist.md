@@ -34,7 +34,7 @@ The owner has said the operator is **not registered** with the Office of the Dat
 
 ## 6. Switches for launch
 
-- `ENFORCE_LEGAL_ACCEPTANCE=1`: the API answers 403 `legal_acceptance_required` to signed-in requests (except sign-in, `/legal/*`, `/me`, export, erasure) until Terms and Privacy are accepted for the current version. Default off; the apps already show the "Before you continue" screen. Turn it on at launch.
+- `ENFORCE_LEGAL_ACCEPTANCE=1`: the API answers 403 `legal_acceptance_required` to signed-in requests (except sign-in, `/legal/*`, `/me`, export, erasure) until Terms and Privacy are accepted for the current version. Set to 1 on the demo and at launch; the apps already show the "Before you continue" screen first.
 - `ENFORCE_DPA_BULK`: bulk messages need the church's Data Processing Agreement. Unset means on for a real launch (`NODE_ENV=production` with `SEED_DEMO=0`) and off for development, tests and the demo deployment. `1` forces on, `0` forces off.
 
 ## 7. Church onboarding steps

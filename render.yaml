@@ -27,6 +27,8 @@ services:
         value: "1"
       - key: ALLOW_DEMO_SEED # DEMO ONLY: production mode refuses to start with demo data unless this is 1. A real launch sets SEED_DEMO=0 and removes it.
         value: "1"
+      - key: ENFORCE_LEGAL_ACCEPTANCE # The API refuses signed-in requests until the person has accepted the current Terms and Privacy Notice.
+        value: "1"
       - key: SEED_DEMO
         value: "1"
       - key: LISTEN_EARLY

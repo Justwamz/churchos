@@ -71,6 +71,7 @@ Set on the `churchos-api` service (Environment tab). The Blueprint already conta
 | `ALLOW_DEMO_PSP` | `1` | unset | **Demo only.** Allows the payment simulator in production mode. The log says SIMULATED PAYMENTS ARE ON. |
 | `PSP_MODE` | unset | `live` | Real payments (see going-live-payments.md). Without `live` and without `ALLOW_DEMO_PSP=1` the API refuses to start. |
 | `ALLOW_DEMO_SEED` | `1` | unset | **Demo only.** Allows demo churches and people to load in production mode. |
+| `ENFORCE_LEGAL_ACCEPTANCE` | `1` | `1` | The API answers 403 `legal_acceptance_required` to signed-in requests until the person has accepted the current Terms of Use and Privacy Notice. The apps show the "Before you continue" screen first. |
 | `SEED_DEMO` | `1` | `0` | Real launch starts empty. |
 | `ENABLE_DEV_TOOLS` | unset | unset | `1` makes the platform admin clock, payment-simulation and webhook-replay tools reachable in production mode. Leave unset. |
 | `GIVING_URL` | giving site address | giving site address | Links in messages. |
