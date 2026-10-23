@@ -307,18 +307,4 @@ function HowItWorks() {
   );
 }
 
-// ---------------- Home card ----------------
 
-export function HomeKids({ families, onOpen }: { families: any[]; onOpen: () => void }) {
-  const here = families.flatMap((f) => f.children).filter((c: any) => c.inNow);
-  if (!here.length) return null;
-  const late = here.some((c: any) => c.inNow.late);
-  const text = here.map((c: any) => `${c.name.split(' ')[0]} is in ${c.inNow.className}, tag ${c.inNow.tag}, since ${timeOf(c.inNow.since)}`).join(' · ');
-  return (
-    <button type="button" className={`fam-home ${late ? 'late' : ''}`} onClick={onOpen}>
-      <span className="msg-ico"><Icon name="family" size={18} /></span>
-      <span className="fam-name"><strong>{late ? 'Please collect your child' : 'Children'}</strong><span className="tiny">{text}{late ? ' · waiting to be collected' : ''}</span></span>
-      <Icon name="chev" size={18} />
-    </button>
-  );
-}

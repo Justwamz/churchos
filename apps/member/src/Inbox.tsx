@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Button, ErrorNote, Note, shortDate } from '@churchos/ui';
 import { api } from './api';
+import { parseLink } from './links';
 import { Icon, Skeleton } from './ui';
 
 export type NotifState = { data?: any; error?: string; loading: boolean; reload: () => void; setData?: (d: any) => void };
@@ -8,16 +9,9 @@ export type NotifState = { data?: any; error?: string; loading: boolean; reload:
 /** Opens the screen a message link points at. Provided by the app shell (openLink in App.tsx). */
 export const LinkCtx = createContext<(link: string) => void>(() => {});
 
-/** `member:<page>?a=b` -> page + params; null for anything that is not a member link (staff links get no button). */
-export function parseLink(link?: string | null): { page: string; params: Record<string, string> } | null {
-  const m = /^member:([a-z-]+)(?:[?](.*))?$/i.exec(String(link ?? '').trim());
-  if (!m) return null;
-  const params: Record<string, string> = {};
-  new URLSearchParams(m[2] ?? '').forEach((v, k) => { params[k] = v; });
-  return { page: m[1].toLowerCase(), params };
-}
+export { parseLink };
 
-const CTA: Record<string, string> = { tickets: 'View ticket', credit: 'See credit', bookings: 'Open booking', book: 'Open booking', prayer: 'Open prayer', suggestions: 'Open suggestions', shop: 'Open shop', kids: 'Open children', events: 'See events', notices: 'See notices', groups: 'Open groups' };
+const CTA: Record<string, string> = { tickets: 'View ticket', credit: 'See credit', bookings: 'Open booking', book: 'Open booking', prayer: 'Open prayer', suggestions: 'Open suggestions', shop: 'Open shop', kids: 'Open children', events: 'See events', notices: 'See notices', groups: 'Open groups', me: 'Open my profile', home: 'Open Home' };
 export function ctaLabel(link?: string | null): string | null {
   const l = parseLink(link);
   if (!l) return null;

@@ -56,23 +56,6 @@ function NoticeSheet({ n, onClose }: { n: any | null; onClose: () => void }) {
   );
 }
 
-export function HomeNotices({ onAll }: { onAll: () => void }) {
-  const q = useAsync<any[]>(() => api.get('/me/notices'));
-  const [open, setOpen] = useState<any | null>(null);
-  const rows = (q.data ?? []).slice(0, 3);
-  return (
-    <section className="block">
-      <div className="block-head"><h3>Notice board</h3>{rows.length > 0 && <button type="button" className="link-btn" onClick={onAll}>See all</button>}</div>
-      {q.loading && !q.data ? <Skeleton lines={2} /> : q.error && !q.data ? <p className="tiny">We could not load notices right now.</p> : !rows.length ? (
-        <p className="mini-empty">No notices right now</p>
-      ) : (
-        <ul className="plain-list">{rows.map((n) => <li key={n.id}><NoticeCard n={n} onOpen={() => setOpen(n)} /></li>)}</ul>
-      )}
-      <NoticeSheet n={open} onClose={() => setOpen(null)} />
-    </section>
-  );
-}
-
 export function NoticesPage() {
   const q = useAsync<any[]>(() => api.get('/me/notices'));
   const [open, setOpen] = useState<any | null>(null);
@@ -208,24 +191,6 @@ function EventBody({ e, onSaved }: { e: any; onSaved: () => void }) {
         </div>
       )}
     </div>
-  );
-}
-
-export function HomeEvents({ onAll }: { onAll: () => void }) {
-  const q = useAsync<any[]>(() => api.get('/me/events'));
-  const [open, setOpen] = useState<string | null>(null);
-  const all = q.data ?? [];
-  const rows = all.slice(0, 3);
-  return (
-    <section className="block">
-      <div className="block-head"><h3>Coming up</h3>{rows.length > 0 && <button type="button" className="link-btn" onClick={onAll}>See all</button>}</div>
-      {q.loading && !q.data ? <Skeleton lines={2} /> : q.error && !q.data ? <p className="tiny">We could not load events right now.</p> : !rows.length ? (
-        <p className="mini-empty">No events coming up</p>
-      ) : (
-        <ul className="plain-list">{rows.map((e) => <li key={e.id}><EventCard e={e} onOpen={() => setOpen(e.id)} /></li>)}</ul>
-      )}
-      <EventSheet id={open} events={all} onClose={() => setOpen(null)} onSaved={q.reload} />
-    </section>
   );
 }
 

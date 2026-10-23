@@ -8,15 +8,15 @@ import { useWords } from './Words';
 // ---------------- helpers ----------------
 
 const TZ = 'Africa/Nairobi';
-const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).toLowerCase();
+export const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TZ }).toLowerCase();
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
-const whenOf = (iso: string) => `${dayOf(iso)}, ${timeOf(iso)}`;
+export const whenOf = (iso: string) => `${dayOf(iso)}, ${timeOf(iso)}`;
 const sameDay = (a: string, b: Date) => new Date(a).toLocaleDateString('en-KE', { timeZone: TZ }) === b.toLocaleDateString('en-KE', { timeZone: TZ });
 /** "10:10 am" today, or "Sat 25 Oct, 10:10 am" on another day. */
-const soonOf = (iso: string) => (sameDay(iso, new Date()) ? timeOf(iso) : whenOf(iso));
+export const soonOf = (iso: string) => (sameDay(iso, new Date()) ? timeOf(iso) : whenOf(iso));
 
 /** The service's state right now, worked out from its times so it stays right between refreshes. */
-function stateOf(s: any, now = Date.now()): 'before' | 'open' | 'closed' {
+export function stateOf(s: any, now = Date.now()): 'before' | 'open' | 'closed' {
   if (s.opensAt && s.closesAt) return now < +new Date(s.opensAt) ? 'before' : now > +new Date(s.closesAt) ? 'closed' : 'open';
   return s.state ?? 'before';
 }
@@ -369,31 +369,4 @@ function Invite({ s, onToast, onSent }: { s: any; onToast: (m: string) => void; 
   );
 }
 
-// ---------------- Home cards ----------------
 
-export function HomeServices({ onOpen }: { onOpen: () => void }) {
-  const wd = useWords();
-  const { services } = useServices();
-  const now = Date.now();
-  const open = services.find((s) => stateOf(s, now) === 'open' && !s.mine?.inPerson && !s.mine?.online);
-  const rd = services.find((s) => (opened(s) || locked(s)) && +new Date(s.startsAt) < now + 24 * 3600 * 1000 && +new Date(s.endsAt ?? s.startsAt) > now);
-  if (!open && !rd) return null;
-  return (
-    <>
-      {open && (
-        <button type="button" className="fam-home" onClick={onOpen}>
-          <span className="msg-ico"><Icon name="calendar" size={18} /></span>
-          <span className="fam-name"><strong>{wd.one} now: {open.name}. Check in</strong><span className="tiny">{open.branch} · {timeOf(open.startsAt)}</span></span>
-          <Icon name="chev" size={18} />
-        </button>
-      )}
-      {rd && (
-        <button type="button" className="fam-home svc-read-home" onClick={onOpen}>
-          <span className="msg-ico"><Icon name="pledge" size={18} /></span>
-          <span className="fam-name"><strong>{opened(rd) ? `Today's reading: ${rd.reading.title ?? rd.reading.lectionary?.title ?? rd.name}` : 'A reading is waiting. Check in to open it'}</strong><span className="tiny">{rd.name}, {whenOf(rd.startsAt)}</span></span>
-          <Icon name="chev" size={18} />
-        </button>
-      )}
-    </>
-  );
-}

@@ -81,29 +81,6 @@ function Stepper({ value, max, onChange, label }: { value: number; max: number; 
   );
 }
 
-// ---------------- Home card ----------------
-
-export function HomeShop({ onAll }: { onAll: () => void }) {
-  const q = useAsync<any>(() => api.get('/me/shop'));
-  const items: ShopItem[] = (q.data?.items ?? []).filter((i: ShopItem) => i.available).slice(0, 4);
-  if (!items.length) return null;
-  return (
-    <section className="block home-shop">
-      <div className="block-head"><h3>From the shop</h3><button type="button" className="link-btn" onClick={onAll}>See all</button></div>
-      <ul className="shop-mini">
-        {items.map((i) => (
-          <li key={i.id}>
-            <button type="button" onClick={onAll} aria-label={`${i.name}, ${kes(i.price)}`}>
-              <Picture item={i} />
-              <strong className="clamp2">{i.name}</strong>
-              <span className="tiny">{kes(i.price)}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
 
 // ---------------- page ----------------
 

@@ -9,7 +9,7 @@ import { Icon, Sheet, Skeleton } from './ui';
 
 const TZ = 'Africa/Nairobi';
 const dateLong = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ });
-const dateShort = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
+export const dateShort = (iso: string) => new Date(iso).toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: TZ });
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit', timeZone: TZ });
 const when = (iso: string) => `${dateLong(iso)}, ${timeOf(iso)}`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -437,7 +437,7 @@ export function TicketBuy({ code, eventId, advertId, onClose }: { code: string; 
 
 // ---------------- my tickets ----------------
 
-const isUpcoming = (ev: any) => !ev.cancelled && (ev.postponed || new Date(ev.endsAt ?? ev.startsAt).getTime() + (ev.endsAt ? 0 : 3 * 3600_000) >= Date.now());
+export const isUpcoming = (ev: any) => !ev.cancelled && (ev.postponed || new Date(ev.endsAt ?? ev.startsAt).getTime() + (ev.endsAt ? 0 : 3 * 3600_000) >= Date.now());
 
 function statusOf(t: any): { label: string; tone: string } {
   if (t.event.cancelled) return { label: 'Event cancelled', tone: 'bad' };
@@ -601,29 +601,4 @@ export function TicketsPage({ onEvents }: { onEvents: () => void }) {
   );
 }
 
-// ---------------- Home card ----------------
 
-export function HomeTickets({ onOpen }: { onOpen: () => void }) {
-  const q = useAsync<any>(() => api.get('/me/tickets'));
-  const next = useMemo(() => {
-    const valid = (q.data?.tickets ?? []).filter((t: any) => t.status === 'valid' && isUpcoming(t.event));
-    valid.sort((a: any, b: any) => +new Date(a.event.startsAt) - +new Date(b.event.startsAt));
-    const first = valid[0];
-    return first ? { ev: first.event, n: valid.filter((t: any) => t.event.id === first.event.id).length } : null;
-  }, [q.data]);
-  if (!next) return null;
-  return (
-    <section className="block tk-home">
-      <div className="block-head"><h3>Tickets</h3></div>
-      <div className="tk-home-body">
-        <Poster url={next.ev.posterUrl} title={next.ev.title} className="strip" />
-        <div className="tk-home-text">
-          <strong>Your next event: {next.ev.title}</strong>
-          {next.ev.postponed && <span><span className="badge warn">Postponed</span></span>}
-          <span className="tiny">{next.ev.postponed ? 'Date to be confirmed' : `${dateShort(next.ev.startsAt)}, ${timeOf(next.ev.startsAt)}`} · {next.n} {next.n === 1 ? 'ticket' : 'tickets'}</span>
-        </div>
-      </div>
-      <Button onClick={onOpen}>Show tickets</Button>
-    </section>
-  );
-}

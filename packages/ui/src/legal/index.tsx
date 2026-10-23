@@ -233,7 +233,7 @@ export function ConsentGate({ api, app, signOut, withMessageChoices = false, chi
             <legend>Optional. You can change these any time.</legend>
             <label className="consent-check"><input type="checkbox" checked={sms} onChange={(e) => setSms(e.target.checked)} /><span>Receive messages from my church by SMS</span></label>
             <label className="consent-check"><input type="checkbox" checked={wa} onChange={(e) => setWa(e.target.checked)} /><span>Receive messages from my church by WhatsApp</span></label>
-            <p className="muted consent-hint">Leaving these as they are changes nothing. Your church may send SMS notices unless you opt out in Me, Message choices. WhatsApp is sent only if you tick it.</p>
+            <p className="muted consent-hint">Leaving these as they are changes nothing. Your church may send SMS notices unless you opt out under your profile (your picture or initials), My profile and church, Message choices. WhatsApp is sent only if you tick it.</p>
           </fieldset>
         )}
         <button type="submit" className="btn primary" disabled={!agree || busy}>{busy ? 'Saving…' : 'Continue'}</button>

@@ -236,32 +236,4 @@ function DownSheet({ r, onClose, onDone }: { r: any | null; onClose: () => void;
   );
 }
 
-// ---------------- Home card ----------------
 
-export function HomePrayer({ onOpen }: { onOpen: () => void }) {
-  const feed = useAsync<any>(() => api.get('/me/prayer'));
-  const [busy, setBusy] = useState<string | null>(null);
-  const rows: any[] = (feed.data?.requests ?? []).filter((r: any) => r.status === 'open' && r.audience !== 'team').slice(0, 2);
-  if (!rows.length) return null;
-  const pray = async (r: any) => {
-    setBusy(r.id);
-    try { await api.post(`/me/prayer/${enc(r.id)}/pray`, {}); } catch { /* the list refreshes below */ }
-    feed.reload(); setBusy(null);
-  };
-  return (
-    <section className="block">
-      <div className="block-head"><h3>Prayer</h3><button type="button" className="link-btn" onClick={onOpen}>See all</button></div>
-      <ul className="plain-list pr-home">
-        {rows.map((r) => (
-          <li key={r.id}>
-            <div className="tiny">{r.mine ? 'You' : r.author} · {relTime(r.createdAt)}</div>
-            <p className="clamp2 pr-body" style={{ margin: '2px 0 6px' }}>{r.body}</p>
-            <button type="button" className={`btn ${r.prayed ? 'ghost' : 'primary'} pr-pray`} disabled={r.prayed || busy === r.id} onClick={() => pray(r)}>
-              <span aria-hidden="true">{'🙏'}</span> {r.prayed ? 'You prayed' : 'I prayed'} ({r.prayers ?? 0})
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}

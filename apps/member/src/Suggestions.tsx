@@ -114,21 +114,3 @@ export function SuggestionsPage() {
   );
 }
 
-export function HomeSaid({ onOpen }: { onOpen: () => void }) {
-  const pub = useAsync<any>(() => api.get('/me/suggestions/published'));
-  const rows: any[] = (pub.data?.suggestions ?? []).slice(0, 2);
-  if (!rows.length) return null;
-  return (
-    <section className="block">
-      <div className="block-head"><h3>You said, we did</h3><button type="button" className="link-btn" onClick={onOpen}>See all</button></div>
-      <ul className="plain-list pr-home">
-        {rows.map((s) => (
-          <li key={s.id}>
-            <div className="tiny">{s.categoryLabel}</div>
-            <p className="clamp2 pr-body" style={{ margin: '2px 0 0' }}>{s.response || s.body}</p>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}

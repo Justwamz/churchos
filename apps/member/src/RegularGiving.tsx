@@ -1,8 +1,8 @@
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import { useEffect, useMemo, useState } from 'react';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Note, phonePretty, useAsync } from '@churchos/ui';
+import { Badge, Button, Card, ErrorNote, Field, Note, phonePretty, useAsync } from '@churchos/ui';
 import { api, errText } from './api';
-import { Icon, Sheet, Skeleton } from './ui';
+import { Sheet, Skeleton } from './ui';
 import { AnonSwitch } from './GivingRecord';
 
 // ---------------- helpers ----------------
@@ -67,27 +67,6 @@ function StatusChip({ p }: { p: any }) {
 }
 const waiting = (p: any) => p.status !== 'ended' && (p.runs ?? [])[0]?.status === 'prompted';
 
-// ---------------- Home card ----------------
-
-export function HomeRegular({ onOpen }: { onOpen: () => void }) {
-  const q = usePlans();
-  const active = q.plans.filter((p) => p.status === 'active' || p.status === 'paused');
-  const wait = active.find(waiting);
-  const next = active.filter((p) => p.status === 'active' && p.nextRunAt && !p.skipNext).sort((a, b) => +new Date(a.nextRunAt) - +new Date(b.nextRunAt))[0];
-  if (!wait && !next) return null;
-  return (
-    <section className="block rg-home">
-      <button type="button" className={`rg-home-btn ${wait ? 'wait' : ''}`} onClick={onOpen}>
-        <span className="rg-home-ico"><Icon name={wait ? 'bell' : 'refresh'} size={22} /></span>
-        <span className="rg-home-text">
-          {wait ? <><strong>A gift is waiting for your PIN</strong><span className="tiny">{planTitle(wait)}. Check your phone.</span></>
-            : <><strong>Next regular gift: {kesCents(next.amount)} {next.purposeLabel}, {dayShort(next.nextRunAt)}</strong><span className="tiny">{timeOf(next.nextRunAt)}</span></>}
-        </span>
-        <Icon name="chev" size={20} />
-      </button>
-    </section>
-  );
-}
 
 // ---------------- The screen ----------------
 

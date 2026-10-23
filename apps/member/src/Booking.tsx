@@ -65,34 +65,8 @@ const Chip = ({ s }: { s: string }) => {
   const x = STATUS[s] ?? { label: s, tone: 'muted' };
   return <span className={`badge ${x.tone}`}>{x.label}</span>;
 };
-const isUpcoming = (b: any) => ['requested', 'awaiting_payment', 'confirmed'].includes(b.status) && new Date(b.endsAt).getTime() >= Date.now();
+export const isUpcomingBooking = (b: any) => ['requested', 'awaiting_payment', 'confirmed'].includes(b.status) && new Date(b.endsAt).getTime() >= Date.now();
 
-// ---------------- Home card ----------------
-
-export function HomeBookings({ onAll }: { onAll: () => void }) {
-  const q = useAsync<any[]>(() => api.get('/me/bookings'));
-  const rows = (q.data ?? []).filter(isUpcoming).sort((a, b) => a.startsAt.localeCompare(b.startsAt)).slice(0, 2);
-  if (!rows.length) return null;
-  return (
-    <section className="block">
-      <div className="block-head"><h3>Your bookings</h3><button type="button" className="link-btn" onClick={onAll}>See all</button></div>
-      <ul className="plain-list">
-        {rows.map((b) => (
-          <li key={b.id}>
-            <button type="button" className="bk-mini" onClick={onAll}>
-              <span className="msg-ico"><Icon name="calendar" size={18} /></span>
-              <span className="bk-mini-main">
-                <strong className="ell">{b.title}</strong>
-                <span className="tiny ell">{dateLong(b.startsAt)}, {timeOf(b.startsAt)}</span>
-              </span>
-              <Chip s={b.status} />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
 
 // ---------------- page ----------------
 
@@ -340,8 +314,8 @@ function MineTabView({ q }: { q: ReturnType<typeof useAsync<any[]>> }) {
   if (q.loading && !q.data) return <div className="card"><Skeleton lines={4} /></div>;
   if (q.error && !q.data) return <div className="stack"><ErrorNote>{q.error}</ErrorNote><Button kind="ghost" onClick={q.reload}>Try again</Button></div>;
   if (!rows.length) return <div className="empty-state"><Icon name="calendar" size={40} /><strong>No bookings yet</strong><span>Book a person, place or thing and it will show here.</span></div>;
-  const upcoming = rows.filter(isUpcoming).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  const past = rows.filter((b) => !isUpcoming(b));
+  const upcoming = rows.filter(isUpcomingBooking).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+  const past = rows.filter((b) => !isUpcomingBooking(b));
   return (
     <div className="stack">
       {upcoming.length > 0 && <section className="agenda"><h3 className="agenda-month">Coming up</h3><ul className="notice-list">{upcoming.map((b) => <li key={b.id}><BookingCard b={b} onCancel={() => setCancel(b)} /></li>)}</ul></section>}
@@ -352,7 +326,7 @@ function MineTabView({ q }: { q: ReturnType<typeof useAsync<any[]>> }) {
 }
 
 function BookingCard({ b, onCancel }: { b: any; onCancel: () => void }) {
-  const upcoming = isUpcoming(b);
+  const upcoming = isUpcomingBooking(b);
   const showReason = ['declined', 'cancelled', 'lapsed'].includes(b.status) && b.reason;
   return (
     <div className="block bk-card">

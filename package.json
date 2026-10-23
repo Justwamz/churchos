@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "test": "node scripts/check-form-rows.mjs && pnpm -r --workspace-concurrency=1 test",
+    "test": "node scripts/check-form-rows.mjs && node scripts/check-member-links.mjs && pnpm -r --workspace-concurrency=1 test",
     "build": "pnpm -r build",
     "smoke": "node scripts/smoke.mjs"
   },

@@ -8,9 +8,9 @@ Religious belief, children's data and pastoral data are sensitive personal data.
 
 | Right | Where | How |
 |---|---|---|
-| See and download their data | Member app, Me, "Download my data" | `GET /me/export`. JSON file. Limited to 3 a day per person. Written to the audit log as `data.export`. |
+| See and download their data | Member app, avatar menu, My data and privacy, "Download my data" | `GET /me/export`. JSON file. Limited to 3 a day per person. Written to the audit log as `data.export`. |
 | Correct their data | Member app (email, message choices, pick-up people); the church for name, date of birth and household | Existing screens. A church changes a member in the staff app (every change is audited). |
-| Close their account and have their data erased | Member app, Me, "Delete my account" | `GET /me/erasure-preview`, then `POST /me/erasure-request`. The church (or a platform admin) approves. |
+| Close their account and have their data erased | Member app, avatar menu, My data and privacy, "Delete my account" | `GET /me/erasure-preview`, then `POST /me/erasure-request`. The church (or a platform admin) approves. |
 
 ## What the export holds
 
@@ -66,7 +66,7 @@ The request keeps an `erasure_requests` row (id, status, who decided, when, note
 
 ## How a church answers a data request
 
-1. **Access**: send the person to the member app (Me, Download my data). If they cannot sign in, a church can confirm their identity in person and ask the platform admin to run an export.
+1. **Access**: send the person to the member app (avatar menu, My data and privacy, Download my data). If they cannot sign in, a church can confirm their identity in person and ask the platform admin to run an export.
 2. **Correction**: change the member in the staff app (People, Members). Changes are audited.
 3. **Erasure**: People, Data requests. Approve unless there is a reason not to (a refund in progress, a legal hold, an open dispute). Declining needs a written reason and the person sees it.
 4. **Timing**: answer within **30 days** (to confirm with counsel; the Act sets the period, check it).

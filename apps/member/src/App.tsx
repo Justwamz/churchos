@@ -1,44 +1,41 @@
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { BrandMark, useChurchBranding, Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, ConsentGate, LegalApp, LegalLinks, isLegalPath, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
+import { BrandMark, useChurchBranding, Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, ConsentGate, LegalApp, isLegalPath, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
 import type { BrandInfo, CertificatePayload } from '@churchos/ui';
 import { api, errText, useOnline } from './api';
-import { Inbox, LinkCtx, parseLink, useOpenMessage } from './Inbox';
+import { Inbox, LinkCtx } from './Inbox';
 import { MessageChoices } from './Choices';
-import { MyData } from './MyData';
-import { Groups } from './Groups';
-import { EventsPage, HomeEvents, HomeNotices, NoticesPage } from './Community';
-import { BookPage, HomeBookings } from './Booking';
-import { AdvertSlider } from './Adverts';
-import { HomeShop, ShopPage } from './Shop';
-import type { ShopIntent } from './Shop';
+import { MyData, SecurityScreen } from './MyData';
 import { Icon, Sheet, Skeleton } from './ui';
-import { CreditNote, CreditPage, HomeCredit } from './Credit';
-import { FamilyPage, HomeKids, useFamilies } from './Family';
-import { HomeRegular, RegularGiving } from './RegularGiving';
+import { FamilyPage, useFamilies } from './Family';
+import { RegularGiving } from './RegularGiving';
 import { AnonSwitch, GivingRecord } from './GivingRecord';
-import { HomeServices, ServicesPage } from './Services';
-import { HomePrayer, PrayerPage } from './Prayer';
-import { HomeSaid, SuggestionsPage } from './Suggestions';
 import { WordsProvider, useWords } from './Words';
 import { LinkHome, LinkOffers, Locked, VisitorGiveTab } from './LinkChurch';
-import { HomeTickets, TICKET_PENDING_KEY, TicketsPage, UserCtx } from './Tickets';
+import { TICKET_PENDING_KEY, UserCtx } from './Tickets';
+import type { ShopIntent } from './Shop';
+import { CommunityHub, ServicesHub } from './Hubs';
+import type { CommunitySection, EventsSub, ServicesSection } from './Hubs';
+import { Home } from './Home';
+import type { HomeLinks } from './Home';
+import { ProfileMenu } from './ProfileMenu';
+import { useInstall } from './Install';
+import { hashFor, placeForHash, placeForLink } from './links';
+import type { GiveSub, Place, ProfileTarget, Tab } from './links';
 
-type Tab = 'home' | 'give' | 'services' | 'kids' | 'inbox' | 'groups' | 'me';
-type HomeSub = 'notices' | 'events' | 'book' | 'bookings' | 'shop' | 'tickets' | 'credit' | 'prayer' | 'suggestions';
-type GiveSub = 'give' | 'pledges' | 'history' | 'regular';
-type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number };
+type Nav = { tab: Tab; sub: GiveSub; purpose?: string; k: number; section?: string; esub: EventsSub; psub: ProfileTarget };
 type Go = (t: Tab, o?: { sub?: GiveSub; purpose?: string }) => void;
+/** Six tabs at most. Children only shows for a member who has children. Me is gone: the avatar opens the profile menu. */
 const TABS: { key: Tab; label: string; ico: string }[] = [
   { key: 'home', label: 'Home', ico: 'home' },
   { key: 'give', label: 'Give', ico: 'give' },
   { key: 'services', label: 'Services', ico: 'calendar' },
-  { key: 'kids', label: 'Children', ico: 'family' },
+  { key: 'community', label: 'Community', ico: 'groups' },
   { key: 'inbox', label: 'Messages', ico: 'chat' },
-  { key: 'groups', label: 'Groups', ico: 'groups' },
-  { key: 'me', label: 'Me', ico: 'me' },
+  { key: 'kids', label: 'Children', ico: 'family' },
 ];
-const TITLES: Record<Tab, string> = { home: 'Home', give: 'Give', services: 'Services', kids: 'Children', inbox: 'Messages', groups: 'Groups', me: 'Me' };
+const TITLES: Record<Tab, string> = { home: 'Home', give: 'Give', services: 'Services', community: 'Community', inbox: 'Messages', kids: 'Children', profile: 'My profile and church' };
+const PROFILE_TITLES: Record<ProfileTarget, string> = { main: 'My profile and church', data: 'My data and privacy', security: 'Security' };
 
 const METHODS = [
   { key: 'mpesa', label: 'M-Pesa' },
@@ -79,12 +76,16 @@ export function App() {
   );
 }
 
-function parseHash(): Nav {
-  const h = location.hash.replace('#', '');
-  if (h === 'history') return { tab: 'give', sub: 'history', k: 0 };
-  if (h === 'church' || h === 'help') return { tab: 'me', sub: 'give', k: 0 };
-  if (TABS.some((t) => t.key === h)) return { tab: h as Tab, sub: 'give', k: 0 };
-  return { tab: 'home', sub: 'give', k: 0 };
+const toNav = (p: Place, k: number): Nav => ({ tab: p.tab, sub: p.sub ?? 'give', purpose: p.purpose, k, section: p.section, esub: p.esub ?? 'events', psub: p.psub ?? 'main' });
+function parseHash(): Nav { return toNav(placeForHash(location.hash), 0); }
+/** A paid ticket or shop order that was left half way (card page) reopens where it can be finished. */
+function initialNav(): Nav {
+  const n = parseHash();
+  try {
+    if (n.tab === 'home' && localStorage.getItem(TICKET_PENDING_KEY)) return toNav({ tab: 'services', section: 'events', esub: 'tickets' }, 0);
+    if (n.tab === 'home' && localStorage.getItem('churchos:shop-pending')) return toNav({ tab: 'services', section: 'shop' }, 0);
+  } catch { /* storage blocked */ }
+  return n;
 }
 
 const BRAND_APP = { label: 'Member', description: 'Give, read messages from your church, join groups and keep your records.', defaultTheme: '#0e5a52' };
@@ -98,17 +99,41 @@ function ChurchLogo({ brand, size = 36 }: { brand: BrandInfo | null; size?: numb
 function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const { brand } = useChurchBranding(api, BRAND_APP);
   const words = useWords();
-  const [nav, setNav] = useState<Nav>(parseHash);
+  const [nav, setNav] = useState<Nav>(initialNav);
   const tab = nav.tab;
-  const [homeSub, setHomeSub] = useState<HomeSub | null>(() => { try { return localStorage.getItem(TICKET_PENDING_KEY) ? 'tickets' : localStorage.getItem('churchos:shop-pending') ? 'shop' : null; } catch { return null; } });
   const [shopIntent, setShopIntent] = useState<ShopIntent | undefined>();
   const [shopK, setShopK] = useState(0);
-  const openShop = (i?: ShopIntent) => { setShopIntent(i); setShopK((k) => k + 1); setHomeSub('shop'); if (mainRef.current) mainRef.current.scrollTop = 0; };
-  const showTickets = () => { setNav((p) => ({ tab: 'home', sub: 'give', k: p.k + 1 })); setHomeSub('tickets'); try { history.replaceState(null, '', '#home'); } catch { /* ignore */ } if (mainRef.current) mainRef.current.scrollTop = 0; };
-  useEffect(() => { window.addEventListener('churchos:open-tickets', showTickets); return () => window.removeEventListener('churchos:open-tickets', showTickets); }, []); // eslint-disable-line
-  const showSub = (s: HomeSub) => { setNav((p) => ({ tab: 'home', sub: 'give', k: p.k + 1 })); setHomeSub(s); try { history.replaceState(null, '', '#home'); } catch { /* ignore */ } if (mainRef.current) mainRef.current.scrollTop = 0; };
-  useEffect(() => { const a = () => showSub('prayer'); const b = () => showSub('suggestions');  window.addEventListener('churchos:open-prayer', a); window.addEventListener('churchos:open-suggestions', b); return () => { window.removeEventListener('churchos:open-prayer', a); window.removeEventListener('churchos:open-suggestions', b); }; }, []); // eslint-disable-line
-  useEffect(() => { const c = () => showSub('credit'); const ev = () => showSub('events'); window.addEventListener('churchos:open-credit', c); window.addEventListener('churchos:open-events', ev); return () => { window.removeEventListener('churchos:open-credit', c); window.removeEventListener('churchos:open-events', ev); }; }, []); // eslint-disable-line
+  const [helpOpen, setHelpOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+  const toTop = () => { if (mainRef.current) mainRef.current.scrollTop = 0; };
+
+  /** Move to a place. Profile screens are pushed onto the browser history so Back works; everything else replaces the address, as before. */
+  const open = (p: Place, how: 'replace' | 'push' = 'replace') => {
+    setNav((prev) => toNav(p, prev.k + 1));
+    try { if (how === 'push') history.pushState({ pf: true }, '', hashFor(p)); else history.replaceState(null, '', hashFor(p)); } catch { /* ignore */ }
+    toTop();
+  };
+  const openShop = (i?: ShopIntent) => { setShopIntent(i); setShopK((k) => k + 1); open({ tab: 'services', section: 'shop' }); };
+  const openProfile = (t: ProfileTarget = 'main') => open({ tab: 'profile', psub: t }, 'push');
+  const events = useRef<Record<string, () => void>>({});
+  events.current = {
+    'churchos:open-tickets': () => open({ tab: 'services', section: 'events', esub: 'tickets' }),
+    'churchos:open-prayer': () => open({ tab: 'community', section: 'prayer' }),
+    'churchos:open-suggestions': () => open({ tab: 'community', section: 'suggestions' }),
+    'churchos:open-credit': () => open({ tab: 'services', section: 'events', esub: 'credit' }),
+    'churchos:open-events': () => open({ tab: 'services', section: 'events', esub: 'events' }),
+  };
+  useEffect(() => {
+    const fns = Object.keys(events.current).map((name) => [name, () => events.current[name]()] as const);
+    fns.forEach(([n, f]) => window.addEventListener(n, f));
+    // Back and Forward (and a hash typed into the address bar) move between the places the history holds.
+    const onPop = () => setNav((prev) => ({ ...parseHash(), k: prev.k + 1 }));
+    window.addEventListener('popstate', onPop);
+    window.addEventListener('hashchange', onPop);
+    return () => { fns.forEach(([n, f]) => window.removeEventListener(n, f)); window.removeEventListener('popstate', onPop); window.removeEventListener('hashchange', onPop); };
+  }, []);
+  // an old hash (#me, #groups, #tickets) is rewritten to the address it now lives at
+  useEffect(() => { try { if (location.hash && location.hash !== hashFor(nav)) history.replaceState(history.state, '', hashFor(nav)); } catch { /* ignore */ } }, []); // eslint-disable-line
   const me = useAsync<any>(() => api.get('/me'));
   const online = useOnline();
   const fams = useFamilies();
@@ -120,7 +145,6 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   notifData.current = notif.data;
   const setNotifData = useRef(notif.setData);
   setNotifData.current = notif.setData;
-  const mainRef = useRef<HTMLElement>(null);
   const unread = Number(notif.data?.unread ?? 0);
 
   useEffect(() => {
@@ -145,47 +169,52 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
     return () => { alive = false; clearInterval(timer); document.removeEventListener('visibilitychange', tick); window.removeEventListener('online', tick); window.removeEventListener('churchos:gift-done', onGift); };
   }, []);
 
-  const go: Go = (t, o) => {
-    setHomeSub(null);
-    setNav((p) => ({ tab: t, sub: o?.sub ?? 'give', purpose: o?.purpose, k: p.k + 1 }));
-    try { history.replaceState(null, '', `#${t}`); } catch { /* ignore */ }
-    if (mainRef.current) mainRef.current.scrollTop = 0;
-  };
-
-  /** Message links: member:<page>?params -> the screen the app really has. Unknown pages go Home. */
-  const openLink = (link: string) => {
-    const l = parseLink(link);
-    if (!l) return;
-    if (unlinked && l.page !== 'give') { go('home'); return; }
-    const subs: Record<string, HomeSub> = { tickets: 'tickets', credit: 'credit', bookings: 'bookings', book: 'book', events: 'events', notices: 'notices', prayer: 'prayer', suggestions: 'suggestions' };
-    if (l.page === 'give') { const sub = (['give', 'pledges', 'history', 'regular'] as GiveSub[]).find((x) => x === l.params.sub); go('give', { sub: sub ?? 'give' }); }
-    else if (l.page === 'shop') openShop();
-    else if (subs[l.page]) showSub(subs[l.page]);
-    else if (l.page === 'kids') go(hasKids ? 'kids' : 'home');
-    else if (l.page === 'groups') go('groups');
-    else go('home');
-  };
-
-  useEffect(() => { if (!api.getToken()) signOut(); }, [me.error]); // eslint-disable-line
+  /** Move to a tab (and the give section); the profile and the hub sections go through open(). */
+  const go: Go = (t, o) => open({ tab: t, sub: o?.sub, purpose: o?.purpose });
 
   const m = me.data?.memberships?.[0];
   const unlinked = !!me.data && !me.data.memberships?.length;
-  const onLinked = () => { me.reload(); fams.reload(); notif.reload(); setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; };
+  /** Message links: member:<page>?params -> the screen the app really has. Unknown pages go Home. */
+  const openLink = (link: string) => {
+    const p = placeForLink(link, { unlinked, hasKids });
+    if (!p) return;
+    if (p.tab === 'services' && p.section === 'shop') openShop();
+    else open(p, p.tab === 'profile' ? 'push' : 'replace');
+  };
+  const links: HomeLinks = {
+    give: (o) => go('give', o),
+    inbox: () => go('inbox'),
+    kids: () => go(hasKids ? 'kids' : 'home'),
+    services: () => open({ tab: 'services', section: 'services' }),
+    tickets: () => open({ tab: 'services', section: 'events', esub: 'tickets' }),
+    events: () => open({ tab: 'services', section: 'events', esub: 'events' }),
+    bookings: () => open({ tab: 'services', section: 'events', esub: 'bookings' }),
+    credit: () => open({ tab: 'services', section: 'events', esub: 'credit' }),
+    shop: openShop,
+    prayer: () => open({ tab: 'community', section: 'prayer' }),
+    suggestions: () => open({ tab: 'community', section: 'suggestions' }),
+    notices: () => open({ tab: 'community', section: 'notices' }),
+  };
+
+  useEffect(() => { if (!api.getToken()) signOut(); }, [me.error]); // eslint-disable-line
+  const onLinked = () => { me.reload(); fams.reload(); notif.reload(); toTop(); };
   const name = String(m?.full_name ?? user?.name ?? '');
-  const helpScreen = tab === 'give' && nav.sub === 'history' ? 'member.history' : tab === 'groups' || tab === 'me' ? 'member.church' : tab === 'inbox' ? 'member.inbox' : tab === 'give' ? 'member.give' : 'member.home';
+  const helpScreen = tab === 'give' && nav.sub === 'history' ? 'member.history' : tab === 'community' || tab === 'profile' ? 'member.church' : tab === 'inbox' ? 'member.inbox' : tab === 'give' ? 'member.give' : 'member.home';
+  const profileBack = () => { if (history.state?.pf) history.back(); else open(nav.psub === 'main' ? { tab: 'home' } : { tab: 'profile', psub: 'main' }); };
+  const section = nav.section as string | undefined;
   return (
     <BrandCtx.Provider value={brand}><div className="app">
       <header className="appbar">
-        {tab === 'home' && homeSub && !unlinked && <button type="button" className="icon-btn" aria-label="Back to Home" onClick={() => { setHomeSub(null); if (mainRef.current) mainRef.current.scrollTop = 0; }}><Icon name="back" size={24} /></button>}
-        {tab === 'home' && (!homeSub || unlinked) && <ChurchLogo brand={brand} />}
+        {tab === 'profile' && <button type="button" className="icon-btn" aria-label={nav.psub === 'main' ? 'Back' : 'Back to my profile'} onClick={profileBack}><Icon name="back" size={24} /></button>}
+        {tab === 'home' && <ChurchLogo brand={brand} />}
         <div className="appbar-title">
-          {tab === 'home' && homeSub && !unlinked ? <strong>{homeSub === 'notices' ? 'Notice board' : homeSub === 'events' ? 'Events' : homeSub === 'shop' ? 'Shop' : homeSub === 'tickets' ? 'My tickets' : homeSub === 'credit' ? 'Event credit' : homeSub === 'prayer' ? 'Prayer' : homeSub === 'suggestions' ? 'Suggestion box' : 'Book'}</strong> : tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : TITLES[tab]}</strong>}
+          {tab === 'home' ? (<><span className="appbar-sub">ChurchOS</span><strong>{m?.branch_name ?? 'Welcome'}</strong></>) : <strong>{tab === 'services' ? words.many : tab === 'profile' ? (unlinked && nav.psub === 'main' ? 'Church link status' : PROFILE_TITLES[nav.psub]) : TITLES[tab]}</strong>}
         </div>
         <button type="button" className="icon-btn bell" aria-label={unread > 0 ? `Messages, ${unread} unread` : 'Messages'} onClick={() => go('inbox')}>
           <Icon name="bell" size={24} />
           {unread > 0 && <span className="count" aria-hidden="true">{unread > 9 ? '9+' : unread}</span>}
         </button>
-        <button type="button" className="avatar" aria-label="My profile" onClick={() => go('me')}>{initials(name)}</button>
+        <ProfileMenu initials={initials(name)} name={name} church={m ? `${m.branch_name} · ${m.org_name}` : undefined} number={m?.member_number} linked={!unlinked} active={tab === 'profile'} onOpen={openProfile} onHelp={() => setHelpOpen(true)} signOut={signOut} />
       </header>
 
       <LinkCtx.Provider value={openLink}>
@@ -195,14 +224,15 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           {me.loading && !me.data ? <Loading /> : me.error && !me.data ? <Failed error={me.error} retry={me.reload} /> : (
             <>
               {tab === 'home' && unlinked && <LinkHome user={user} first={String(user?.name ?? '').split(' ')[0]} onLinked={onLinked} />}
-              {tab === 'home' && !unlinked && (homeSub === 'notices' ? <NoticesPage /> : homeSub === 'events' ? <><CreditNote /><EventsPage /></> : homeSub === 'credit' ? <CreditPage user={user} onEvents={() => setHomeSub('events')} /> : homeSub === 'prayer' ? <PrayerPage /> : homeSub === 'suggestions' ? <SuggestionsPage /> : homeSub === 'tickets' ? <TicketsPage onEvents={() => setHomeSub('events')} /> : homeSub === 'shop' ? <ShopPage key={shopK} user={user} intent={shopIntent} /> : homeSub === 'book' || homeSub === 'bookings' ? <BookPage key={homeSub} initialTab={homeSub === 'bookings' ? 'mine' : 'book'} /> : <Home onLinked={onLinked} me={me.data} user={user} go={go} families={fams.families} notif={notif} openSub={(s) => (s === 'shop' ? openShop() : setHomeSub(s))} openShop={openShop} />)}
+              {tab === 'home' && !unlinked && <Home onLinked={onLinked} me={me.data} user={user} families={fams.families} notif={notif} links={links} banner={<InstallBanner />} />}
               {tab === 'give' && <GiveTab me={me.data} user={user} online={online} nav={nav} go={go} unlinked={unlinked} />}
-              {tab === 'services' && (unlinked ? <Locked onLink={() => go('home')} /> : <ServicesPage hasMembership={!!me.data?.memberships?.length} />)}
+              {tab === 'services' && (unlinked ? <Locked onLink={() => go('home')} /> : <ServicesHub section={(section ?? 'services') as ServicesSection} esub={nav.esub} onSection={(s) => open({ tab: 'services', section: s, esub: nav.esub })} onEsub={(e) => open({ tab: 'services', section: 'events', esub: e })} hasMembership={!!me.data?.memberships?.length} user={user} shopIntent={shopIntent} shopK={shopK} />)}
               {tab === 'kids' && unlinked && <Locked onLink={() => go('home')} />}
               {tab === 'kids' && !unlinked && hasKids && <FamilyPage families={fams.families} reload={fams.reload} loading={fams.loading} />}
+              {tab === 'kids' && !unlinked && !hasKids && <Card title="Children"><Empty>You have no children recorded at your church.</Empty></Card>}
               {tab === 'inbox' && <Inbox n={notif} online={online} />}
-              {tab === 'groups' && (unlinked ? <Locked onLink={() => go('home')} /> : <Groups />)}
-              {tab === 'me' && <Me me={me.data} user={user} reload={() => { me.reload(); fams.reload(); notif.reload(); }} signOut={signOut} onLink={() => go('home')} />}
+              {tab === 'community' && <CommunityHub section={(section ?? 'groups') as CommunitySection} onSection={(s) => open({ tab: 'community', section: s })} unlinked={unlinked} onLink={() => go('home')} />}
+              {tab === 'profile' && <ProfileScreen psub={nav.psub} me={me.data} user={user} reload={() => { me.reload(); fams.reload(); notif.reload(); }} signOut={signOut} />}
             </>
           )}
         </div>
@@ -210,6 +240,9 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
       </LinkCtx.Provider>
 
       <HelpButton api={api} audience="member" screen={helpScreen} />
+      <Sheet open={helpOpen} onClose={() => setHelpOpen(false)} title="Help">
+        {helpOpen && <Help />}
+      </Sheet>
       <nav className="tabbar" aria-label="Main">
         <div className="rail-brand">{brand?.hasLogo ? <ChurchLogo brand={brand} size={44} /> : <span className="rail-mark" aria-hidden="true">{'✚'}</span>}<span className="rail-name"><strong>ChurchOS</strong><span>{m?.branch_name ?? 'Welcome'}</span></span></div>
         {TABS.filter((t) => t.key !== 'kids' || (hasKids && !unlinked)).map((t) => (
@@ -222,124 +255,6 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         ))}
       </nav>
     </div></BrandCtx.Provider>
-  );
-}
-
-// ---------------- Home ----------------
-
-function greeting() {
-  const h = new Date().getHours();
-  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-}
-
-function Home({ onLinked, me, user, go, families, notif, openSub, openShop }: { me: any; families: any[]; user: any; go: Go; notif: any; onLinked: () => void; openSub: (s: HomeSub) => void; openShop: (i?: ShopIntent) => void }) {
-  const m = me?.memberships?.[0];
-  const giving = useAsync<any>(() => api.get('/me/giving'));
-  const first = String(m?.full_name ?? user?.name ?? '').split(' ')[0];
-  const household: any[] = me?.household ?? [];
-  const children = household.filter((h) => h.relationship === 'Child');
-  const recent: any[] = (giving.data?.rows ?? []).slice(0, 3);
-  const latest: any[] = (notif.data?.rows ?? []).slice(0, 2);
-  const unread = Number(notif.data?.unread ?? 0);
-  const openMsg = useOpenMessage(notif.reload);
-  const actions: { ico: string; label: string; on: () => void }[] = [
-    { ico: 'give', label: 'Give tithe', on: () => go('give', { purpose: 'TITHE' }) },
-    { ico: 'coin', label: 'Give offering', on: () => go('give', { purpose: 'OFFERING' }) },
-    { ico: 'refresh', label: 'Give regularly', on: () => go('give', { sub: 'regular' }) },
-    { ico: 'history', label: 'My giving history', on: () => go('give', { sub: 'history' }) },
-    { ico: 'cert', label: 'Records and certificates', on: () => go('me') },
-    { ico: 'swap', label: 'Transfer church', on: () => go('me') },
-    { ico: 'pledge', label: 'My pledges', on: () => go('give', { sub: 'pledges' }) },
-    { ico: 'calendar', label: 'Book', on: () => openSub('book') },
-    { ico: 'bag', label: 'Shop', on: () => openShop() },
-    { ico: 'ticket', label: 'My tickets', on: () => openSub('tickets') },
-    { ico: 'heart', label: 'Prayer', on: () => openSub('prayer') },
-    { ico: 'megaphone', label: 'Suggestion box', on: () => openSub('suggestions') },
-  ];
-  return (
-    <div className="stack home">
-      <div className="greet">
-        <h1>{greeting()}{first ? `, ${first}` : ''}</h1>
-        {m ? <p>{m.branch_name} · {m.org_name}</p> : <p>You are not linked to a church yet. Ask your church to add you, or request a move in the Me tab.</p>}
-      </div>
-      <LinkOffers onLinked={onLinked} />
-
-      <InstallBanner />
-
-      <AdvertSlider onShop={openShop} />
-      <HomeServices onOpen={() => go('services')} />
-      <HomeKids families={families} onOpen={() => go('kids')} />
-      <HomeCredit onEvents={() => openSub('events')} onCredit={() => openSub('credit')} />
-      <HomeTickets onOpen={() => openSub('tickets')} />
-      <HomeRegular onOpen={() => go('give', { sub: 'regular' })} />
-
-      <HomePrayer onOpen={() => openSub('prayer')} />
-      <HomeSaid onOpen={() => openSub('suggestions')} />
-      <HomeNotices onAll={() => openSub('notices')} />
-      <HomeEvents onAll={() => openSub('events')} />
-      <HomeBookings onAll={() => openSub('bookings')} />
-      <HomeShop onAll={() => openShop()} />
-
-      <div className="quick" role="group" aria-label="Quick actions">
-        {actions.map((a) => (
-          <button type="button" key={a.label} className="tile" onClick={a.on}>
-            <span className="tile-ico"><Icon name={a.ico} size={26} /></span>
-            <span className="tile-label">{a.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {latest.length > 0 && (
-        <section className="block">
-          <div className="block-head"><h3>Latest messages{unread > 0 ? <span className="badge warn" style={{ marginLeft: 8 }}>{unread} new</span> : null}</h3><button type="button" className="link-btn" onClick={() => go('inbox')}>See all</button></div>
-          <ul className="plain-list">
-            {latest.map((r) => (
-              <li key={r.id}>
-                <button type="button" className={`mini-msg ${r.read ? '' : 'unread'}`} onClick={() => (parseLink(r.link) ? openMsg(r) : go('inbox'))}>
-                  <span className={`msg-ico ${isReceipt(r) ? 'good' : r.kind === 'announcement' ? 'announce' : ''}`}><Icon name={isReceipt(r) ? 'check' : r.kind === 'announcement' ? 'megaphone' : 'chat'} size={18} /></span>
-                  <span className="mini-text"><strong>{r.title}</strong><span className="clamp2">{r.body}</span></span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="block">
-        <div className="block-head"><h3>Recent giving</h3><button type="button" className="link-btn" onClick={() => go('give', { sub: 'history' })}>History</button></div>
-        {giving.loading ? <Skeleton lines={3} /> : giving.error ? <Failed error={giving.error} retry={giving.reload} /> : (
-          <>
-            <div className="total-row"><span className="tiny">Total given</span><span className="total">{kes(giving.data?.total ?? 0)}</span></div>
-            {!recent.length ? <Empty>Your first gift will show here.</Empty> : (
-              <ul className="plain-list">
-                {recent.map((r) => (
-                  <li key={r.id} className="gift-row">
-                    <span className="msg-ico good"><Icon name="give" size={18} /></span>
-                    <span className="gift-main"><strong>{purposeLabel(r.purpose)}</strong><span className="tiny">{shortDate(r.date)} · {r.church ?? 'Church'}</span></span>
-                    <span className="amt">{kes(r.amount)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </section>
-
-      {children.length > 0 && (
-        <section className="block">
-          <div className="block-head"><h3>For your family</h3></div>
-          <ul className="plain-list">
-            {children.map((c) => (
-              <li key={c.id} className="gift-row">
-                <span className="msg-ico"><Icon name="family" size={18} /></span>
-                <span className="gift-main"><strong>{c.full_name}</strong><span className="tiny">Child · {c.member_number}</span></span>
-              </li>
-            ))}
-          </ul>
-          <p className="tiny" style={{ margin: '10px 0 0' }}>Children do not sign in. Messages about them from your church arrive in your Messages, marked with their name.</p>
-        </section>
-      )}
-    </div>
   );
 }
 
@@ -437,7 +352,7 @@ function Give({ me, user, online, church, initPurpose, nav, go, visitorCode, bac
     setBusy(false);
   };
 
-  if (!m && !visitorCode) return <Card title="Give"><Empty>You are not linked to a church yet, so we cannot show where to give. Open the Me tab to request a move.</Empty></Card>;
+  if (!m && !visitorCode) return <Card title="Give"><Empty>You are not linked to a church yet, so we cannot show where to give. Open My profile from the avatar menu to request a move.</Empty></Card>;
   if (church.loading) return <Loading />;
   if (church.error || !church.data) return <Failed error={church.error ?? 'We could not load your church.'} retry={church.reload} />;
 
@@ -658,11 +573,18 @@ function History() {
   );
 }
 
-// ---------------- Me ----------------
+// ---------------- Profile (opened from the avatar menu) ----------------
 
 const REL: Record<string, string> = { Adult: 'Adult', Child: 'Child' };
 
-function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload: () => void; signOut: () => void; onLink: () => void }) {
+/** The three profile screens: #profile (membership, household, records, message choices, moving church), #profile/data and #profile/security. */
+function ProfileScreen({ psub, me, user, reload, signOut }: { psub: ProfileTarget; me: any; user: any; reload: () => void; signOut: () => void }) {
+  if (psub === 'data') return <div className="stack profile-narrow"><MyData signOut={signOut} /></div>;
+  if (psub === 'security') return <div className="profile-narrow"><SecurityScreen /></div>;
+  return <ProfileMain me={me} user={user} reload={reload} />;
+}
+
+function ProfileMain({ me, user, reload }: { me: any; user: any; reload: () => void }) {
   const ms: any[] = me?.memberships ?? [];
   const m = ms[0];
   const household: any[] = me?.household ?? [];
@@ -671,7 +593,6 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [moveOpen, setMoveOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const toast = useToast();
   const name = String(m?.full_name ?? user?.name ?? '');
   const linked = ms.length > 0;
@@ -689,7 +610,7 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
   };
 
   return (
-    <div className="stack">
+    <div className="stack profile-page">
       <div className="profile">
         <span className="avatar big" aria-hidden="true">{initials(name)}</span>
         <div className="profile-text">
@@ -699,9 +620,7 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
         </div>
       </div>
 
-      <InstallCard />
-
-      {!linked && <Card title="My church"><Locked onLink={onLink}>Your membership, records and certificates show here once your church has approved you.</Locked></Card>}
+      {!linked && <Card title="My church"><Locked onLink={() => { window.location.hash = '#home'; }}>Your membership, records and certificates show here once your church has approved you.</Locked></Card>}
       <LinkOffers onLinked={reload} />
       {linked && <Card title="My membership">
         {!ms.length ? <Empty>You are not linked to a church yet.</Empty> : (
@@ -746,17 +665,9 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
         </Card>
       )}
 
-      <MyData signOut={signOut} />
-
-      <div className="menu">
-        {linked && <><button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-tickets'))}><Icon name="ticket" /><span>My tickets</span><Icon name="chev" size={18} /></button>
-        <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-prayer'))}><Icon name="heart" /><span>Prayer requests</span><Icon name="chev" size={18} /></button>
-        <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-suggestions'))}><Icon name="megaphone" /><span>Suggestion box</span><Icon name="chev" size={18} /></button>
-        <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button></>}
-        <button type="button" onClick={() => setHelpOpen(true)}><Icon name="help" /><span>Help and payment issues</span><Icon name="chev" size={18} /></button>
-        <a className="menu-legal" href="/legal" target="_blank" rel="noopener"><Icon name="help" /><span>Terms, privacy and cookies</span><Icon name="chev" size={18} /></a>
-        <button type="button" className="danger" onClick={signOut}><Icon name="logout" /><span>Sign out</span></button>
-      </div>
+      {linked && <div className="menu">
+        <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button>
+      </div>}
 
       <Sheet open={moveOpen} onClose={() => setMoveOpen(false)} title="Moving to a new church?">
         <div className="stack">
@@ -770,95 +681,35 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
           <Button disabled={busy || code.trim().length < 3} onClick={request}>{busy ? 'Sending…' : 'Request to move'}</Button>
         </div>
       </Sheet>
-      <Sheet open={helpOpen} onClose={() => setHelpOpen(false)} title="Help">
-        {helpOpen && <Help />}
-      </Sheet>
       {toast.node}
     </div>
   );
 }
 
-function InstallCard() {
-  const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
-  const [installed, setInstalled] = useState(false);
-  const brand = useContext(BrandCtx);
-  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
-  useEffect(() => {
-    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
-    const onInstalled = () => { setInstalled(true); setEvt(null); (window as any).__installPrompt = null; };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('appinstalled', onInstalled); };
-  }, []);
-  if (standalone || installed) return null;
-  if (evt) {
-    const install = async () => {
-      try {
-        await evt.prompt();
-        const r = await evt.userChoice;
-        if (r?.outcome === 'accepted') setInstalled(true);
-      } catch { /* the browser decided not to show it */ }
-      setEvt(null);
-      (window as any).__installPrompt = null;
-    };
-    return (
-      <Card title="Install the app">
-        <div className="stack">
-          <p className="muted" style={{ margin: 0 }}>Add {brand?.hasLogo && brand.name ? brand.name : 'ChurchOS'} to your home screen to open it like any other app.</p>
-          <Button onClick={install}>Install app</Button>
-        </div>
-      </Card>
-    );
-  }
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  if (ios) return <p className="tiny" style={{ margin: 0 }}>To install: tap Share, then Add to Home Screen</p>;
-  return null;
-}
 const INSTALL_DISMISS_KEY = 'churchos:member-install-dismissed';
 const INSTALL_SNOOZE_MS = 7 * 86_400_000;
 
 /**
  * A visible "Install the app" card at the top of Home, for phones where the app is not installed yet. It can be put off for a week; the
- * Install card under Me stays for anyone who wants it later. Where the browser cannot install (iPhone) it shows the two taps instead.
+ * Install app item in the profile menu stays for anyone who wants it later. Where the browser cannot install (iPhone) it shows the two taps instead.
  */
 function InstallBanner() {
-  const [evt, setEvt] = useState<any>(() => (window as any).__installPrompt ?? null);
   const [gone, setGone] = useState(() => { try { return Date.now() - Number(localStorage.getItem(INSTALL_DISMISS_KEY) ?? 0) < INSTALL_SNOOZE_MS; } catch { return false; } });
-  const [installed, setInstalled] = useState(false);
   const brand = useContext(BrandCtx);
-  const standalone = window.matchMedia?.('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+  const inst = useInstall();
   const phone = window.matchMedia?.('(max-width: 760px)').matches ?? true;
-  useEffect(() => {
-    const onPrompt = (e: Event) => { e.preventDefault(); (window as any).__installPrompt = e; setEvt(e); };
-    const onReady = () => setEvt((window as any).__installPrompt ?? null);
-    const onInstalled = () => { setInstalled(true); setEvt(null); (window as any).__installPrompt = null; };
-    window.addEventListener('beforeinstallprompt', onPrompt);
-    window.addEventListener('churchos:install-ready', onReady);
-    window.addEventListener('appinstalled', onInstalled);
-    return () => { window.removeEventListener('beforeinstallprompt', onPrompt); window.removeEventListener('churchos:install-ready', onReady); window.removeEventListener('appinstalled', onInstalled); };
-  }, []);
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  if (standalone || installed || gone || !phone || (!evt && !ios)) return null;
+  if (inst.hidden || gone || !phone || (!inst.evt && !inst.ios)) return null;
   const later = () => { try { localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now())); } catch { /* ignore */ } setGone(true); };
-  const install = async () => {
-    try {
-      await evt.prompt();
-      const r = await evt.userChoice;
-      if (r?.outcome === 'accepted') setInstalled(true);
-    } catch { /* the browser decided not to show it */ }
-    setEvt(null);
-    (window as any).__installPrompt = null;
-  };
   const name = brand?.hasLogo && brand.name ? brand.name : 'ChurchOS';
   return (
     <section className="install-banner" aria-label="Install the app">
       <span className="install-ico" aria-hidden="true"><Icon name="install" size={26} /></span>
       <div className="install-text">
         <strong>Install the {name} app</strong>
-        <span>{evt ? 'Open it from your home screen like any other app: faster, and full screen.' : 'Tap the Share button, then "Add to Home Screen".'}</span>
+        <span>{inst.evt ? 'Open it from your home screen like any other app: faster, and full screen.' : 'Tap the Share button, then "Add to Home Screen".'}</span>
       </div>
       <div className="install-actions">
-        {evt && <button type="button" className="install-go" onClick={install}>Install</button>}
+        {inst.evt && <button type="button" className="install-go" onClick={inst.install}>Install</button>}
         <button type="button" className="install-later" onClick={later}>Not now</button>
       </div>
     </section>

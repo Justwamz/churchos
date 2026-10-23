@@ -29,28 +29,6 @@ export function CreditNote() {
   return <p className="crd-line"><Icon name="coin" size={18} /><span>Your credit <strong>{kes(total)}</strong> will be used at checkout.</span></p>;
 }
 
-/** Home card: a reminder that credit is waiting, only when there is some. */
-export function HomeCredit({ onEvents, onCredit }: { onEvents: () => void; onCredit: () => void }) {
-  const credit = useCredit();
-  const events = useAsync<any[]>(() => api.get('/me/events'));
-  const total = Number(credit.data?.total ?? 0);
-  if (total <= 0) return null;
-  const n = (events.data ?? []).filter((e) => e.ticketed && !e.soldOut && e.status !== 'cancelled' && e.status !== 'postponed').length;
-  return (
-    <section className="block crd-home">
-      <div className="crd-home-top">
-        <span className="crd-ico"><Icon name="coin" size={26} /></span>
-        <div className="crd-home-text">
-          <strong>You have {kes(total)} of event credit</strong>
-          <span className="tiny">{n > 0 ? `${n} upcoming ${n === 1 ? 'event has' : 'events have'} tickets you can use it on.` : 'Use it the next time you buy tickets from your church.'}</span>
-        </div>
-      </div>
-      <Button onClick={onEvents}>See upcoming events</Button>
-      <button type="button" className="link-btn crd-link" onClick={onCredit}>See my credit</button>
-    </section>
-  );
-}
-
 // ---------------- the screen ----------------
 
 function statusChip(r: any) {

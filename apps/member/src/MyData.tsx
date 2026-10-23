@@ -50,7 +50,6 @@ export function MyData({ signOut }: { signOut: () => void }) {
 
   return (
     <>
-      <SecurityPanel api={api} toast={toast.show} />
       <Card title="My data">
         <div className="stack">
           <p className="muted" style={{ margin: 0 }}>You can download a copy of the information we hold about you, or ask to close your account and have your details erased.</p>
@@ -104,5 +103,16 @@ export function MyData({ signOut }: { signOut: () => void }) {
       </Sheet>
       {toast.node}
     </>
+  );
+}
+
+/** Security: passkeys and the places this account is signed in. Its own screen under the profile menu. */
+export function SecurityScreen() {
+  const toast = useToast();
+  return (
+    <div className="stack">
+      <SecurityPanel api={api} toast={toast.show} />
+      {toast.node}
+    </div>
   );
 }
