@@ -1,3 +1,4 @@
+import { INTERNAL_SEED_KEY } from './ctx';
 import type { FastifyInstance } from 'fastify';
 import type { Ctx } from './ctx';
 import { addDays, dueAt, eatToday, weekStartOf } from './eat';
@@ -9,7 +10,7 @@ import { addDays, dueAt, eatToday, weekStartOf } from './eat';
  */
 export async function seedAttendanceDemo(app: FastifyInstance, ctx: Ctx) {
   const token = (await app.inject({ method: 'POST', url: '/auth/otp/verify', payload: { phone: '0700000001', code: '123456' } })).json().token as string;
-  const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, payload: payload as any, headers: { authorization: `Bearer ${token}` } });
+  const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, payload: payload as any, headers: { authorization: `Bearer ${token}`, 'x-churchos-internal-seed': INTERNAL_SEED_KEY } });
   const common = { branchId: 'br_grc001', range: 'year' };
   await post('/attendance/schedules', { ...common, name: 'Sunday Service, 8:00', weekdays: [7], startTime: '08:00', durationMin: 90 });
   await post('/attendance/schedules', { ...common, name: 'Sunday Service, 10:30', weekdays: [7], startTime: '10:30', durationMin: 120, streamUrl: 'https://www.youtube.com/@gracecommunitychurch/live' });
@@ -25,7 +26,7 @@ export async function seedAttendanceDemo(app: FastifyInstance, ctx: Ctx) {
   let sunday = eatToday(ctx.clock.now());
   while (new Date(`${sunday}T00:00:00Z`).getUTCDay() !== 0) sunday = addDays(sunday, 1);
   for (let i = 0; i < 6; i++) {
-    await app.inject({ method: 'PUT', url: `/lectionary/${sunday}`, payload: { title: 'Sunday readings (sample)', readings: sets[i % sets.length], note: 'Sample references. Enter your own from the lectionary.' } as any, headers: { authorization: `Bearer ${token}` } });
+    await app.inject({ method: 'PUT', url: `/lectionary/${sunday}`, payload: { title: 'Sunday readings (sample)', readings: sets[i % sets.length], note: 'Sample references. Enter your own from the lectionary.' } as any, headers: { authorization: `Bearer ${token}`, 'x-churchos-internal-seed': INTERNAL_SEED_KEY } });
     sunday = addDays(sunday, 7);
   }
 

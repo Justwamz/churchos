@@ -1,3 +1,4 @@
+import { INTERNAL_SEED_KEY } from './ctx';
 import type { FastifyInstance } from 'fastify';
 import type { Ctx } from './ctx';
 import { gradientPng } from './artwork';
@@ -14,7 +15,7 @@ export async function seedExpensesDemo(app: FastifyInstance, ctx: Ctx) {
 
   const token = async (phone: string) => (await app.inject({ method: 'POST', url: '/auth/otp/verify', payload: { phone, code: '123456' } })).json().token as string;
   const [esther, samuel, daniel, vera] = [await token('0700000002'), await token('0700000003'), await token('0700000001'), await token('0700000010')];
-  const call = (tok: string, method: 'GET' | 'POST' | 'PUT', url: string, payload?: unknown) => app.inject({ method, url, payload: payload as any, headers: { authorization: `Bearer ${tok}` } });
+  const call = (tok: string, method: 'GET' | 'POST' | 'PUT', url: string, payload?: unknown) => app.inject({ method, url, payload: payload as any, headers: { authorization: `Bearer ${tok}`, 'x-churchos-internal-seed': INTERNAL_SEED_KEY } });
   const setup = (await call(esther, 'GET', '/expenses/setup')).json();
   const cat = (name: string) => setup.categories.find((c: any) => c.name === name).id as string;
   const day = (ago: number) => new Date(ctx.clock.now().getTime() + 3 * 3600_000 - ago * 86_400_000).toISOString().slice(0, 10);

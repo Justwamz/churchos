@@ -9,6 +9,10 @@ import { setActor } from './audit';
 import { enterSessionScope } from './dbscope';
 import { runSystem } from '@churchos/ledger';
 import { LEGAL_VERSION } from '@churchos/shared';
+import { randomBytes } from 'node:crypto';
+
+/** Known only to this process: the demo seeding calls the API as demo users before they could have accepted the Terms, so those calls carry it. */
+export const INTERNAL_SEED_KEY = randomBytes(16).toString('hex');
 
 export interface Ctx {
   db: Db;
@@ -70,6 +74,7 @@ export async function requireSession(req: FastifyRequest, _reply: FastifyReply) 
 const LEGAL_EXEMPT = [/^\/auth\//, /^\/legal\//, /^\/public\//, /^\/me$/, /^\/me\/export$/, /^\/me\/erasure-(preview|request)$/];
 async function enforceLegalAcceptance(c: Ctx, req: FastifyRequest, s: Session) {
   if (process.env.ENFORCE_LEGAL_ACCEPTANCE !== '1') return;
+  if (req.headers['x-churchos-internal-seed'] === INTERNAL_SEED_KEY) return;
   const path = String(req.url).split('?')[0];
   if (LEGAL_EXEMPT.some((r) => r.test(path))) return;
   const ok = await runSystem(() => c.db.query<any>(`SELECT 1 FROM legal_acceptances WHERE user_id=$1 AND doc='terms_privacy' AND version=$2 LIMIT 1`, [s.uid, LEGAL_VERSION]));
