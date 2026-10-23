@@ -40,7 +40,7 @@
 .reveal { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .linkish { padding: 0; border: 0; background: none; font: inherit; color: var(--accent); cursor: pointer; border-radius: 6px; }
 .linkish:hover code { text-decoration: underline; }
-.linkish:focus-visible { outline: none; box-shadow: var(--ring); }
+.linkish:focus-visible { box-shadow: var(--ring); }
 .shell code { font-size: 0.92em; }
 .row-open { cursor: pointer; }
 

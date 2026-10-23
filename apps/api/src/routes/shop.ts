@@ -338,7 +338,7 @@ export function shopRoutes(app: FastifyInstance, ctx: Ctx) {
     const b = (req.body ?? {}) as any;
     const s = await saleRow(req, (req.params as any).id, 'shop.manage');
     if (s.status !== 'completed') throw new HttpError(409, 'Only a completed sale can be voided', 'wrong_state');
-    if (s.method !== 'cash') throw new HttpError(409, 'This was paid by mobile money or card. Ask for the payment to be reversed in Payment help, and record a return for the stock.', 'not_cash');
+    if (s.method !== 'cash') throw new HttpError(409, 'This was paid by mobile money or card. Ask for the payment to be reversed in Help with a payment, and record a return for the stock.', 'not_cash');
     if ((ctx.clock.now().getTime() - Date.parse(s.completed_at)) / 3600_000 > VOID_HOURS) throw new HttpError(409, `A sale can only be voided within ${VOID_HOURS} hours`, 'too_late');
     const reason = text(b.reason, 200, 'reason', true)!;
     const restock = b.restock !== false;

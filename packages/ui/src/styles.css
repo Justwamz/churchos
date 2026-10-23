@@ -5,7 +5,7 @@
   --surface: #ffffff;
   --ink: #17212b;
   --ink-2: #4a5663;
-  --ink-3: #7b8794;
+  --ink-3: #5b6773;
   --line: #e6e1d6;
   --brand: #0e5a52;
   --brand-2: #0b4740;
@@ -14,7 +14,7 @@
   --gold-tint: #f8efdc;
   --good: #1d7a4a;
   --good-tint: #e3f3ea;
-  --warn: #9a6a00;
+  --warn: #7d5600;
   --warn-tint: #fbf0d4;
   --bad: #b3322d;
   --bad-tint: #fbe6e4;
@@ -74,6 +74,8 @@ a { color: var(--brand); }
 .grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); min-width: 0; }
+.card-head h2 { font-size: 1.05rem; }
+.shell .card-head h2 { font-size: 17px; line-height: 1.3; }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; min-width: 0; }
@@ -94,7 +96,19 @@ a { color: var(--brand); }
 .btn.ghost:hover:not(:disabled) { background: var(--brand-tint); }
 .btn.danger { background: var(--bad); color: #fff; }
 .btn.small { padding: 6px 12px; min-height: 34px; font-size: 13px; }
-.btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 45%, transparent); outline-offset: 1px; }
+/* ONE focus ring for everything a keyboard user can land on: 2px, 2px away from the edge, in the accent (or brand) colour, which reads on light and dark surfaces.
+   Pages must not set outline:none on :focus-visible. A row inside a clipped list sets outline-offset:-3px instead so the ring stays inside. */
+:root { --focus: var(--accent, var(--brand)); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offset: 2px; }
+[tabindex='-1']:focus, [tabindex='-1']:focus-visible { outline: none; }
+/* Scrollable regions that a keyboard must be able to reach carry tabindex=0 and a label (see ScrollRegion). */
+.scroll-region:focus-visible { outline-offset: -2px; }
+.note-retry { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.note-retry .btn { flex: none; }
+.page-failed { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 16px 18px; margin: 16px 0; }
+.page-failed .tiny { color: inherit; opacity: 0.85; }
+.offline-banner { margin: 0 0 12px; }
 
 .field { display: grid; gap: 4px; margin-bottom: 12px; }
 .field-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
@@ -136,6 +150,19 @@ input[type='checkbox'] { width: 18px; min-height: 18px; height: 18px; }
 .table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .table tr:last-child td { border-bottom: 0; }
 .table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-wrap:focus-visible { outline-offset: -2px; }
+@media (max-width: 760px) {
+  .table-wrap.stackable { overflow-x: visible; }
+  .stackable > .table, .stackable > .table tbody, .stackable > .table tr, .stackable > .table td { display: block; width: 100%; }
+  .stackable > .table thead { position: absolute; left: -9999px; }
+  .stackable > .table tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .stackable > .table tr:last-child { border-bottom: 0; }
+  .stackable > .table td { border: 0; padding: 4px 2px; display: flex; gap: 12px; justify-content: space-between; align-items: center; text-align: right; overflow-wrap: anywhere; }
+  .stackable > .table td::before { content: attr(data-label); flex: none; max-width: 45%; font-size: 12px; color: var(--ink-3); text-align: left; font-weight: 600; }
+  .stackable > .table td:not([data-label])::before { display: none; }
+  .stackable > .table td:not([data-label]) { justify-content: flex-end; }
+  .stackable > .table td .row, .stackable > .table td .btn { justify-self: end; }
+}
 
 .spinner { width: 22px; height: 22px; border: 3px solid var(--line); border-top-color: var(--brand); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 24px auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -286,7 +313,8 @@ input[type='checkbox'] { width: 18px; min-height: 18px; height: 18px; }
 .audit-modal { max-height: calc(100vh - 32px); overflow-y: auto; }
 .audit-filters { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .audit-row { cursor: pointer; }
-.audit-row:hover, .audit-row:focus-visible { background: var(--brand-tint); outline: none; }
+.audit-row:hover, .audit-row:focus-visible { background: var(--brand-tint); }
+.audit-row:focus-visible { outline-offset: -3px; }
 .audit-timeline { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line); display: grid; gap: 14px; }
 .audit-timeline li { position: relative; padding-left: 6px; }
 .audit-timeline li::before { content: ''; position: absolute; left: -22px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--brand); }
@@ -320,6 +348,13 @@ label:has(> input[type='radio']) > input, label:has(> input[type='checkbox']) > 
 .table td .row { flex-wrap: wrap; align-items: center; }
 .table td .btn.ghost.small { background: var(--brand-tint); border-color: transparent; color: var(--brand); }
 .table td .btn.ghost.small:hover:not(:disabled) { background: color-mix(in srgb, var(--brand) 16%, var(--surface)); }
+
+/* ---- Touch targets: on a phone every small control is at least 44px high (desktop is unchanged) ---- */
+@media (max-width: 700px) {
+  .btn.small, .table .btn.small, .row .btn.small, .table td .btn.ghost.small { min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+  .chip { min-height: 44px; }
+  .tabbar button { min-height: 48px; }
+}
 
 /* ---- Legal pages, consent step and the owner's agreement card ---- */
 .legal-shell { min-height: 100vh; background: var(--paper); }
@@ -392,3 +427,8 @@ label:has(> input[type='radio']) > input, label:has(> input[type='checkbox']) > 
 .login-card.consent-card h1 { font-size: 26px; }
 .login-card.consent-card p.muted { font-size: 15px; margin-bottom: 6px; }
 @media (max-width: 599px) { .login-card.consent-card { padding-top: calc(5vh + env(safe-area-inset-top, 0px)); } }
+
+.dpa-bar { display: flex; gap: 10px 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 0 12px; }
+.dpa-bar-text { flex: 1 1 320px; min-width: 0; }
+.dpa-bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.dpa-bar-actions .btn { width: auto; margin: 0; }

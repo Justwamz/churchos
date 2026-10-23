@@ -81,7 +81,7 @@ export function Projects() {
                 return (
                   <Card key={p.id}>
                     <div className="pj-head">
-                      <div><h3>{p.name}</h3><span className="mn-sub">{p.code} · {p.branch_name}{p.deadline ? ` · by ${dateOnly(p.deadline)}` : ''}</span></div>
+                      <div><h2>{p.name}</h2><span className="mn-sub">{p.code} · {p.branch_name}{p.deadline ? ` · by ${dateOnly(p.deadline)}` : ''}</span></div>
                       {p.restricted ? <StatusChip tone="wait">Restricted fund</StatusChip> : null}
                     </div>
                     {p.description && <p className="pj-desc">{p.description}</p>}

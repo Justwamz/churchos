@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, ErrorNote, Field, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, shortDate, useAsync, useToast, Failed } from '@churchos/ui';
 import { api, friendly } from './session';
 import { Card, EmptyState, PageHeader, Skeleton, StatusChip } from './ui';
 import './join-requests.css';
@@ -32,7 +32,7 @@ export function DataRequests() {
     const denied = /missing permission|forbidden|do not have access/i.test(d.error);
     return denied
       ? <EmptyState icon="shield" title="Data requests are not available to you" text="Only the church owner looks after requests to erase a member's data." />
-      : <ErrorNote>{friendly(d.error)}</ErrorNote>;
+      : <Failed onRetry={d.reload}>{friendly(d.error)}</Failed>;
   }
   const rows = d.data?.requests ?? [];
   return (

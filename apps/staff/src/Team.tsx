@@ -5,6 +5,7 @@ import { Load } from './bits';
 import { Modal } from './MemberForm';
 import { Card, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip, Toolbar } from './ui';
 import { useAction } from './prefill';
+import { Icon } from './icons';
 import './team.css';
 import './setup.css';
 
@@ -137,14 +138,14 @@ function People({ data, catalog, reload, toast, addSignal, onSignal }: { data: T
       {shown.length === 0 ? <Card><EmptyState icon="people" title={data.people.length === 0 ? 'No team members yet' : 'Nobody matches that'} text={data.people.length === 0 ? 'Add the people who help you run the church.' : 'Try a different name, phone or role.'}
         action={data.people.length === 0 && data.canManage ? <Button onClick={() => setAdding('new')}>Add team member</Button> : undefined} /></Card> : (
         <Card pad={false}>
-        <div className="table-wrap"><table className="table">
+        <div className="table-wrap stackable"><table className="table">
           <thead><tr><th>Name</th><th>Phone</th><th>Access</th><th /></tr></thead>
           <tbody>
           {shown.map((p) => (
             <tr key={p.userId}>
-              <td className="tm-name"><b>{p.name || 'No name yet'}</b> {p.you && <StatusChip tone="info">You</StatusChip>}{p.email && <div className="tiny" style={{ overflowWrap: 'anywhere' }}>{p.email}</div>}</td>
-              <td className="mono">{p.phone}</td>
-              <td style={{ minWidth: 220 }}>
+              <td className="tm-name" data-label="Name"><b>{p.name || 'No name yet'}</b> {p.you && <StatusChip tone="info">You</StatusChip>}{p.email && <div className="tiny" style={{ overflowWrap: 'anywhere' }}>{p.email}</div>}</td>
+              <td className="mono" data-label="Phone">{p.phone}</td>
+              <td className="tm-access-cell" data-label="Access">
                 {p.assignments.length === 0 ? <span className="tiny">No access</span> : (
                   <div className="tm-chips">
                     {p.assignments.map((a) => (
@@ -152,7 +153,7 @@ function People({ data, catalog, reload, toast, addSignal, onSignal }: { data: T
                         <span>{a.role} · {a.scope}</span>
                         <button type="button" className="tm-x" aria-label={`Take the role ${a.role} for ${a.scope} away`} disabled={!a.canRemove}
                           title={lastOwner(a) ? 'A church must always have an Organisation Owner' : a.canRemove ? 'Take this away' : a.role === OWNER ? 'Only an Organisation Owner can take this away' : 'You cannot change access for this place'}
-                          onClick={() => { setErr(''); setRemoving({ p, a }); }}>x</button>
+                          onClick={() => { setErr(''); setRemoving({ p, a }); }}><Icon name="close" size={16} /></button>
                       </span>
                     ))}
                   </div>
@@ -169,7 +170,11 @@ function People({ data, catalog, reload, toast, addSignal, onSignal }: { data: T
       {adding && <AddDialog data={data} catalog={catalog} person={adding === 'new' ? undefined : adding} onClose={() => setAdding(null)} onDone={(m) => { setAdding(null); toast(m); reload(); }} />}
       {removing && (
         <Confirm title="Take access away" confirmLabel="Take it away" busy={busy} error={err} onYes={remove} onClose={() => setRemoving(null)}>
-          <p style={{ margin: 0 }}>Take the role {removing.a.role} for {removing.a.scope} away from {removing.p.name || 'this person'}?</p>
+          <p style={{ margin: 0 }}>Take the role <b>{removing.a.role}</b> for <b>{removing.a.scope}</b> away from <b>{removing.p.name || 'this person'}</b>?</p>
+          {(() => {
+            const groups = groupPerms(data.roles.find((r) => r.id === removing.a.roleId)?.permissions ?? [], catalog).map((g) => g.group);
+            return <p className="muted" style={{ margin: 0 }}>{removing.p.name || 'They'} will no longer be able to work with {groups.length ? groups.join(', ') : 'anything this role allowed'} for {removing.a.scope}.{removing.p.assignments.length === 1 ? ' This is their only role, so they will not be able to use the staff app until you give them another.' : ''}</p>;
+          })()}
         </Confirm>
       )}
     </div>

@@ -380,7 +380,7 @@ export function Usher() {
   const chosen = services.find((s) => s.id === pick) ?? services[0];
   return (
     <div>
-      <PageHeader title="Usher" subtitle={`Record who came to the ${w.oneLower}.`} />
+      <PageHeader title="Usher check-in" subtitle={`Record who came to the ${w.oneLower}.`} />
       {list.error && !list.data ? <ErrorNote>{friendly(list.error)}</ErrorNote>
         : list.loading && !list.data ? <div className="wo-task"><Skeleton rows={3} height={90} /></div>
         : list.data && (!chosen ? (

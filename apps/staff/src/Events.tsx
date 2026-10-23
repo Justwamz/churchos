@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Button, ErrorNote, Field, Note, Table, useAsync, useBlobUrl, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, Table, useAsync, useBlobUrl, useToast, Failed } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Card, EmptyState, PageHeader, Section, Skeleton, StatusChip } from './ui';
 
 function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
-  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (error && !hasData) return <Failed>{friendly(error)}</Failed>;
   if (loading && !hasData) return <Skeleton rows={3} height={96} />;
-  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+  return <>{error && <Failed>{friendly(error)}</Failed>}{children}</>;
 }
 import { Modal } from './MemberForm';
 import { AudiencePicker, audienceValue, explainCommunity as explain, initialAudience, toIso, toLocal, type AudState } from './communityBits';

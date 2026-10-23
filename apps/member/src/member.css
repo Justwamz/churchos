@@ -70,7 +70,7 @@ h3 { font-size: 17px; }
 .stack { display: grid; gap: 16px; min-width: 0; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .card { border-radius: var(--r-card); border: 0; box-shadow: var(--shadow-soft); padding: 18px; }
-.card-head h3 { font-family: var(--sans); font-weight: 700; font-size: 17px; }
+.card-head h2, .card-head h3 { font-family: var(--sans); font-weight: 700; font-size: 17px; }
 .list { list-style: none; margin: 0; padding: 0; }
 .list li { padding: 14px 0; border-bottom: 1px solid var(--line); display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
 .list li:last-child { border-bottom: 0; padding-bottom: 2px; }
@@ -722,7 +722,7 @@ h3 { font-size: 17px; }
 .fam-page { min-width: 0; }
 .fam-cols { display: grid; gap: 16px; min-width: 0; align-items: start; }
 .fam-side { min-width: 0; }
-.fam-page .card h3 { margin: 0 0 10px; }
+.fam-page .card h3, .fam-page .card-head h2 { margin: 0 0 10px; }
 .fam-qr-card { text-align: center; display: grid; justify-items: center; gap: 6px; }
 .fam-qr-card h3 { justify-self: start; }
 .fam-qr-wrap { display: grid; justify-items: center; gap: 10px; width: 100%; }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { AuditLog, Button, ErrorNote, Field, Note, shortDate, useAsync } from '@churchos/ui';
-import { Card, PageHeader, Section, StatusChip, Toolbar } from '../ui';
+import { Button, ErrorNote, Field, Note, shortDate } from '@churchos/ui';
+import { Card, PageHeader, Section, StatusChip } from '../ui';
 import { api, errText, num, type PageProps } from '../common';
 
 // ---------------- Test tools ----------------
@@ -68,25 +68,6 @@ export function Tools({ toast }: PageProps) {
           </Card>
         </Section>
       </div>
-    </>
-  );
-}
-
-// ---------------- Audit ----------------
-
-export function Audit(_: PageProps) {
-  const t = useAsync(() => api.get<any[]>('/admin/tenants'));
-  const [org, setOrg] = useState('');
-  return (
-    <>
-      <PageHeader title="Audit log" subtitle="Every change across every church is recorded here. Entries cannot be edited or deleted." />
-      <Toolbar>
-        <select value={org} onChange={(e) => setOrg(e.target.value)} aria-label="Church">
-          <option value="">All churches</option>
-          {(t.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-        </select>
-      </Toolbar>
-      <AuditLog api={api} base="/admin/audit" showOrg qs={org ? `&org=${encodeURIComponent(org)}` : ''} />
     </>
   );
 }

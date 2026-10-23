@@ -69,7 +69,7 @@ const ask = await call('POST', '/me/reversal-request', { message: sms }, peter);
 step('Member reversal request found the payment from the pasted SMS', ask.status === 200, ask.json.found?.where ?? ask.json.error);
 const reqs = await call('GET', '/admin/reversal-requests?status=pending', undefined, admin);
 const rev = reqs.json.find((r) => r.provider_tx_id === code);
-const approved = rev ? await call('POST', `/admin/reversal-requests/${rev.id}/decide`, { approve: true }, admin) : { json: {} };
+const approved = rev ? await call('POST', `/admin/reversal-requests/${rev.id}/decide`, { approve: true, reason: 'Checked against the provider statement' }, admin) : { json: {} };
 step('Admin approved the reversal (under KES 50,000, one approver)', approved.json.status === 'approved', approved.json.status);
 
 // 7. Skip the 48 hour hold, run settlement.
@@ -189,7 +189,7 @@ const s6Int = await call('PUT', '/integrations', { walletMode: 'per_branch', sms
 const s6Req = await call('GET', '/admin/sender-requests?status=pending', undefined, admin);
 const s6One = s6Req.json.find((r) => r.value === 'GRACESMOKE');
 step('A new sender name becomes a request for the platform to approve', s6Int.status === 200 && !!s6One);
-const s6Dec = await call('POST', `/admin/sender-requests/${s6One?.id}/decide`, { approve: true }, admin);
+const s6Dec = await call('POST', `/admin/sender-requests/${s6One?.id}/decide`, { approve: true, reason: 'Checked against the provider statement' }, admin);
 step('A platform admin approves it and it becomes active', s6Dec.json.status === 'approved' && (await call('GET', '/integrations', undefined, daniel)).json.smsSenderId === 'GRACESMOKE');
 const s6Ads = await call('GET', '/me/adverts', undefined, janeTok);
 step('A member sees the church adverts on the home slider', s6Ads.status === 200 && s6Ads.json.some((a) => a.title === 'Christmas Carols Night'), s6Ads.json.map((a) => a.title).join(', '));
@@ -403,7 +403,7 @@ const s14Approve = await call('POST', `/refund-requests/${s14List.requests[0].id
 const s14After = (await call('GET', `/public/tickets/orders/${s14A.secret}`)).json;
 step('The church approves: tickets are cancelled and the refund goes to ChurchOS', s14Approve.json.status === 'approved' && s14After.tickets.every((t) => t.status === 'cancelled'));
 const s14Rev = (await call('GET', '/admin/reversal-requests?status=pending', undefined, admin)).json.find((r) => /Ticket refund/.test(r.reason));
-const s14Pay = await call('POST', `/admin/reversal-requests/${s14Rev?.id}/decide`, { approve: true }, admin);
+const s14Pay = await call('POST', `/admin/reversal-requests/${s14Rev?.id}/decide`, { approve: true, reason: 'Checked against the provider statement' }, admin);
 step('ChurchOS sends the money back', s14Pay.status === 200 && s14Pay.json.status === 'approved');
 const s14B = await s14Buy(2);
 const s14Post = await call('POST', `/events/${s14Ev}/postpone`, { note: 'Smoke postponement' }, daniel);

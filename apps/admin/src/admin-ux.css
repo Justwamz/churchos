@@ -1,0 +1,154 @@
+/*
+ * Platform admin: UX audit fixes (loaded after admin-extra.css).
+ * Layout without a side panel for single-page areas, compact phone lists, paging, overflow menus, money cells that never wrap,
+ * 44px touch targets for the admin-specific controls, and the audit log list. Tokens only, no hard-coded colours.
+ */
+
+/* an area with one page (Overview) has no side panel */
+.shell.ns.solo { grid-template-columns: 76px minmax(0, 1fr); }
+.shell .sn-title { margin: 20px 12px 6px; font-size: 12.5px; font-weight: 650; letter-spacing: 0; color: var(--ink-3); }
+
+/* headings inside cards that sit straight under the page title are h2 (heading order), styled like before */
+.pa-card-title h2 { margin: 0; font-size: 17px; }
+.advert-card h2 { margin: 6px 0 4px; font-size: 16px; overflow-wrap: anywhere; }
+
+/* money never breaks across lines in a table cell on a desktop */
+@media (min-width: 761px) {
+  .shell .table td.num, .shell .table th.num { white-space: nowrap; }
+}
+
+/* Refresh: a word on a desktop, a round icon button beside the title on a phone */
+.pa-refresh { gap: 8px; }
+.pa-refresh svg { flex: none; }
+
+/* overview */
+.pa-ov { display: flex; flex-direction: column; }
+.pa-bal { margin: 0; display: grid; }
+.pa-bal > div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.pa-bal dt { color: var(--ink-2); font-size: 14px; }
+.pa-bal dd { margin: 0; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-bal .u-card { padding: 4px 18px; }
+@media (min-width: 761px) {
+  .pa-bal { grid-template-columns: 1fr 1fr; column-gap: 56px; }
+  .pa-bal > div:nth-last-child(-n + 2) { border-bottom: 0; }
+}
+@media (max-width: 760px) {
+  .pa-bal > div:last-child { border-bottom: 0; }
+  .pa-ov .ov-attn { order: -1; margin-top: 0; }
+  .pa-ov .ov-integrity { margin-top: 22px; }
+  .pa-figs { display: grid; gap: 6px; flex: 1 1 100%; }
+  .pa-figs > div { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 8px; padding: 8px 12px; }
+  .pa-figs > div > .tiny:last-child:not(:first-child) { flex: 1 1 100%; }
+  .pa-banner.big .pa-banner-text { font-size: 13.5px; }
+  .u-ph-row:has(.u-ph-actions > .pa-refresh:only-child) { flex-wrap: nowrap; align-items: center; }
+  .u-ph-actions:has(> .pa-refresh:only-child) { width: auto; margin-left: auto; }
+  .u-ph-actions > .pa-refresh { flex: none; width: 44px; min-width: 44px; padding: 0; justify-content: center; }
+  .pa-refresh .pa-refresh-t { display: none; }
+  .u-ph { margin-bottom: 16px; }
+  .u-section { margin-top: 22px; }
+}
+
+/* settlement dialog */
+.pa-settle-sum { margin: 2px 0 6px; font-size: 22px; letter-spacing: -0.01em; }
+.pa-settle-sum b { font-size: 26px; font-weight: 750; font-variant-numeric: tabular-nums; }
+
+/* overflow menu (three dots) */
+.pa-menu { position: relative; display: inline-flex; }
+.shell .btn.small.pa-menu-btn { min-width: 44px; min-height: 44px; padding: 0; justify-content: center; }
+.pa-menu-scrim { position: fixed; inset: 0; z-index: 58; }
+.pa-menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 59; min-width: 200px; display: grid; padding: 6px; background: var(--surface); border-radius: 14px; box-shadow: var(--shadow-pop); }
+.pa-menu-list button { display: flex; align-items: center; min-height: 46px; padding: 0 14px; border: 0; border-radius: 10px; background: none; font: inherit; font-weight: 550; color: var(--ink); text-align: left; cursor: pointer; }
+.pa-menu-list button:hover { background: var(--off-tint); }
+.pa-menu-list button.danger { color: var(--bad); }
+.pa-menu-list button:focus-visible { box-shadow: var(--ring); }
+
+/* paging */
+.pa-more-row { display: flex; justify-content: center; margin: 16px 0 4px; }
+
+/* compact wallet and branch lists (phone) */
+.pa-wlist { list-style: none; margin: 0; padding: 0; }
+.pa-wlist li { display: grid; gap: 2px; padding: 10px 16px; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.pa-wlist li.row-bad { background: var(--bad-tint); }
+.pa-wlist li.row-warn { background: var(--warn-tint); }
+.pa-w-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pa-w-figs { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13px; color: var(--ink-2); }
+.pa-w-figs b { font-variant-numeric: tabular-nums; }
+
+/* adverts */
+.advert-top { display: block; }
+.advert-main { min-width: 0; }
+.pa-chiprow { min-width: 0; max-width: 100%; }
+@media (max-width: 760px) {
+  .advert-grid { gap: 10px; }
+  .advert-card { padding: 12px; }
+  .advert-top { display: flex; gap: 12px; align-items: flex-start; }
+  .advert-top .advert-thumb { width: 72px; height: 72px; aspect-ratio: 1; flex: none; margin: 0; border-radius: 10px; }
+  .advert-main { flex: 1; }
+  .advert-card h2 { margin: 2px 0; font-size: 15.5px; }
+  .pa-chiprow { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 2px 16px 4px; scrollbar-width: none; }
+  .pa-chiprow::-webkit-scrollbar { display: none; }
+  .pa-chiprow .chip { flex: none; white-space: nowrap; }
+}
+
+/* audit log: one row per event, a table-like grid on a desktop and two lines on a phone */
+.pa-audit-bar { display: flex; gap: 10px; margin-bottom: 12px; }
+.pa-audit-bar input { flex: 1; min-width: 0; max-width: 520px; }
+.pa-audit-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 0 14px; margin-bottom: 8px; padding: 14px 18px 2px; background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); }
+.pa-audit-filters .field { margin-bottom: 12px; }
+.pa-audit-clear { grid-column: 1 / -1; margin-bottom: 12px; }
+.pa-audit { background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); overflow: hidden; }
+.pa-audit-head, .pa-audit-row { display: grid; grid-template-columns: 170px 230px minmax(0, 1fr) 100px; gap: 12px; align-items: center; padding: 0 20px; }
+.pa-audit-head { min-height: 44px; font-size: 12.5px; font-weight: 650; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.pa-audit-row { width: 100%; min-height: 56px; padding-top: 8px; padding-bottom: 8px; border: 0; border-bottom: 1px solid var(--line-soft); background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.pa-audit > div:last-child .pa-audit-row { border-bottom: 0; }
+.pa-audit-row:hover { background: color-mix(in srgb, var(--accent-tint) 55%, transparent); }
+.pa-audit-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; background: color-mix(in srgb, var(--accent-tint) 55%, transparent); }
+.pa-audit-when { white-space: nowrap; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.pa-audit-summary { margin-top: 0; }
+@media (max-width: 760px) {
+  .pa-audit-bar input { max-width: none; }
+  .pa-audit-head { display: none; }
+  .pa-audit-row { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "what what type" "when who who"; gap: 2px 8px; padding: 10px 14px; min-height: 62px; align-items: center; }
+  .pa-audit-what { grid-area: what; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+  .pa-audit-type { grid-area: type; }
+  .pa-audit-when { grid-area: when; font-size: 12.5px; color: var(--ink-3); }
+  .pa-audit-who { grid-area: who; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; color: var(--ink-3); }
+  .pa-audit-who .tiny, .pa-audit-what .tiny { display: none; }
+  .pa-audit-filters { padding: 14px 14px 2px; }
+}
+
+/* Menu launcher: the pinned shortcuts look like the area tiles */
+.more-tile.pinned { min-height: 112px; }
+
+/* ---------- touch targets on a phone: the admin-specific controls ---------- */
+@media (max-width: 760px) {
+  .shell .table .btn.small, .shell .row .btn.small, .shell .reveal .btn, .shell .pa-banner .btn.small, .shell .pa-card-actions .btn.small, .shell .pa-actions .btn.small,
+  .shell .pa-file-actions .btn.small, .shell .pa-assign .btn.small { min-height: 44px; }
+  .pa-presets .chip { min-height: 44px; }
+  .linkish { display: block; width: 100%; min-height: 44px; text-align: left; }
+  .pa-check { display: flex; align-items: center; gap: 12px; min-height: 48px; }
+  .pa-details summary { min-height: 44px; }
+}
+
+/* h2 used where the text style is small */
+.shell h2.pa-h, .shell h3.pa-h { font-size: 15px; }
+/* tiny text on a tinted row needs the darker grey to stay readable */
+.row-bad .tiny, .row-warn .tiny, .pa-wlist li.row-bad .tiny, .pa-wlist li.row-warn .tiny { color: var(--ink-2); }
+/* the page keeps the admin button heights, so the phone minimum has to be set here as well (the shared rule has lower weight than .shell .btn.small) */
+@media (max-width: 760px) {
+  .shell .btn.small, .shell .btn.ghost.small { min-height: 44px; }
+}
+
+/* overview on a phone: tighter tiles and rows so the page stays short */
+@media (max-width: 760px) {
+  .pa-ov .u-stats { gap: 10px; }
+  .pa-ov .u-stat { padding: 12px 14px; gap: 2px; }
+  .pa-ov .u-stat-value { font-size: 23px; }
+  .pa-ov .u-section-head { margin-bottom: 8px; }
+  .pa-ov .u-section { margin-top: 18px; }
+  .pa-bal > div { padding: 7px 0; }
+  .ov-bal .u-card { padding: 2px 16px; }
+  .pa-ov .pa-banner { padding: 12px 14px; gap: 10px; }
+  .pa-ov .pa-banner.big .pa-banner-title { font-size: 22px; }
+  .pa-ov .pa-figs > div { padding: 6px 12px; }
+}

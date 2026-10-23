@@ -18,3 +18,5 @@
 }
 .lc-chip { background: var(--off-tint); border-color: transparent; }
 @media (max-width: 700px) { .lc-row { padding: 14px 16px; } .lc-btns .btn { flex: 1 1 auto; } }
+
+.lc-more { padding: 12px 20px; border-top: 1px solid var(--line-soft); display: flex; justify-content: center; }

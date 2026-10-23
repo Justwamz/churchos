@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AuthImg, Badge, Button, ErrorNote, Field, Note, Table, kes, shortDate, useAsync } from '@churchos/ui';
 import { Card, Dialog, EmptyState, PageHeader, SidePanel, Toolbar } from './ui';
-import { Load, api, errText, num, type PageProps, type Toast } from './common';
+import { api, errText, Load, num, OverflowMenu, RefreshButton, ShowMore, usePaged, usePhone, type PageProps, type Toast } from './common';
 
 // ---------------- Tariffs ----------------
 
@@ -73,7 +73,7 @@ function BandsView({ bands }: { bands: Bands }) {
     <div className="pa-two">
       {CH.map((c) => (
         <div key={c.id}>
-          <h4 className="pa-h">{c.label}</h4>
+          <h3 className="pa-h">{c.label}</h3>
           <Table head={['Messages in the month', 'Price per message']}>
             {(bands[c.id] ?? []).map((b, i, a) => (
               <tr key={i}>
@@ -207,7 +207,7 @@ export function Tariffs({ toast }: PageProps) {
                 {list.map((t) => (
                   <Card key={t.id}>
                     <div className="pa-card-head flat">
-                      <div className="pa-card-title"><h3>{t.name}</h3>{t.isDefault && <Badge tone="good">Default</Badge>}</div>
+                      <div className="pa-card-title"><h2>{t.name}</h2>{t.isDefault && <Badge tone="good">Default</Badge>}</div>
                       <div className="pa-card-actions">
                         <Button kind="ghost" small onClick={() => setEditing({ mode: 'change', tariff: t })}>Change prices</Button>
                         {!t.isDefault && <Button kind="ghost" small onClick={() => setMakeDef(t)}>Make default</Button>}
@@ -316,7 +316,7 @@ export function Providers({ toast }: PageProps) {
   return (
     <>
       <PageHeader title="Providers" subtitle="Who sends the messages, and which sender names and numbers churches may use."
-        actions={<Button kind="ghost" onClick={() => { prov.reload(); reqs.reload(); }}>Refresh</Button>}
+        actions={<RefreshButton onClick={() => { prov.reload(); reqs.reload(); }} />}
         tabs={[{ id: 'senders', label: 'Sender approvals' }, { id: 'accounts', label: 'Provider accounts' }]} tab={view} onTab={setView} />
       <Note>Provider accounts and credentials belong to ChurchOS. Churches never see them. In this local build the providers are simulated.</Note>
       <div style={{ height: 16 }} />
@@ -412,6 +412,8 @@ export function Adverts({ toast }: PageProps) {
   const [target, setTarget] = useState<any>();
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const phone = usePhone();
+  const paged = usePaged(s.data ?? [], phone ? 6 : 24, status);
 
   const takeDown = async () => {
     setBusy(true);
@@ -429,34 +431,52 @@ export function Adverts({ toast }: PageProps) {
 
   return (
     <>
-      <PageHeader title="Adverts" subtitle="Adverts churches show on the member app home screen. You can take any of them down." actions={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <PageHeader title="Adverts" subtitle="Adverts churches show on the member app home screen. You can take any of them down." actions={<RefreshButton onClick={s.reload} />} />
       <Toolbar>
-        <div className="chips" role="group" aria-label="Advert status">
+        <div className="chips pa-chiprow" role="group" aria-label="Advert status">
           {AFILTERS.map((f) => <button type="button" key={f.id} className={`chip ${status === f.id ? 'on' : ''}`} onClick={() => setStatus(f.id)}>{f.label}</button>)}
         </div>
       </Toolbar>
       <Load s={s} rows={3}>
         {(rows) => rows.length === 0 ? <Card><EmptyState icon="communicate" title="No adverts here" text="Try another filter." /></Card> : (
+          <>
           <div className="advert-grid">
-            {rows.map((a) => {
+            {paged.shown.map((a) => {
               const st = ASTATE[a.state] ?? { label: String(a.state).replace(/_/g, ' '), tone: 'muted' };
               const off = a.status === 'taken_down' || a.status === 'ended';
-              return (
-                <Card key={a.id} className="advert-card">
-                  <AuthImg api={api} className="advert-thumb" src={a.imageUrl} alt={`Artwork for ${a.title}`} loading="lazy" />
-                  <div className="row between"><span className="tiny">{a.orgName}</span><Badge tone={st.tone}>{st.label}</Badge></div>
-                  <h3>{a.title}</h3>
-                  {a.body && <p className="muted pre-wrap">{a.body}</p>}
+              const down = () => { setTarget(a); setReason(''); };
+              const meta = (
+                <>
                   <div className="tiny">Shown to: {a.audienceLabel}</div>
                   <div className="tiny">{shortDate(a.startsAt)}{a.endsAt ? ` to ${shortDate(a.endsAt)}` : ', no end date'}</div>
                   {a.advertiser && <div className="tiny">Advertiser: {a.advertiser.name}{a.advertiser.contact ? ` (${a.advertiser.contact})` : ''}, {a.advertiser.price != null ? kes(a.advertiser.price) : 'no price'}, {a.paid ? 'paid' : 'not paid yet'}</div>}
-                  <div className="tiny">{num(a.stats?.views).toLocaleString()} views, {num(a.stats?.taps).toLocaleString()} taps, {num(a.stats?.viewers).toLocaleString()} people</div>
                   {a.reason && <div className="tiny">Reason: {a.reason}</div>}
-                  {!off && <div className="pa-actions start"><Button kind="danger" small onClick={() => { setTarget(a); setReason(''); }}>Take down</Button></div>}
+                </>
+              );
+              const stats = `${num(a.stats?.views).toLocaleString()} views, ${num(a.stats?.taps).toLocaleString()} taps, ${num(a.stats?.viewers).toLocaleString()} people`;
+              return (
+                <Card key={a.id} className="advert-card">
+                  <div className="advert-top">
+                    <AuthImg api={api} className="advert-thumb" src={a.imageUrl} alt={`Artwork for ${a.title}`} loading="lazy" />
+                    <div className="advert-main">
+                      <div className="row between"><span className="tiny">{a.orgName}</span><Badge tone={st.tone}>{st.label}</Badge></div>
+                      <h2>{a.title}</h2>
+                      <div className="tiny">{stats}</div>
+                    </div>
+                    {phone && !off && <OverflowMenu label={`More actions for ${a.title}`} items={[{ label: 'Take down', danger: true, onClick: down }]} />}
+                  </div>
+                  {phone ? (
+                    <details className="pa-details"><summary>Details</summary>{a.body && <p className="muted pre-wrap">{a.body}</p>}{meta}</details>
+                  ) : (
+                    <>{a.body && <p className="muted pre-wrap">{a.body}</p>}{meta}</>
+                  )}
+                  {!phone && !off && <div className="pa-actions start"><Button kind="danger" small onClick={down}>Take down</Button></div>}
                 </Card>
               );
             })}
           </div>
+          <ShowMore paged={paged} noun="adverts" />
+          </>
         )}
       </Load>
       {target && (

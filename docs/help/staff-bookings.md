@@ -24,7 +24,7 @@ A member can ask for more than one resource at once, for example a pastor and th
 Once paid, the booking is confirmed. If it is not paid within 24 hours the time is released and the member is told. The platform fee applies to the payment.
 
 ## Cancelling and finishing
-You can cancel a booking at any time with a reason. The member is told. If they paid, arrange any refund through **Payment help**, since money is not returned automatically. After the time has passed, mark a confirmed booking **Done** or **No show**.
+You can cancel a booking at any time with a reason. The member is told. If they paid, arrange any refund through **Help with a payment**, since money is not returned automatically. After the time has passed, mark a confirmed booking **Done** or **No show**.
 
 ## Notes are private
 Members can add a note. Only the member and the people who answer that request can read it. It is never written to the audit log.

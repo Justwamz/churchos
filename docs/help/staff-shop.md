@@ -40,13 +40,13 @@ Members can order from the shop in the app and pay by M-Pesa, Airtel Money, T-Ka
 1. Prepare the items and choose **Mark ready**. The member is told in the app.
 2. When they come, ask for their **collection code** and choose **Hand over**. If you type the code, it must match.
 
-Orders are held for 30 minutes while unpaid, and then released. Paid orders appear in **Sales** and **Reports** like any other sale. They cannot be voided like cash. If you need to refund one, ask for the payment to be reversed in **Payment help**.
+Orders are held for 30 minutes while unpaid, and then released. Paid orders appear in **Sales** and **Reports** like any other sale. They cannot be voided like cash. If you need to refund one, ask for the payment to be reversed in **Help with a payment**.
 
 ## Pictures
 Give an item a picture when you add or edit it (PNG, JPEG or WebP, at least 200 pixels wide and tall, up to 500 KB). Members see it in the app. Without one they see a coloured tile with the first letter.
 
 ## Mistakes
-A manager can **void** a cash sale within 24 hours, with a reason, and put the items back. A sale paid by mobile money or card cannot be voided here. Ask for the payment to be reversed in **Payment help**.
+A manager can **void** a cash sale within 24 hours, with a reason, and put the items back. A sale paid by mobile money or card cannot be voided here. Ask for the payment to be reversed in **Help with a payment**.
 
 ## Closing the till
 At the end of the day open **Close till**. It shows what the day's cash sales say there should be. Count the cash and enter it. If it differs, write a note. The count then goes to **Cash** for a second person to sign off, and the platform fee on cash is charged there, like any other cash.

@@ -20,7 +20,7 @@ export function Help() {
 
   return (
     <>
-      <PageHeader title="Payment help" subtitle="Someone paid by mistake? Paste their confirmation message and we will find the payment." />
+      <PageHeader title="Help with a payment" subtitle="Someone paid by mistake? Paste their confirmation message and we will find the payment." />
       <Section>
         <div style={{ maxWidth: 720 }}>
           <Card>

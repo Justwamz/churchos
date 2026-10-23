@@ -1,7 +1,7 @@
 /* Church setup > Logo and icons */
 .br-drop { display: grid; justify-items: center; gap: 6px; text-align: center; padding: 28px 20px; border: 2px dashed var(--line); border-radius: var(--r-card); background: var(--off-tint); cursor: pointer; transition: border-color 0.15s, background 0.15s; }
 .br-drop:hover, .br-drop.over { border-color: var(--accent); background: var(--accent-tint); }
-.br-drop:focus-visible { outline: none; box-shadow: var(--ring); }
+.br-drop:focus-visible { box-shadow: var(--ring); }
 .br-drop .tiny { max-width: 420px; color: var(--ink-3); }
 .br-drop-ico { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
 
@@ -23,7 +23,7 @@
 .br-swatch { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); cursor: pointer; padding: 0; position: relative; }
 .br-swatch::before { content: ''; position: absolute; inset: -5px; }
 .br-swatch.on { outline: 3px solid var(--accent); outline-offset: 2px; }
-.br-swatch:focus-visible { outline: none; box-shadow: var(--ring); }
+.br-swatch:focus-visible { box-shadow: var(--ring); }
 
 .br-prev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .br-fig { margin: 0; display: grid; gap: 10px; justify-items: center; align-content: start; }

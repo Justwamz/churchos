@@ -213,9 +213,9 @@ describe('one settlement run, one payout set (LG-02)', () => {
     await q(`DELETE FROM locks WHERE key='settlement'`);
     expect((await call(PA1, 'POST', '/admin/settlement/run')).statusCode).toBe(200);
     expect(Number((await q(`SELECT count(*)::int AS n FROM locks WHERE key='settlement'`))[0].n)).toBe(0);
-    // simultaneous calls over HTTP never double up: each answers 200 or 409
+    // simultaneous calls over HTTP never double up: each answers 200, 409 or (nothing left to pay) 400
     const codes = (await Promise.all([call(PA1, 'POST', '/admin/settlement/run'), call(PA2, 'POST', '/admin/settlement/run')])).map((r) => r.statusCode);
-    expect(codes.every((c) => c === 200 || c === 409)).toBe(true);
+    expect(codes.every((c) => c === 200 || c === 409 || c === 400)).toBe(true);
   });
 
   it('Available can never be driven below zero', async () => {
@@ -257,10 +257,10 @@ describe('one refund per payment, and the requester cannot approve (LG-03, AUTH-
     const pb = await m.simulatePaybill({ phone: '254700000099', amount: 100000, reference: 'GRC001#OFFERING' });
     const req = await call(PA1, 'POST', '/me/reversal-request', { message: `Paid to the wrong church ${pb.providerTxId}`, reason: 'wrong church' });
     expect(req.statusCode).toBe(200);
-    const self = await call(PA1, 'POST', `/admin/reversal-requests/${req.json().id}/decide`, { approve: true });
+    const self = await call(PA1, 'POST', `/admin/reversal-requests/${req.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' });
     expect(self.statusCode).toBe(403);
     expect(self.json().code).toBe('same_person');
-    expect((await call(PA2, 'POST', `/admin/reversal-requests/${req.json().id}/decide`, { approve: true })).statusCode).toBe(200);
+    expect((await call(PA2, 'POST', `/admin/reversal-requests/${req.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(200);
     // a staff request made by an admin account
     const pb2 = await m.simulatePaybill({ phone: '254700123454', amount: 100000, reference: 'GRC001#OFFERING' });
     const p2 = (await q(`SELECT * FROM payments WHERE provider_tx_id=$1`, [pb2.providerTxId]))[0];
@@ -291,13 +291,13 @@ describe('self-approval and scope rules (AZ-03, AZ-04, AZ-05, AZ-14)', () => {
     expect((await q(`SELECT branch_id FROM credit_refunds WHERE id=$1`, [id]))[0].branch_id).toBe('br_grc002');
     // the Nairobi branch admin cannot see or decide it
     expect((await call(ADMIN3, 'GET', '/credit/refunds')).json().refunds.map((x: any) => x.id)).not.toContain(id);
-    expect((await call(ADMIN3, 'POST', `/credit/refunds/${id}/decide`, { approve: true })).statusCode).toBe(404);
+    expect((await call(ADMIN3, 'POST', `/credit/refunds/${id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(404);
     expect((await call(ADMIN3, 'POST', `/credit/refunds/${id}/paid`, { reference: 'X' })).statusCode).toBe(404);
     // church-wide staff see it with the phone masked
     const pending = (await call(OWNER, 'GET', '/credit/refunds')).json().refunds.find((x: any) => x.id === id);
     expect(pending.phone).toMatch(/•/);
     expect(pending.phone).not.toContain('711000003');
-    expect((await call(OWNER, 'POST', `/credit/refunds/${id}/decide`, { approve: true })).statusCode).toBe(200);
+    expect((await call(OWNER, 'POST', `/credit/refunds/${id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(200);
     // approved: the number is shown to pay it, and that is logged once
     const a1 = (await call(OWNER, 'GET', '/credit/refunds')).json().refunds.find((x: any) => x.id === id);
     expect(a1.phone).toBe('254711000003');
@@ -311,7 +311,7 @@ describe('self-approval and scope rules (AZ-03, AZ-04, AZ-05, AZ-14)', () => {
     const r = await call(OWNER, 'POST', '/me/credit/refund-request', { amount: 500 });
     expect(r.statusCode).toBe(200);
     const id = r.json().id;
-    const dec = await call(OWNER, 'POST', `/credit/refunds/${id}/decide`, { approve: true });
+    const dec = await call(OWNER, 'POST', `/credit/refunds/${id}/decide`, { approve: true, reason: 'Checked against the provider statement' });
     expect(dec.statusCode).toBe(403);
     expect(dec.json().code).toBe('same_person');
     // someone else approves; the requester still cannot mark it paid
@@ -329,7 +329,7 @@ describe('self-approval and scope rules (AZ-03, AZ-04, AZ-05, AZ-14)', () => {
     expect(await wait(async () => (await orderStatus(o.secret)).status === 'paid')).toBe(true);
     expect((await call(JANE, 'POST', `/me/tickets/orders/${o.id}/refund-request`, { reason: 'x' })).statusCode).toBe(200);
     const rid = (await call(JANE, 'GET', `/events/${ev.id}/refund-requests`)).json().requests[0].id;
-    const self = await call(JANE, 'POST', `/refund-requests/${rid}/decide`, { approve: true });
+    const self = await call(JANE, 'POST', `/refund-requests/${rid}/decide`, { approve: true, reason: 'Checked against the provider statement' });
     expect(self.statusCode).toBe(403);
     expect(self.json().code).toBe('same_person');
     expect((await q(`SELECT status FROM ticket_refunds WHERE id=$1`, [rid]))[0].status).toBe('pending');
@@ -341,7 +341,7 @@ describe('self-approval and scope rules (AZ-03, AZ-04, AZ-05, AZ-14)', () => {
     expect(await wait(async () => (await orderStatus(o.secret)).status === 'paid')).toBe(true);
     await call(JANE, 'POST', `/me/tickets/orders/${o.id}/refund-request`, { reason: 'x' });
     const rid = (await call(OWNER, 'GET', `/events/${ev.id}/refund-requests`)).json().requests[0].id;
-    const res = await Promise.all([call(OWNER, 'POST', `/refund-requests/${rid}/decide`, { approve: true }), call(OWNER, 'POST', `/refund-requests/${rid}/decide`, { approve: true })]);
+    const res = await Promise.all([call(OWNER, 'POST', `/refund-requests/${rid}/decide`, { approve: true, reason: 'Checked against the provider statement' }), call(OWNER, 'POST', `/refund-requests/${rid}/decide`, { approve: true })]);
     expect(res.map((r) => r.statusCode).sort()).toEqual([200, 409]);
     const revs = await q(`SELECT id FROM reversal_requests WHERE payment_id=(SELECT id FROM payments WHERE provider_tx_id=(SELECT provider_tx_id FROM ticket_orders WHERE id=$1))`, [o.id]);
     expect(revs).toHaveLength(1);

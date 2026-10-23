@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, ErrorNote, Field, shortDate, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, shortDate, useAsync, useToast, Failed } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Card, EmptyState, Skeleton, StatusChip, Toolbar } from './ui';
 import './join-requests.css';
@@ -44,7 +44,7 @@ export function JoinRequests({ onChanged, onOpenMember }: { onChanged: () => voi
     const denied = /missing permission|forbidden|do not have access/i.test(d.error);
     return denied
       ? <EmptyState icon="people" title="Join requests are not available to you" text="Ask someone who can edit members to look after join requests." />
-      : <ErrorNote>{friendly(d.error)}</ErrorNote>;
+      : <Failed onRetry={d.reload}>{friendly(d.error)}</Failed>;
   }
   const rows = d.data?.requests ?? [];
   const canEdit = s.can('members.edit');

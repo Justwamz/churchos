@@ -1,4 +1,4 @@
-import { lazy, type ComponentType } from 'react';
+import { createElement, type ComponentType } from 'react';
 import type { IconName } from './icons';
 import { TodayPage } from './Today';
 import { WordingPage } from './Wording';
@@ -15,7 +15,24 @@ import type { Words } from './navmap';
 export { AREAS, QUICK_ACTIONS, areaOfPage, type Area, type NavGroup, type QuickAction, type Words } from './navmap';
 export type PageDef = { id: string; label: string | ((w: Words) => string); any: string[]; el: ComponentType; keywords?: string; icon?: IconName };
 
-const L = <T extends Record<string, any>>(load: () => Promise<T>, name: keyof T) => lazy(() => load().then((m) => ({ default: m[name] as ComponentType })));
+/**
+ * A lazy page that can be asked again. React's own lazy() remembers a failed load for good, which would leave a page dead after one
+ * dropped connection. This one forgets the failure when `retryPageLoads()` runs (the Retry button of the page error card).
+ */
+const resets: (() => void)[] = [];
+export const retryPageLoads = () => resets.forEach((r) => r());
+const L = <T extends Record<string, any>>(load: () => Promise<T>, name: keyof T): ComponentType => {
+  let Comp: ComponentType | null = null;
+  let pending: Promise<void> | null = null;
+  let failure: unknown = null;
+  resets.push(() => { failure = null; });
+  return function LazyPage() {
+    if (Comp) return createElement(Comp);
+    if (failure) throw failure;
+    if (!pending) pending = load().then((m) => { Comp = m[name] as ComponentType; }).catch((e) => { failure = e; }).finally(() => { pending = null; });
+    throw pending;
+  };
+};
 
 export const PAGES: PageDef[] = [
   { id: 'today', label: 'Today', any: ['*'], el: TodayPage, keywords: 'home start needs you', icon: 'today' },
@@ -41,29 +58,30 @@ export const PAGES: PageDef[] = [
   { id: 'calendar', label: 'Calendar', any: ['bookings.view'], el: L(() => import('./CalendarPage'), 'CalendarPage'), keywords: 'schedule diary', icon: 'today' },
   { id: 'resources', label: 'Resources', any: ['bookings.view', 'resources.manage'], el: L(() => import('./Resources'), 'Resources'), keywords: 'rooms equipment halls', icon: 'building' },
   { id: 'shop', label: 'Shop', any: ['shop.view', 'shop.sell', 'shop.manage'], el: L(() => import('./Shop'), 'Shop'), keywords: 'sell products point of sale', icon: 'money' },
-  { id: 'checkin', label: 'Event check-in', any: ['events.checkin'], el: L(() => import('./Checkin'), 'Checkin'), keywords: 'scan ticket qr door', icon: 'checkin' },
+  { id: 'checkin', label: 'Scan event tickets', any: ['events.checkin'], el: L(() => import('./Checkin'), 'Checkin'), keywords: 'event check-in check in scan ticket qr door', icon: 'checkin' },
   { id: 'attendance', label: 'Attendance', any: ['attendance.view'], el: L(() => import('./Attendance'), 'Attendance'), keywords: 'headcount visitors who came', icon: 'people' },
   { id: 'services', label: (w) => w.many, any: ['attendance.manage'], el: L(() => import('./Services'), 'Services'), keywords: 'service mass schedule times weekly', icon: 'worship' },
   { id: 'lectionary', label: 'Lectionary', any: ['attendance.manage', 'attendance.view'], el: L(() => import('./Lectionary'), 'Lectionary'), keywords: 'reading of the day scripture', icon: 'book' },
   { id: 'boundaries', label: 'Check-in boundary', any: ['attendance.manage', 'attendance.view'], el: L(() => import('./Boundaries'), 'Boundaries'), keywords: 'location gps radius geofence', icon: 'building' },
-  { id: 'usher', label: 'Usher', any: ['attendance.checkin'], el: L(() => import('./Usher'), 'Usher'), keywords: 'check in door welcome', icon: 'checkin' },
-  { id: 'kiosk', label: 'Kiosk', any: ['attendance.checkin', 'attendance.manage'], el: L(() => import('./Kiosk'), 'KioskAdmin'), keywords: 'self check-in tablet entrance screen pair device', icon: 'checkin' },
+  { id: 'usher', label: 'Usher check-in', any: ['attendance.checkin'], el: L(() => import('./Usher'), 'Usher'), keywords: 'usher check in door welcome service', icon: 'checkin' },
+  { id: 'kiosk', label: 'Kiosk', any: ['attendance.checkin', 'attendance.manage'], el: L(() => import('./Kiosk'), 'KioskAdmin'), keywords: 'kiosk self check-in tablet entrance screen pair device', icon: 'checkin' },
   { id: 'children', label: 'Children', any: ['kids.checkin', 'kids.manage'], el: L(() => import('./Children'), 'Children'), keywords: 'kids sunday school class pickup', icon: 'child' },
   { id: 'prayer', label: 'Prayer', any: ['prayer.respond'], el: L(() => import('./Prayer'), 'Prayer'), keywords: 'prayer requests', icon: 'heart' },
   { id: 'suggestions', label: 'Suggestions', any: ['suggestions.view'], el: L(() => import('./Suggestions'), 'Suggestions'), keywords: 'feedback suggestion box', icon: 'message' },
   { id: 'data-requests', label: 'Data requests', any: ['members.settings'], el: L(() => import('./DataRequests'), 'DataRequests'), keywords: 'erase delete account privacy data protection forget me', icon: 'shield' },
   { id: 'adverts', label: 'Adverts', any: ['adverts.view', 'adverts.manage', 'adverts.approve'], el: L(() => import('./Adverts'), 'Adverts'), keywords: 'promote ads sponsors', icon: 'communicate' },
   { id: 'projects', label: 'Projects', any: ['collections.view', 'projects.manage'], el: L(() => import('./Projects'), 'Projects'), keywords: 'building fund campaigns', icon: 'building' },
-  { id: 'help', label: 'Payment help', any: ['reversals.request'], el: L(() => import('./Help'), 'Help'), keywords: 'reversal refund wrong payment', icon: 'shield' },
+  { id: 'help', label: 'Help with a payment', any: ['reversals.request'], el: L(() => import('./Help'), 'Help'), keywords: 'payment help reversal refund wrong payment', icon: 'shield' },
   { id: 'records', label: 'Records', any: ['records.view'], el: L(() => import('./Records'), 'Records'), keywords: 'certificates baptism marriage dedication', icon: 'book' },
   { id: 'template', label: 'Certificate design', any: ['records.view'], el: L(() => import('./Template'), 'Template'), keywords: 'certificate template logo signature', icon: 'edit' },
   { id: 'team', label: 'Team', any: ['team.view', 'team.manage'], el: L(() => import('./Team'), 'Team'), keywords: 'staff roles permissions invite', icon: 'people' },
   { id: 'audit', label: 'Audit log', any: ['audit.view'], el: L(() => import('./Audit'), 'AuditPage'), keywords: 'history changes who did', icon: 'list' },
   { id: 'verification', label: 'Verification', any: ['kyc.manage'], el: L(() => import('./Verification'), 'Verification'), keywords: 'kyc documents verify church', icon: 'shield' },
   { id: 'payout', label: 'Payout account', any: ['payouts.manage'], el: L(() => import('./Payout'), 'Payout'), keywords: 'bank mpesa till paybill withdraw', icon: 'wallet' },
-  { id: 'wording', label: 'Wording', any: ['*'], el: WordingPage, keywords: 'service mass gathering name word call', icon: 'edit' },
-  { id: 'branding', label: 'Logo and icons', any: ['*'], el: BrandingPage, keywords: 'logo icon favicon brand picture image colour home screen install', icon: 'edit' },
+  { id: 'wording', label: 'Wording', any: ['church.settings'], el: WordingPage, keywords: 'service mass gathering name word call', icon: 'edit' },
+  { id: 'branding', label: 'Logo and listing', any: ['church.settings'], el: BrandingPage, keywords: 'directory listed find church by name search logo icon favicon brand picture image colour home screen install', icon: 'edit' },
   { id: 'profile', label: 'My profile', any: ['*'], el: L(() => import('./Profile'), 'Profile'), keywords: 'account me name email phone', icon: 'user' },
+  { id: 'security', label: 'Security', any: ['*'], el: L(() => import('./Security'), 'Security'), keywords: 'passkey sign in signed in devices sessions password account', icon: 'shield' },
 ];
 
 export const pageLabel = (p: PageDef, w: Words) => (typeof p.label === 'function' ? p.label(w) : p.label);

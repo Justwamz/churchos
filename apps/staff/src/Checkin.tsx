@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import jsQR from 'jsqr';
-import { Button, ErrorNote, Field, useAsync } from '@churchos/ui';
+import { Button, ErrorNote, Field, useAsync, Failed } from '@churchos/ui';
 import { api, friendly } from './session';
 import { Icon } from './icons';
 import { Card, EmptyState, PageHeader, Skeleton } from './ui';
@@ -177,7 +177,7 @@ function Door({ event }: { event: { id: string; title: string } }) {
       </form>
 
       <div className="card stack">
-        <h3 style={{ margin: 0 }}>Recent check-ins</h3>
+        <h2 style={{ margin: 0 }}>Recent check-ins</h2>
         {st && st.recent.length > 0 ? (
           <div className="ck-recent wo-rows">
             {st.recent.map((r: any, i: number) => <div key={i}><span><b>{r.holder}</b> <span className="tiny">{r.type}</span></span><span className="tiny">{time(r.at)}</span></div>)}
@@ -195,8 +195,8 @@ export function Checkin() {
   const chosen = events.find((e) => e.id === pick) ?? events[0];
   return (
     <div>
-      <PageHeader title="Event check-in" subtitle="Scan tickets at the door." />
-      {list.error && !list.data ? <ErrorNote>{friendly(list.error)}</ErrorNote> : list.loading && !list.data ? <div className="wo-task"><Skeleton rows={3} height={90} /></div> : (
+      <PageHeader title="Scan event tickets" subtitle="Scan tickets at the door." />
+      {list.error && !list.data ? <Failed onRetry={list.reload}>{friendly(list.error)}</Failed> : list.loading && !list.data ? <div className="wo-task"><Skeleton rows={3} height={90} /></div> : (
         <>{list.data && (events.length === 0 ? <Card><EmptyState icon="checkin" title="No ticketed event right now" text="Check-in appears here when a ticketed event is about to start or under way." /></Card> : (
           <div className="stack">
             {events.length > 1 && (

@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, useAsync, useToast, Failed } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Modal } from './MemberForm';
 import { Card, EmptyState, PageHeader, Section, Skeleton, StatusChip } from './ui';
 import './lectionary.css';
 
 function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
-  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (error && !hasData) return <Failed>{friendly(error)}</Failed>;
   if (loading && !hasData) return <Skeleton rows={3} height={72} />;
-  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+  return <>{error && <Failed>{friendly(error)}</Failed>}{children}</>;
 }
 
 const DOT: Record<string, string> = { white: '#f4f1e8', red: '#c0392b', green: '#2e8b57', purple: '#6b3fa0', rose: '#e58fa6', blue: '#2f5fb3', gold: '#c9a227', black: '#222' };
@@ -94,7 +94,7 @@ function Paste({ onDone }: { onDone: () => void }) {
     <Card>
       <div className="stack">
         <p style={{ margin: 0 }}>One day per line: <b>date | name of the day | A, B or C (optional) | references separated by semicolons</b>. Lines that start with # are ignored.</p>
-        <code className="lc-example">{FORMAT_EXAMPLE}</code>
+        <code className="lc-example" tabIndex={0} role="group" aria-label="Example format">{FORMAT_EXAMPLE}</code>
         <textarea aria-label="Lines to paste" rows={7} value={text} onChange={(e) => setText(e.target.value)} placeholder={FORMAT_EXAMPLE} style={{ width: '100%', fontFamily: 'monospace' }} />
         {err && <ErrorNote>{err}</ErrorNote>}
         <div><Button disabled={busy} onClick={go}>{busy ? 'Saving...' : 'Check and save'}</Button></div>
@@ -118,6 +118,7 @@ export function Lectionary() {
   const s = useSession();
   const toast = useToast();
   const [earlier, setEarlier] = useState(false);
+  const [all, setAll] = useState(false);
   const [modal, setModal] = useState<{ day?: any } | null>(null);
   const [gone, setGone] = useState<any>(null);
   const d = useAsync<any>(async () => {
@@ -142,7 +143,7 @@ export function Lectionary() {
             <Card pad={false}>
               {data.days.length === 0 ? <EmptyState icon="book" title="No days yet" text="Add one, or paste a whole season below." action={canManage ? <Button onClick={() => setModal({})}>Add a day</Button> : undefined} /> : (
                 <div className="lc-list">
-                  {data.days.map((x: any) => (
+                  {(all ? data.days : data.days.slice(0, 8)).map((x: any) => (
                     <div className="lc-row" key={x.id}>
                       <div className="lc-date">{dateText(x.date)}</div>
                       <div className="lc-main">
@@ -165,6 +166,7 @@ export function Lectionary() {
                   ))}
                 </div>
               )}
+              {data.days.length > 8 && <div className="lc-more"><Button kind="ghost" onClick={() => setAll(!all)}>{all ? 'Show fewer days' : `Show all ${data.days.length} days`}</Button></div>}
             </Card>
             </Section>
           )}

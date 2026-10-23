@@ -8,6 +8,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * One place that turns a failed response into calm words, so a server error never reads as "check your connection".
+ *  5xx: our side. 403 without a specific reason: no access, ask the owner. 429: the real wait from Retry-After.
+ */
+export function errorMessage(status: number, serverText: string | undefined, retryAfter?: number): string {
+  if (status >= 500) return 'Something went wrong on our side. Try again.';
+  if (status === 403 && (!serverText || /permission|forbidden|not allowed/i.test(serverText))) return 'You do not have access to this. Ask the owner of your church.';
+  if (status === 429) {
+    if (serverText && /^please wait/i.test(serverText)) return serverText;
+    const w = retryAfter ? (retryAfter >= 90 ? `${Math.ceil(retryAfter / 60)} minutes` : `${Math.ceil(retryAfter)} seconds`) : '';
+    return `Too many tries. ${w ? `Please wait ${w} and try again.` : 'Please wait a little and try again.'}`;
+  }
+  return serverText ?? `Request failed (${status})`;
+}
+
 export function createApi(tokenKey: string) {
   // Every request says which app it came from, so the audit log can record it (L104).
   const appName = tokenKey.replace(/^churchos:/, '').replace(/-token$/, '');
@@ -37,7 +52,8 @@ export function createApi(tokenKey: string) {
         body: body ? JSON.stringify(body) : undefined,
       });
     } catch {
-      throw new ApiError(0, 'Cannot reach the server. Check your connection and try again.', 'network');
+      const off = typeof navigator !== 'undefined' && navigator.onLine === false;
+      throw new ApiError(0, off ? 'You are offline. Check your connection and try again.' : 'Cannot reach the server. Check your connection and try again.', off ? 'offline' : 'network');
     }
     const text = await res.text();
     let data: any = undefined;
@@ -49,7 +65,8 @@ export function createApi(tokenKey: string) {
     if (!res.ok) {
       if (res.status === 401 && token) setToken(null);
       const ra = Number(res.headers.get('retry-after'));
-      throw new ApiError(res.status, data?.error ?? `Request failed (${res.status})`, data?.code, Number.isFinite(ra) && ra > 0 ? ra : undefined);
+      const wait = Number.isFinite(ra) && ra > 0 ? ra : undefined;
+      throw new ApiError(res.status, errorMessage(res.status, typeof data?.error === 'string' ? data.error : undefined, wait), data?.code, wait);
     }
     return data as T;
   }

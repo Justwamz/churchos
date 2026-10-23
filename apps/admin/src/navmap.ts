@@ -1,6 +1,6 @@
 import type { IconName } from './icons';
 
-/** The 18 admin pages, grouped into five areas. Page ids are unchanged from the old flat sidebar. */
+/** The 18 admin pages (Test tools is dev-only: the app hides it unless the API says dev tools are on), grouped into five areas. Page ids are unchanged from the old flat sidebar. */
 export type PageId = 'overview' | 'tenants' | 'suspense' | 'reversals' | 'payments' | 'settlements' | 'tools' | 'audit' | 'kyc' | 'payout-requests' | 'messaging' | 'outbox' | 'smsbox' | 'tariffs' | 'providers' | 'adverts' | 'data-requests' | 'security';
 
 export type PageDef = { id: PageId; label: string; keywords: string; hint: string };
@@ -20,18 +20,19 @@ export const PAGES: PageDef[] = [
   { id: 'smsbox', label: 'SMS outbox', keywords: 'sms messages sent simulated receipts', hint: 'Simulated SMS' },
   { id: 'outbox', label: 'Email outbox', keywords: 'email mail simulated alerts', hint: 'Simulated email' },
   { id: 'tools', label: 'Test tools', keywords: 'simulate paybill clock advance development', hint: 'Simulate payments, move the clock' },
-  { id: 'data-requests', label: 'Data requests', keywords: 'erase erasure delete account privacy data protection forget decide', hint: 'Approve or decline erasure requests' },
+  { id: 'data-requests', label: 'Data requests', keywords: 'erase erasure delete account privacy data protection forget decide', hint: 'Approve or reject erasure requests' },
   { id: 'security', label: 'Security', keywords: 'passkey webauthn sessions devices sign out two factor second factor', hint: 'Passkeys and signed-in devices' },
   { id: 'audit', label: 'Audit log', keywords: 'history changes events who verify chain', hint: 'Every change, tamper-proof' },
 ];
 
-export type Area = { id: string; label: string; icon: IconName; ids: PageId[] };
+/** `technical` pages are listed last, under a 'Technical' heading. */
+export type Area = { id: string; label: string; icon: IconName; ids: PageId[]; technical?: PageId[] };
 export const AREAS: Area[] = [
   { id: 'overview', label: 'Overview', icon: 'home', ids: ['overview'] },
   { id: 'money', label: 'Money', icon: 'money', ids: ['payments', 'settlements', 'suspense', 'reversals'] },
   { id: 'churches', label: 'Churches', icon: 'building', ids: ['tenants', 'kyc', 'payout-requests'] },
-  { id: 'messaging', label: 'Messaging', icon: 'communicate', ids: ['messaging', 'tariffs', 'providers', 'adverts', 'smsbox', 'outbox'] },
-  { id: 'platform', label: 'Platform', icon: 'settings', ids: ['tools', 'audit', 'data-requests', 'security'] },
+  { id: 'messaging', label: 'Messaging', icon: 'communicate', ids: ['adverts', 'messaging', 'tariffs', 'providers', 'smsbox', 'outbox'], technical: ['smsbox', 'outbox'] },
+  { id: 'platform', label: 'Platform', icon: 'settings', ids: ['audit', 'data-requests', 'security', 'tools'] },
 ];
 
 export const pageById = (id: string) => PAGES.find((p) => p.id === id);

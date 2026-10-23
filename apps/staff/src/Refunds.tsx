@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, ErrorNote, Field, Note, kes, useAsync } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, kes, useAsync, Failed } from '@churchos/ui';
 import { api, friendly, methodLabel, useSession } from './session';
 import { Modal } from './MemberForm';
 import { Skeleton, StatusChip } from './ui';
@@ -45,7 +45,7 @@ export function RefundRequests({ event, onChanged, toast }: { event: any; onChan
   const list: any[] = d.data?.requests ?? [];
   const pending = list.filter((r) => r.status === 'pending');
   const earlier = list.filter((r) => r.status !== 'pending');
-  if (!d.data) return d.loading ? <Skeleton height={56} /> : d.error ? <ErrorNote>{friendly(d.error)}</ErrorNote> : null;
+  if (!d.data) return d.loading ? <Skeleton height={56} /> : d.error ? <Failed onRetry={d.reload}>{friendly(d.error)}</Failed> : null;
   if (list.length === 0) return null;
   const done = (m: string) => { setDec(null); toast(m); d.reload(); onChanged(); };
   return (

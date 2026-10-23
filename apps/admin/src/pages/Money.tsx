@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge, Button, ErrorNote, Field, Note, StatusBadge, Table, kes, shortDate, useAsync } from '@churchos/ui';
 import { Card, Dialog, EmptyState, PageHeader, Section, SidePanel, Stat, StatTiles, Toolbar } from '../ui';
-import { Load, METHOD_LABEL, RevealPhone, api, errText, num, type PageProps } from '../common';
+import { Load, METHOD_LABEL, ReasonPicker, RefreshButton, RevealPhone, api, errText, num, reasonOk, type PageProps } from '../common';
 
 // ---------------- Payments ----------------
 
@@ -26,7 +26,7 @@ export function Payments({ toast }: PageProps) {
   return (
     <>
       <PageHeader title="Payments" subtitle="The fee split below is visible only in this console."
-        actions={<Button kind="ghost" onClick={p.reload}>Refresh</Button>} />
+        actions={<RefreshButton onClick={p.reload} />} />
       <Toolbar end={<Button kind="ghost" small onClick={() => setMore((m) => !m)}>{more ? 'Fewer filters' : `More filters${extra ? ` (${extra})` : ''}`}</Button>}>
         <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search code, reference or branch" aria-label="Search payments" />
         <select value={stage} onChange={(e) => setStage(e.target.value)} aria-label="Stage">
@@ -90,8 +90,11 @@ export function Payments({ toast }: PageProps) {
 
 // ---------------- Settlements ----------------
 
-export function Settlements({ toast }: PageProps) {
+type Preview = { amount: number; branches: number; churches: number; payments: number; expiringSuspense: number; dueChanges: number };
+
+export function Settlements({ toast, devTools }: PageProps) {
   const po = useAsync(() => api.get<any[]>('/admin/payouts'));
+  const pre = useAsync(() => api.get<Preview>('/admin/settlement/preview'));
   const t = useAsync(() => api.get<any[]>('/admin/tenants'));
   const [run, setRun] = useState<any>();
   const [busy, setBusy] = useState(false);
@@ -104,8 +107,8 @@ export function Settlements({ toast }: PageProps) {
 
   const go = async () => {
     setBusy(true);
-    try { const r = await api.post('/admin/settlement/run'); setRun(r); toast('Settlement finished'); po.reload(); t.reload(); }
-    catch (e: any) { toast(errText(e), 'bad'); }
+    try { const r = await api.post('/admin/settlement/run'); setRun(r); toast('Settlement finished'); po.reload(); t.reload(); pre.reload(); }
+    catch (e: any) { toast(errText(e), 'bad'); pre.reload(); }
     setBusy(false); setAsk(null);
   };
   const resume = async (id: string) => {
@@ -123,7 +126,7 @@ export function Settlements({ toast }: PageProps) {
       {t.data && (
         <Section>
           <StatTiles>
-            <Stat label="Ready to pay out" value={kes(sum('available'))} tone="good" hint="Cleared the 48h hold" />
+            <Stat label="Ready to pay out" value={kes(pre.data ? pre.data.amount : sum('available'))} tone="good" hint={pre.data ? `${pre.data.payments} ${pre.data.payments === 1 ? 'payment' : 'payments'}, cleared the 48h hold` : 'Cleared the 48h hold'} />
             <Stat label="In 48h hold" value={kes(sum('pending'))} hint="Not yet payable" />
             <Stat label="Owed to us" value={kes(sum('receivable'))} hint="Netted against future payouts" />
             <Stat label="Paused branches" value={paused.length} tone={paused.length ? 'wait' : 'good'} hint={paused.length ? 'Resume below' : 'All payouts active'} />
@@ -170,21 +173,40 @@ export function Settlements({ toast }: PageProps) {
         </Card>
       </Section>
 
-      <Section title="Development only: payout failure test">
-        <Card>
-          <div className="row between">
-            <p className="muted" style={{ margin: 0, flex: '1 1 260px' }}>Funds are never lost when a payout fails. They stay with the church and the payout is retried on the next settlement run.</p>
-            <Button kind="ghost" small onClick={() => setAsk('fail')}>Make next payout fail</Button>
-          </div>
-        </Card>
-      </Section>
-
-      {ask === 'run' && (
-        <Dialog title="Run settlement now?" onClose={() => setAsk(null)}
-          footer={<><Button kind="ghost" onClick={() => setAsk(null)}>Cancel</Button><Button onClick={go} disabled={busy}>{busy ? 'Running…' : 'Run settlement'}</Button></>}>
-          <p className="muted">This pays every verified branch the money that has cleared the 48 hour hold, and refunds suspense payments older than 48 hours. It cannot be undone.</p>
-        </Dialog>
+      {devTools && (
+        <Section title="Development only: payout failure test">
+          <Card>
+            <div className="row between">
+              <p className="muted" style={{ margin: 0, flex: '1 1 260px' }}>Funds are never lost when a payout fails. They stay with the church and the payout is retried on the next settlement run.</p>
+              <Button kind="ghost" small onClick={() => setAsk('fail')}>Make next payout fail</Button>
+            </div>
+          </Card>
+        </Section>
       )}
+
+      {ask === 'run' && (() => {
+        const v = pre.data;
+        const nothing = !v || (v.amount <= 0 && v.expiringSuspense === 0 && v.dueChanges === 0);
+        const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+        return (
+          <Dialog title="Run settlement now?" onClose={() => setAsk(null)}
+            footer={<><Button kind="ghost" onClick={() => setAsk(null)}>Cancel</Button><Button onClick={go} disabled={busy || nothing}>{busy ? 'Running…' : v && v.amount > 0 ? `Pay out ${kes(v.amount)}` : 'Run settlement'}</Button></>}>
+            {!v ? <p className="muted">Checking what is ready to pay out…</p> : (
+              <>
+                <p className="pa-settle-sum"><b>{kes(v.amount)}</b> to be paid out</p>
+                <p className="muted" style={{ marginTop: 0 }}>
+                  {v.amount > 0
+                    ? `To ${v.churches} ${plural(v.churches, 'church', 'churches')} (${v.branches} ${plural(v.branches, 'branch', 'branches')}), made up of ${v.payments} ${plural(v.payments, 'payment', 'payments')} that cleared the 48 hour hold. Unverified branches are skipped and their money is held safely.`
+                    : 'No branch has money that has cleared the 48 hour hold.'}
+                  {v.expiringSuspense > 0 ? ` ${v.expiringSuspense} unmatched ${plural(v.expiringSuspense, 'payment', 'payments')} older than 48 hours will be refunded to the sender.` : ''}
+                </p>
+                {nothing && <Note tone="warn">There is nothing to pay out right now, so the run is switched off.</Note>}
+                <p className="muted">This cannot be undone.</p>
+              </>
+            )}
+          </Dialog>
+        );
+      })()}
       {ask === 'fail' && (
         <Dialog title="Make the next payout fail?" onClose={() => setAsk(null)}
           footer={<><Button kind="ghost" onClick={() => setAsk(null)}>Cancel</Button><Button kind="danger" onClick={failNext}>Yes, make it fail</Button></>}>
@@ -222,7 +244,7 @@ export function Suspense({ toast }: PageProps) {
   const branchName = (id: string) => { const b = branches.find((x) => x.id === id); return b ? `${b.name} (${b.code})` : ''; };
   return (
     <>
-      <PageHeader title="Suspense queue" subtitle="Payments we received but could not match to a branch." actions={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <PageHeader title="Suspense queue" subtitle="Payments we received but could not match to a branch." actions={<RefreshButton onClick={s.reload} />} />
       <Note tone="warn">After 48 hours, unclaimed funds are refunded to the sender automatically (net of third-party charges) the next time settlement runs.</Note>
       <div style={{ height: 16 }} />
       <Card pad={false}>
@@ -274,6 +296,9 @@ const STAGE_WHERE: Record<string, string> = {
   paid_out: 'Already paid out to the church', reversed: 'Already reversed', refunded: 'Already refunded',
 };
 
+const APPROVE_REASONS = ['Checked against the provider statement', 'Sent to the wrong paybill or church', 'Duplicate payment', 'Confirmed with the payer'];
+const REJECT_REASONS = ['Already refunded', 'Outside the reversal window', 'Could not confirm the payment', 'Request is not valid'];
+
 export function Reversals({ toast, user }: PageProps) {
   const [tab, setTab] = useState('pending');
   const q = TABS.find((x) => x.id === tab)!.q;
@@ -284,10 +309,10 @@ export function Reversals({ toast, user }: PageProps) {
   const [why, setWhy] = useState('');
 
   const decide = async (row: any, approve: boolean) => {
-    if (!approve && !why.trim()) { toast('Please give a reason for rejecting this request.', 'bad'); return; }
+    if (!reasonOk(why)) { toast(`Please give a short reason for ${approve ? 'approving' : 'rejecting'} this request.`, 'bad'); return; }
     setBusy(true);
     try {
-      const out = await api.post(`/admin/reversal-requests/${row.id}/decide`, { approve, reason: why.trim() || undefined });
+      const out = await api.post(`/admin/reversal-requests/${row.id}/decide`, { approve, reason: why.trim() });
       toast(out.status === 'awaiting_second' ? 'First approval recorded. A different admin must give the second approval.' : approve ? 'Reversal approved and refund started' : 'Request rejected');
       setConfirm(null); setWhy(''); r.reload();
     } catch (e: any) {
@@ -298,27 +323,30 @@ export function Reversals({ toast, user }: PageProps) {
   };
 
   const cf = confirm;
-  const cfTwo = cf ? num(cf.row.amount_paid) > SECOND_ABOVE : false;
+  const cfTwo = cf ? (num(cf.row.approvalsRequired) || (num(cf.row.amount_paid) > SECOND_ABOVE ? 2 : 1)) === 2 : false;
   return (
     <>
       <PageHeader title="Reversal requests" subtitle="Members and church staff asking for a payment to be returned."
         tabs={TABS.map((x) => ({ id: x.id, label: x.label }))} tab={tab} onTab={setTab} />
-      <Note>Refund rules: the platform fee is returned to the sender. Third-party mobile money charges are not returned. Amounts above {kes(SECOND_ABOVE)} need two different admins: the first approval parks the request and a second admin completes it.</Note>
+      <Note>Refund rules: the platform fee is returned to the sender. Third-party mobile money charges are not returned. <b>Two-admin rule:</b> up to {kes(SECOND_ABOVE)} one admin can approve. Above {kes(SECOND_ABOVE)} two different admins must approve: the first approval parks the request and a second admin completes it. The person who asked can never approve their own request, and every approval or rejection needs a short reason that is kept in the audit log.</Note>
       <div style={{ height: 16 }} />
       <Load s={r} rows={3}>
         {(rows) => rows.length === 0 ? <Card><EmptyState icon="check" title="No requests here" text={tab === 'done' ? 'Decided requests will be listed here.' : 'Nothing is waiting for a decision.'} /></Card> : (
           <div className="pa-stack">
             {rows.map((x) => {
-              const needsTwo = num(x.amount_paid) > SECOND_ABOVE;
+              const required = num(x.approvalsRequired) || (num(x.amount_paid) > SECOND_ABOVE ? 2 : 1);
+              const done = num(x.approvalsDone);
               const open = x.status === 'pending' || x.status === 'awaiting_second';
               const mine = x.status === 'awaiting_second' && x.first_approver === user.id;
+              const asker = open && x.requested_by === user.id;
+              const rule = open ? (required === 2 ? `Needs 2 admins: ${done} of 2 done` : 'Needs 1 admin') : x.status === 'approved' ? (required === 2 ? 'Approved by 2 admins' : 'Approved by 1 admin') : '';
               return (
                 <Card key={x.id} className="pa-req">
                   <div className="pa-req-head">
                     <b className="pa-req-amount">{kes(x.amount_paid)}</b>
                     <code>{x.provider_tx_id}</code>
                     <StatusBadge status={x.status} />
-                    {needsTwo && <Badge tone="warn">Needs two admins</Badge>}
+                    {rule && <Badge tone={open && required === 2 ? 'warn' : 'muted'}>{rule}</Badge>}
                   </div>
                   <div className="muted">{STAGE_WHERE[x.payment_stage] ?? x.payment_stage}{x.branch_name ? ` · ${x.branch_name}` : ''}</div>
                   <dl className="pa-dl cols">
@@ -331,10 +359,11 @@ export function Reversals({ toast, user }: PageProps) {
                   {x.failure && <ErrorNote>{x.failure}</ErrorNote>}
                   {mine && <Note tone="warn">You gave the first approval. A different admin must give the second approval.</Note>}
                   {msg[x.id] && <ErrorNote>{msg[x.id]}</ErrorNote>}
+                  {asker && <Note tone="warn">You requested this: another admin must approve.</Note>}
                   {open && (
                     <div className="pa-actions">
                       <Button kind="danger" small onClick={() => { setWhy(''); setConfirm({ row: x, approve: false }); }}>Reject</Button>
-                      <Button small disabled={mine} onClick={() => { setWhy(''); setConfirm({ row: x, approve: true }); }}>{x.status === 'awaiting_second' ? 'Give second approval' : 'Approve'}</Button>
+                      {!asker && <Button small disabled={mine} onClick={() => { setWhy(''); setConfirm({ row: x, approve: true }); }}>{x.status === 'awaiting_second' ? 'Give second approval' : 'Approve'}</Button>}
                     </div>
                   )}
                 </Card>
@@ -345,11 +374,11 @@ export function Reversals({ toast, user }: PageProps) {
       </Load>
       {cf && (
         <Dialog title={cf.approve ? 'Approve this reversal?' : 'Reject this request?'} onClose={() => setConfirm(null)}
-          footer={<><Button kind="ghost" onClick={() => setConfirm(null)}>Cancel</Button><Button kind={cf.approve ? 'primary' : 'danger'} disabled={busy} onClick={() => decide(cf.row, cf.approve)}>{busy ? 'Working…' : cf.approve ? 'Yes, approve' : 'Yes, reject'}</Button></>}>
+          footer={<><Button kind="ghost" onClick={() => setConfirm(null)}>Cancel</Button><Button kind={cf.approve ? 'primary' : 'danger'} disabled={busy || !reasonOk(why)} onClick={() => decide(cf.row, cf.approve)}>{busy ? 'Working…' : cf.approve ? 'Yes, approve' : 'Yes, reject'}</Button></>}>
           <Note tone={cf.approve ? 'warn' : 'info'}>{cf.approve
             ? `Approve returning ${kes(cf.row.amount_paid)}? The platform fee is returned; third-party mobile money charges are not.${cfTwo && cf.row.status === 'pending' ? ' A second admin must still approve.' : ''}`
             : 'Reject this request? The payment stays where it is.'}</Note>
-          <Field label={cf.approve ? 'Reason (optional, but helpful for the record)' : 'Reason (required)'}><input value={why} maxLength={300} onChange={(e) => setWhy(e.target.value)} placeholder={cf.approve ? 'e.g. Sent to the wrong paybill' : 'e.g. The payment was already refunded'} /></Field>
+          <ReasonPicker key={cf.row.id + String(cf.approve)} label="Reason (required, kept in the audit log)" options={cf.approve ? APPROVE_REASONS : REJECT_REASONS} value={why} onChange={setWhy} />
         </Dialog>
       )}
     </>

@@ -1,3 +1,4 @@
+import { DirectoryCard } from './Directory';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Field, Note, brandFile, useToast, type BrandInfo } from '@churchos/ui';
 import { api, friendly } from './session';
@@ -242,7 +243,7 @@ export function BrandingPage() {
     </Field>
   );
 
-  const header = <PageHeader title="Logo and icons" subtitle="Your logo appears in the browser tab, on the phone home screen when someone installs the app, and inside the staff, member and giving apps." />;
+  const header = <PageHeader title="Logo and listing" subtitle="Your logo and whether people can find your church by name. Your logo appears in the browser tab, on the phone home screen when someone installs the app, and inside the staff, member and giving apps." />;
 
   if (!brand) return <>{header}<Card><p className="muted">Loading...</p></Card></>;
 
@@ -342,6 +343,7 @@ export function BrandingPage() {
           </div>
         </>
       )}
+      <DirectoryCard />
       {toast.node}
     </>
   );

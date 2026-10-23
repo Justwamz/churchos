@@ -193,7 +193,7 @@ function Till({ branch }: { branch: string }) {
       </div>
       <Card className="sp-basket">
         <div className="stack">
-          <div className="mn-cardhead" style={{ margin: 0 }}><h3>Basket</h3></div>
+          <div className="mn-cardhead" style={{ margin: 0 }}><h2>Basket</h2></div>
           {lines.length === 0 ? <div className="muted">Tap an item to add it.</div> : (
             <div className="sp-lines">
               {lines.map(({ item, qty }) => (
@@ -268,7 +268,7 @@ function CloseTill({ branch }: { branch: string }) {
         {d && (
           <Card>
             <div className="stack">
-              <div className="mn-cardhead" style={{ margin: 0 }}><h3>{closed || result ? 'Till closed' : 'Count the cash'}</h3></div>
+              <div className="mn-cardhead" style={{ margin: 0 }}><h2>{closed || result ? 'Till closed' : 'Count the cash'}</h2></div>
               <div>The sales say there should be <b>{kes(d.expected)}</b> in cash from <b>{d.cashSales}</b> cash {d.cashSales === 1 ? 'sale' : 'sales'}.</div>
               {closed ? (
                 <>

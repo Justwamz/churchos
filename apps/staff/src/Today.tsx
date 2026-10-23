@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, DpaCard, ErrorNote } from '@churchos/ui';
+import { Button, Failed } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
-import { InstallBanner, useOnline } from './Install';
-import { useWords } from './words';
-import { QUICK_ACTIONS } from './navmap';
 import { openAction } from './prefill';
-import { parseLink, ctaLabel, useOpenLink } from './links';
-import { Icon } from './icons';
-import { Card, EmptyState, Section, Skeleton, StatusChip } from './ui';
+import { useOpenLink } from './links';
+import { Icon, type IconName } from './icons';
+import { Card, Section, Skeleton, StatusChip } from './ui';
 
 type TodayData = {
   name: string;
@@ -16,7 +13,6 @@ type TodayData = {
   kids: { id: string; className: string; branch?: string; present: number }[];
   at: string;
 };
-type Note = { id: string; kind?: string; title: string; body?: string; link?: string | null; read: boolean; created_at: string };
 
 const STATE: Record<string, { label: string; tone: 'info' | 'done' | 'off' }> = {
   before: { label: 'Opens soon', tone: 'info' },
@@ -32,23 +28,24 @@ function greeting(name: string): string {
 }
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString('en-KE', { hour: 'numeric', minute: '2-digit' });
-function ago(iso: string): string {
-  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
-  const d = Math.round(h / 24);
-  return d < 7 ? `${d} day${d === 1 ? '' : 's'} ago` : new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'short' });
-}
 
-/** The landing page for everyone: what needs you, what is on now, quick actions, and what happened lately. */
+/** The main things people do from here, in this order, each offered only to someone who may do it. At most four are shown. */
+type Primary = { id: string; label: string; page: string; right: string; icon: IconName; action?: string };
+const PRIMARY: Primary[] = [
+  { id: 'add-member', label: 'Add member', page: 'members', right: 'members.edit', icon: 'people', action: 'add' },
+  { id: 'send-message', label: 'Send message', page: 'messages', right: 'messages.send', icon: 'message', action: 'compose' },
+  { id: 'record-cash', label: 'Record cash', page: 'cash', right: 'cash.count', icon: 'money' },
+  { id: 'approve-expenses', label: 'Approve expenses', page: 'expenses', right: 'expenses.approve', icon: 'check' },
+  { id: 'record-expense', label: 'Record an expense', page: 'expenses', right: 'expenses.record', icon: 'receipt', action: 'record' },
+  { id: 'claim-expense', label: 'Claim an expense', page: 'my-claims', right: 'expenses.claim', icon: 'receipt', action: 'new' },
+  { id: 'new-event', label: 'Create an event', page: 'events', right: 'events.manage', icon: 'worship', action: 'new' },
+  { id: 'new-notice', label: 'Post a notice', page: 'notices', right: 'notices.manage', icon: 'communicate', action: 'new' },
+];
+
+/** The landing page for everyone: a greeting, only what needs you (or one calm line), the main actions, and what is on now. */
 export function TodayPage() {
   const s = useSession();
-  const w = useWords();
-  const online = useOnline();
   const [d, setD] = useState<TodayData | null>(null);
-  const [recent, setRecent] = useState<Note[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const openLink = useOpenLink();
@@ -56,8 +53,6 @@ export function TodayPage() {
   const load = useCallback(async () => {
     setBusy(true);
     try { setD(await api.get('/staff/today' + s.qs())); setError(''); } catch (e: any) { setError(friendly(e.message)); }
-    // The recent list is a nicety: the same staff notifications as the bell, newest first. If it fails the page simply has no list.
-    try { const n = await api.get('/me/notifications?app=staff'); setRecent((n.rows ?? []).slice(0, 8)); } catch { setRecent([]); }
     setBusy(false);
   }, [s]);
 
@@ -70,102 +65,77 @@ export function TodayPage() {
   }, [load]);
 
   const name = d?.name || s.user.name || '';
-  const actions = QUICK_ACTIONS.filter((a) => s.can(a.right));
-  const cards = d ? [...d.cards].sort((a, b) => Number(b.count > 0) - Number(a.count > 0)) : [];
-  const waiting = cards.filter((c) => c.count > 0).length;
+  const actions = PRIMARY.filter((a) => s.can(a.right)).slice(0, 4);
+  const waiting = d ? d.cards.filter((c) => c.count > 0).sort((a, b) => b.count - a.count) : [];
   const happening = d ? d.services.length + d.kids.length : 0;
 
   return (
     <div className="today">
-      <DpaCard api={api} />
       <div className="u-ph-row today-head">
         <div className="u-ph-text">
           <h1>{greeting(name)}</h1>
-          <p className="u-ph-sub">{new Date().toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long' })}{d ? (waiting ? ` · ${waiting} thing${waiting === 1 ? '' : 's'} need${waiting === 1 ? 's' : ''} you` : ' · All calm') : ''}</p>
+          <p className="u-ph-sub">{new Date().toLocaleDateString('en-KE', { weekday: 'long', day: 'numeric', month: 'long' })}{d && waiting.length ? ` · ${waiting.length} thing${waiting.length === 1 ? '' : 's'} need${waiting.length === 1 ? 's' : ''} you` : ''}</p>
         </div>
         <Button kind="ghost" small onClick={load} disabled={busy}>{busy ? 'Refreshing...' : 'Refresh'}</Button>
       </div>
-      {!online && <div className="note warn today-offline" role="status">You are offline. Showing nothing stored: staff screens always need a connection.</div>}
-      <InstallBanner />
-      {error && <div className="today-error"><ErrorNote>{error}</ErrorNote><Button kind="ghost" small onClick={load}>Try again</Button></div>}
+      {error && <div className="today-error"><Failed onRetry={load}>{error}</Failed></div>}
       {!d && !error && (
-        <div className="today-grid"><Skeleton height={120} /><Skeleton height={120} /><Skeleton height={120} /><Skeleton height={120} /></div>
+        <div className="today-grid"><Skeleton height={96} /><Skeleton height={96} /></div>
       )}
       {d && (
         <>
-          <Section title="Needs you">
-            {cards.length === 0 ? (
-              <Card><EmptyState icon="check" title="Nothing is waiting for you" text="When someone needs a decision from you, it shows up here." /></Card>
-            ) : (
+          {waiting.length === 0 ? (
+            <div className="today-clear" role="status"><Icon name="check" size={20} /><span><b>All clear:</b> nothing needs you.</span></div>
+          ) : (
+            <Section title="Needs you">
               <div className="today-grid">
-                {cards.map((c) => (
-                  <button key={c.key} type="button" className={`today-card ${c.count > 0 ? 'on' : 'calm'}`} onClick={() => (c.key === 'joins' ? openLink('staff:members?tab=requests') : s.go(c.page))}>
-                    <span className="today-count">{c.count > 0 ? c.count : <Icon name="check" size={22} />}</span>
+                {waiting.map((c) => (
+                  <button key={c.key} type="button" className="today-card on" onClick={() => (c.key === 'joins' ? openLink('staff:members?tab=requests') : s.go(c.page))}>
+                    <span className="today-count">{c.count}</span>
                     <span className="today-title">{c.title}</span>
-                    <span className="today-hint">{c.count > 0 ? c.hint : 'All clear'}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </Section>
-
-          {actions.length > 0 && (
-            <Section title="Quick actions">
-              <div className="qa-row">
-                {actions.map((a) => (
-                  <button key={a.id} type="button" className="qa" onClick={() => { openAction(a.page, a.action); s.go(a.page); }}>
-                    <span className="qa-ico"><Icon name={a.icon} size={20} /></span>{a.label}
+                    <span className="today-hint">{c.hint}</span>
                   </button>
                 ))}
               </div>
             </Section>
           )}
 
-          <div className="today-cols">
-            <Section title="Happening now" hint={happening ? undefined : `No ${w.manyLower} or classes today.`}>
-              {happening > 0 && (
-                <Card pad={false}>
-                  <div className="today-list">
-                    {d.services.map((v) => (
-                      <button key={v.id} type="button" className="today-row" onClick={() => s.go('usher')}>
-                        <span className="today-row-main">
-                          <b>{v.name}</b>
-                          <span className="tiny">{time(v.startsAt)}{v.branch ? ` · ${v.branch}` : ''} · {v.inPerson} in so far</span>
-                        </span>
-                        <StatusChip tone={STATE[v.state]?.tone ?? 'off'}>{STATE[v.state]?.label ?? v.state}</StatusChip>
-                      </button>
-                    ))}
-                    {d.kids.map((k) => (
-                      <button key={k.id} type="button" className="today-row" onClick={() => s.go('children')}>
-                        <span className="today-row-main">
-                          <b>{k.className}</b>
-                          <span className="tiny">Children&apos;s class{k.branch ? ` · ${k.branch}` : ''}</span>
-                        </span>
-                        <StatusChip tone="done">{k.present} present</StatusChip>
-                      </button>
-                    ))}
-                  </div>
-                </Card>
-              )}
-            </Section>
+          {actions.length > 0 && (
+            <div className="qa-row" role="group" aria-label="Main actions">
+              {actions.map((a) => (
+                <button key={a.id} type="button" className="qa" onClick={() => { if (a.action) openAction(a.page, a.action); s.go(a.page); }}>
+                  <span className="qa-ico"><Icon name={a.icon} size={20} /></span>{a.label}
+                </button>
+              ))}
+            </div>
+          )}
 
-            {recent.length > 0 && (
-              <Section title="Recent">
-                <Card pad={false}>
-                  <ul className="feed">
-                    {recent.map((n) => (
-                      <li key={n.id} className={`${n.read ? '' : 'unread'} ${parseLink(n.link) ? 'feed-link' : ''}`}>
-                        <span className="feed-dot" aria-hidden="true" />
-                        {parseLink(n.link)
-                          ? <button type="button" className="feed-btn" onClick={() => openLink(n.link)}><b>{n.title}</b>{n.body && <p>{n.body}</p>}<span className="tiny">{ago(n.created_at)} · <span className="feed-cta">{ctaLabel(n.link, n.kind)}</span></span></button>
-                          : <div><b>{n.title}</b>{n.body && <p>{n.body}</p>}<span className="tiny">{ago(n.created_at)}</span></div>}
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              </Section>
-            )}
-          </div>
+          {happening > 0 && (
+            <Section title="Happening now">
+              <Card pad={false}>
+                <div className="today-list">
+                  {d.services.map((v) => (
+                    <button key={v.id} type="button" className="today-row" onClick={() => s.go('usher')}>
+                      <span className="today-row-main">
+                        <b>{v.name}</b>
+                        <span className="tiny">{time(v.startsAt)}{v.branch ? ` · ${v.branch}` : ''} · {v.inPerson} in so far</span>
+                      </span>
+                      <StatusChip tone={STATE[v.state]?.tone ?? 'off'}>{STATE[v.state]?.label ?? v.state}</StatusChip>
+                    </button>
+                  ))}
+                  {d.kids.map((k) => (
+                    <button key={k.id} type="button" className="today-row" onClick={() => s.go('children')}>
+                      <span className="today-row-main">
+                        <b>{k.className}</b>
+                        <span className="tiny">Children&apos;s class{k.branch ? ` · ${k.branch}` : ''}</span>
+                      </span>
+                      <StatusChip tone="done">{k.present} present</StatusChip>
+                    </button>
+                  ))}
+                </div>
+              </Card>
+            </Section>
+          )}
           <p className="tiny today-at">Updated {time(d.at)}</p>
         </>
       )}

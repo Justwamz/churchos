@@ -30,12 +30,18 @@ export function useWalletAlert(page: string) {
 
 const readDismissed = () => { try { return sessionStorage.getItem(KEY) ?? ''; } catch { return ''; } };
 
-export function WalletNotice({ page, bad, anyEmpty }: { page: string; bad: WalletInfo[]; anyEmpty: boolean }) {
-  const s = useSession();
+/** Whether the credit notice shows on this page right now, and how to dismiss it (the shell uses this to show only one banner at a time). */
+export function useWalletNotice(page: string, bad: WalletInfo[], anyEmpty: boolean) {
   const [dismissed, setDismissed] = useState(readDismissed);
   const level = anyEmpty ? 'empty' : 'low';
-  if (!NOTICE_PAGES.includes(page) || bad.length === 0) return null;
-  if (dismissed === 'empty' || (dismissed === 'low' && level === 'low')) return null;
+  const show = NOTICE_PAGES.includes(page) && bad.length > 0 && !(dismissed === 'empty' || (dismissed === 'low' && level === 'low'));
+  const dismiss = () => { setDismissed(level); try { sessionStorage.setItem(KEY, level); } catch { /* optional */ } };
+  return { show, dismiss };
+}
+
+export function WalletNotice({ page, bad, anyEmpty, dismiss }: { page: string; bad: WalletInfo[]; anyEmpty: boolean; dismiss: () => void }) {
+  const s = useSession();
+  if (bad.length === 0) return null;
 
   const channel = (w: WalletInfo) => (w.channel === 'sms' ? 'SMS' : 'WhatsApp');
   const place = (w: WalletInfo) => w.label.split(' · ')[0];
@@ -45,8 +51,6 @@ export function WalletNotice({ page, bad, anyEmpty }: { page: string; bad: Walle
   const text = first.state === 'empty'
     ? `${channel(first)} credit has run out at ${place(first)}. ${first.channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} messages are paused. In-app messages still go out.`
     : `${channel(first)} credit is running low at ${place(first)}.`;
-  const dismiss = () => { setDismissed(level); try { sessionStorage.setItem(KEY, level); } catch { /* optional */ } };
-
   return (
     <div className={`wn ${anyEmpty ? "is-empty" : "is-low"}`} role="status" aria-label="Messaging credit">
       <Icon name="wallet" size={18} />

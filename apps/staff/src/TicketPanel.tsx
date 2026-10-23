@@ -30,7 +30,7 @@ function CancelTicket({ t, onClose, onDone }: { t: any; onClose: () => void; onD
     <Modal title="Cancel this ticket?" onClose={onClose}>
       <div className="stack">
         <div><b>{t.serial}</b> for {t.holder}, {t.type}</div>
-        <Note>The buyer is told and the ticket stops working. If they paid, arrange the refund through Payment help.</Note>
+        <Note>The buyer is told and the ticket stops working. If they paid, arrange the refund through Help with a payment.</Note>
         <Field label="Why is it cancelled?" hint="The buyer will see this."><textarea rows={3} maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
         {err && <ErrorNote>{err}</ErrorNote>}
         <div className="row"><Button kind="danger" disabled={busy} onClick={go}>{busy ? 'Cancelling...' : 'Cancel ticket'}</Button><Button kind="ghost" onClick={onClose}>Keep ticket</Button></div>

@@ -36,15 +36,15 @@ export function Messages() {
         ) : (
           <div className="comm-list">
             {d.data.map((m) => (
-              <div key={m.id} role="button" tabIndex={0} className="comm-item" onClick={() => setView({ id: m.id })} onKeyDown={(e) => e.key === 'Enter' && setView({ id: m.id })}>
+              <div key={m.id} className="comm-item" onClick={() => setView({ id: m.id })}>
                 <div className="comm-item-top">
-                  <b>{m.title}</b>
+                  <button type="button" className="comm-open" onClick={(e) => { e.stopPropagation(); setView({ id: m.id }); }}>{m.title}</button>
                   <MessageStatus m={m} />
                 </div>
                 <div className="comm-chips">{(m.channels as string[]).map((c) => <StatusChip key={c} tone="off">{CHANNEL_NAME[c] ?? c}</StatusChip>)}</div>
                 <div className="tiny">{describeAudience(m.audience, s.branches, m.group_name)}</div>
                 <div className="tiny">{m.source === 'group_leader' ? 'Sent by a group leader' : `Sent by ${m.sender_name}`}{m.status === 'sent' && m.summary?.people != null && ` · ${m.summary.people.toLocaleString()} ${m.summary.people === 1 ? 'person' : 'people'}, cost ${kes(m.summary.cost ?? 0)}`}{m.status !== 'scheduled' && m.sent_at ? ` · ${shortDate(m.sent_at)}` : ''}</div>
-                {m.status === 'scheduled' && <div style={{ marginTop: 8 }}><CancelButton small id={m.id} onDone={() => d.reload()} /></div>}
+                {m.status === 'scheduled' && <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}><CancelButton small id={m.id} onDone={() => d.reload()} /></div>}
               </div>
             ))}
           </div>

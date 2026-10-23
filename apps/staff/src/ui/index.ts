@@ -8,3 +8,4 @@ export { EmptyState } from './EmptyState';
 export { Skeleton, PageSkeleton } from './Skeleton';
 export { StatusChip } from './StatusChip';
 export { SidePanel } from './SidePanel';
+export { OverflowMenu, type MenuItem } from './OverflowMenu';

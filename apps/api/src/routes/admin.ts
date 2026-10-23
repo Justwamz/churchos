@@ -96,14 +96,17 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
     const p = (await ctx.db.query<any>('SELECT id, org_id, branch_id, payer_phone, provider_tx_id, anonymous FROM payments WHERE id=$1', [(req.params as any).id]))[0];
     if (!p) throw new HttpError(404, 'payment not found', 'not_found');
     // An anonymous gift: the giver is known only to ChurchOS, for refunds, fraud and the law. A written reason is needed and the look is recorded (L218).
+    const asked = String((req.body as any)?.reason ?? '').trim();
+    // Every look at a real number needs a written reason (at least 3 characters), kept in the audit log.
+    if (asked.length < 3) throw new HttpError(400, 'Say why you need to see this number (at least 3 characters). The reason is kept in the audit log.', 'reason_required');
     if (p.anonymous) {
-      const reason = String((req.body as any)?.reason ?? '').trim();
+      const reason = asked;
       if (reason.length < 8) throw new HttpError(400, 'Write why you need to see who made this anonymous gift', 'reason_required');
       const g = (await ctx.db.query<any>(`SELECT phone, user_id FROM anonymous_gifts WHERE payment_id=$1`, [p.id]))[0];
       await ctx.ledger.audit({ orgId: p.org_id, branchId: p.branch_id, actor: req.session!.uid, action: 'access.reveal_anonymous', category: 'access', entity: 'payment', entityId: p.id, summary: `Looked up the giver of an anonymous gift (${p.provider_tx_id})`, reason });
       return { payer_phone: g?.phone ?? null, anonymous: true };
     }
-    await ctx.ledger.audit({ orgId: p.org_id, branchId: p.branch_id, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'payment', entityId: p.id, summary: `Revealed the payer phone of payment ${p.provider_tx_id}`, reason: (req.body as any)?.reason ? String((req.body as any).reason).slice(0, 200) : null, meta: { fields: ['payer_phone'] } });
+    await ctx.ledger.audit({ orgId: p.org_id, branchId: p.branch_id, actor: req.session!.uid, action: 'access.reveal', category: 'access', entity: 'payment', entityId: p.id, summary: `Revealed the payer phone of payment ${p.provider_tx_id}`, reason: asked.slice(0, 200), meta: { fields: ['payer_phone'] } });
     return { payer_phone: p.payer_phone };
   });
 
@@ -127,14 +130,45 @@ export function adminRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.get('/admin/reversal-requests', adm, async (req) => listReversalRequests(ctx, (req.query as any).status));
-  app.post('/admin/reversal-requests/:id/decide', adm, async (req) =>
-    decideReversal(ctx, (req.params as any).id, req.session!.uid, (req.body as any)?.approve !== false, (req.body as any)?.reason),
-  );
+  app.post('/admin/reversal-requests/:id/decide', adm, async (req) => {
+    // Approving and rejecting both need a short written reason, kept in the audit log.
+    const why = String((req.body as any)?.reason ?? '').trim();
+    const approve = (req.body as any)?.approve !== false;
+    if (why.length < 3) throw new HttpError(400, `Write a short reason for ${approve ? 'approving' : 'rejecting'} this request (at least 3 characters). It is kept in the audit log.`, 'reason_required');
+    return decideReversal(ctx, (req.params as any).id, req.session!.uid, approve, why.slice(0, 300));
+  });
+
+  /** Dev tools (payment simulator, clock, failing a payout) exist only outside production unless ENABLE_DEV_TOOLS=1. The admin app hides them when this says false. */
+  app.get('/admin/dev-tools', adm, async () => ({ enabled: devToolsEnabled() }));
+
+  /** What "Run settlement now" would pay: the total ready to pay out, how many branches and churches, and how many payments. */
+  const settlementPreview = async () => {
+    const holdCutoff = new Date(ctx.clock.now().getTime() - ctx.ledger.opts.holdHours * 3600_000).toISOString();
+    const branches = await ctx.db.query<any>(`SELECT id, org_id FROM branches WHERE NOT payout_paused`);
+    // Money past the 48 hour hold is released by the run itself, so it counts as ready even before the run moves it.
+    const due = await ctx.db.query<any>(`SELECT branch_id, COALESCE(SUM(net),0) AS net, COUNT(*) AS n FROM payments WHERE stage='pending' AND hold_from <= $1 GROUP BY branch_id`, [holdCutoff]);
+    const dueBy = new Map<string, { net: number; n: number }>(due.map((d) => [d.branch_id, { net: Number(d.net), n: Number(d.n) }]));
+    const avail = await ctx.db.query<any>(`SELECT branch_id, COUNT(*) AS n FROM payments WHERE stage='available' GROUP BY branch_id`);
+    const availN = new Map<string, number>(avail.map((d) => [d.branch_id, Number(d.n)]));
+    let amount = 0; let paying = 0; let payments = 0; const orgs = new Set<string>();
+    for (const b of branches) {
+      const a = (await ctx.ledger.balance('available', b.id)) + (dueBy.get(b.id)?.net ?? 0);
+      if (a > 0) { amount += a; paying++; orgs.add(b.org_id); payments += (availN.get(b.id) ?? 0) + (dueBy.get(b.id)?.n ?? 0); }
+    }
+    const suspenseCutoff = new Date(ctx.clock.now().getTime() - ctx.ledger.opts.suspenseHours * 3600_000).toISOString();
+    const expiringSuspense = Number((await ctx.db.query<any>(`SELECT COUNT(*) AS n FROM payments WHERE stage='suspense' AND received_at <= $1`, [suspenseCutoff]))[0]?.n ?? 0);
+    const dueChanges = Number((await ctx.db.query<any>(`SELECT COUNT(*) AS n FROM payout_change_requests WHERE status='approved' AND effective_at <= $1`, [ctx.clock.now().toISOString()]))[0]?.n ?? 0);
+    return { amount, branches: paying, churches: orgs.size, payments, expiringSuspense, dueChanges };
+  };
+  app.get('/admin/settlement/preview', adm, async () => settlementPreview());
 
   app.post('/admin/settlement/run', adm, async (req) => {
     // One run at a time (LG-02): a second concurrent call is refused, so only one payout set is ever created.
     try {
       return await ctx.ledger.exclusive(async () => {
+        // A run that would pay KES 0 and do nothing else is refused, so nobody confirms an empty run by accident.
+        const pre = await settlementPreview();
+        if (pre.amount <= 0 && pre.expiringSuspense === 0 && pre.dueChanges === 0) throw new HttpError(400, 'There is nothing to pay out right now: no branch has money that has cleared the 48 hour hold.', 'nothing_to_settle');
         await applyDuePayoutChanges(ctx);
         const expired = await ctx.ledger.expireSuspense();
         const results = await ctx.ledger.runSettlement(true);

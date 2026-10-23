@@ -1,14 +1,14 @@
 import type { ReactNode } from 'react';
-import { ErrorNote } from '@churchos/ui';
+import { Failed } from '@churchos/ui';
 import { friendly } from './session';
 import { Skeleton, StatusChip } from './ui';
 import './money.css';
 
 /** Loading wrapper for the money pages: shimmer while loading, a friendly error, then the content. */
-export function Loaded({ loading, error, hasData, children, rows = 4, height = 56 }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode; rows?: number; height?: number }) {
-  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+export function Loaded({ loading, error, hasData, children, rows = 4, height = 56, retry }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode; rows?: number; height?: number; retry?: () => void }) {
+  if (error && !hasData) return <Failed onRetry={retry}>{friendly(error)}</Failed>;
   if (loading && !hasData) return <Skeleton rows={rows} height={height} />;
-  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+  return <>{error && <Failed onRetry={retry}>{friendly(error)}</Failed>}{children}</>;
 }
 
 const TONE: Record<string, 'wait' | 'done' | 'bad' | 'info' | 'off'> = {

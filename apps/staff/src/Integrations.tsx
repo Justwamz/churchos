@@ -114,6 +114,7 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
         )}
       </Card>
 
+      <div className="comm-two">
       <Card title="SMS">
         <Status active={data.smsSenderId} req={latest(requests, 'sms_sender', null)} />
         <Field label="Sender name" hint="The name members see on their phone. 3 to 11 letters and numbers, starting with a letter.">
@@ -132,6 +133,9 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
         <p className="tiny">WhatsApp costs {kes(rates.whatsapp)} per message right now. It is only sent to people who agreed to receive it.</p>
       </Card>
 
+      </div>
+
+      <div className="comm-two">
       <Card title="Low-balance alerts">
         <p className="muted">Everyone who can see a wallet is also alerted automatically, in the app and by email if they have added an email to My profile.</p>
         <p className="muted">You can also add up to 5 extra email addresses.</p>
@@ -149,6 +153,8 @@ function Editor({ data, reload }: { data: any; reload: () => void }) {
           </div>
         )}
       </Card>
+
+      </div>
 
       <Card title="Branches">
         <p className="muted">Leave these blank to use the church's own sender name and WhatsApp number.</p>

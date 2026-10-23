@@ -1,5 +1,5 @@
 .pj-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
-.pj-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
+.pj-head h3, .pj-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
 .pj-desc { margin: 0 0 12px; color: var(--ink-2); font-size: 14.5px; }
 .pj-raised { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 8px 0 6px; flex-wrap: wrap; }
 .pj-raised b { font-size: 20px; font-variant-numeric: tabular-nums; }

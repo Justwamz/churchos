@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button, Note, dateOnly, useAsync, useToast } from '@churchos/ui';
+import { Button, DpaCard, Note, dateOnly, useAsync, useToast } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Load } from './bits';
 import { Card, PageHeader, Section, Skeleton, StatusChip } from './ui';
@@ -73,6 +73,7 @@ export function Verification() {
   return (
     <>
       <PageHeader title="Verification" subtitle="Confirm your church so payouts can be released." />
+      <DpaCard api={api} />
       {!data && !d.error && <Skeleton rows={4} height={72} />}
       <Load loading={false} error={d.error} hasData={!!data}>
         {data && (

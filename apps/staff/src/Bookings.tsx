@@ -301,7 +301,7 @@ export function Bookings() {
           run={async (reason) => { await api.post(`/bookings/${deciding.b.id}/items/${deciding.it.resourceId}/decide` + s.qs({ branch: undefined }), { approve: false, reason }); setDeciding(null); setOpen(null); toast.show('Declined'); reload(); }} />
       )}
       {cancelling && (
-        <ReasonDialog title="Cancel this booking?" note="The member is told. If they paid, arrange any refund through Payment help." label="Why is it cancelled?" button="Cancel booking" onClose={() => setCancelling(null)}
+        <ReasonDialog title="Cancel this booking?" note="The member is told. If they paid, arrange any refund through Help with a payment." label="Why is it cancelled?" button="Cancel booking" onClose={() => setCancelling(null)}
           run={async (reason) => { await api.post(`/bookings/${cancelling.id}/cancel` + s.qs({ branch: undefined }), { reason }); setCancelling(null); setOpen(null); toast.show('Booking cancelled'); reload(); }} />
       )}
       {toast.node}

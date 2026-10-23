@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Button, kes, shortDate, useAsync } from '@churchos/ui';
-import { Table } from '@churchos/ui';
 import { Icon } from '../icons';
 import { Card, EmptyState, PageHeader, Section, Skeleton, Stat, StatTiles } from '../ui';
-import { Load, api, num, type PageProps } from '../common';
+import { Load, RefreshButton, api, num, type PageProps } from '../common';
 
 const ACC: Record<string, string> = {
   suspense: 'Unmatched payments (suspense)', fee_revenue: 'Platform fees earned', psp_cost_payable: 'Owed to payment providers',
   in_transit: 'Payouts in transit', branch_pending: 'Churches: in 48h hold', branch_available: 'Churches: ready to pay out',
   branch_receivable: 'Churches: owed to us', branch_paused: 'Churches: paused',
+  sms_revenue: 'SMS revenue', whatsapp_revenue: 'WhatsApp revenue', message_wallets: 'Message wallets',
 };
+/** Account keys come from the ledger in lower case with underscores: show a proper label even for one we have not named yet. */
+const accLabel = (k: string) => ACC[k] ?? (k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()));
 
 /** A calm banner: green when fine, red when not. */
 function Banner({ ok, title, children, action, alert }: { ok: boolean; title: string; children?: React.ReactNode; action?: React.ReactNode; alert?: boolean }) {
@@ -66,9 +68,10 @@ export function Overview({ go }: PageProps) {
 
   return (
     <>
-      <PageHeader title="Overview" subtitle="Is the money where it should be?" actions={<Button kind="ghost" onClick={reload}>Refresh</Button>} />
+      <PageHeader title="Overview" subtitle="Is the money where it should be?" actions={<RefreshButton onClick={reload} />} />
 
-      <Section>
+      <div className="pa-ov">
+      <Section className="ov-integrity">
         <Load s={rec} rows={1}>
           {(r: any) => (
             <div className={`pa-banner big ${r.ok ? 'ok' : 'bad'}`} role={r.ok ? undefined : 'alert'}>
@@ -90,7 +93,7 @@ export function Overview({ go }: PageProps) {
         <AuditBanner />
       </Section>
 
-      <Section title="Needs your attention" hint="Tap a tile to open it.">
+      <Section className="ov-attn" title="Needs your attention" hint="Tap a tile to open it.">
         <StatTiles>
           <Load s={sus} rows={1}>{(v: any[]) => <Stat label="Open suspense items" value={v.length} tone={tone(v.length)} hint="Unmatched payments" onClick={() => go('suspense')} />}</Load>
           <Load s={rr} rows={1}>{(v: any[]) => <Stat label="Pending reversals" value={v.length} tone={tone(v.length)} hint="Need a decision" onClick={() => go('reversals')} />}</Load>
@@ -100,7 +103,7 @@ export function Overview({ go }: PageProps) {
         </StatTiles>
       </Section>
 
-      <Section title="Platform earnings">
+      <Section className="ov-earn" title="Platform earnings">
         <Load s={rev} rows={1}>
           {(v: any) => (
             <StatTiles>
@@ -112,22 +115,23 @@ export function Overview({ go }: PageProps) {
         </Load>
       </Section>
 
-      <Section title="Account balances">
-        <Card pad={false}>
+      <Section className="ov-bal" title="Account balances">
+        <Card>
           <Load s={rec} rows={3}>
             {(r: any) => {
               const entries = Object.entries(r.accounts ?? {});
               return entries.length === 0 ? <EmptyState icon="wallet" title="No balances yet" text="Balances appear once the first payment arrives." /> : (
-                <Table head={['Account', 'Balance']}>
+                <dl className="pa-bal">
                   {entries.map(([k, v]) => (
-                    <tr key={k}><td>{ACC[k] ?? k.replace(/_/g, ' ')}</td><td className="num">{kes(v as number)}</td></tr>
+                    <div key={k}><dt>{accLabel(k)}</dt><dd>{kes(v as number)}</dd></div>
                   ))}
-                </Table>
+                </dl>
               );
             }}
           </Load>
         </Card>
       </Section>
+      </div>
     </>
   );
 }

@@ -590,7 +590,7 @@ function ServicesTab({ branch, branches, canManage, reloadKey, onChanged, addNon
   const s = useSession();
   const w = useWords();
   const toast = useToast();
-  const [filter, setFilter] = useState<'week' | '30' | 'all'>('30');
+  const [filter, setFilter] = useState<'week' | '30' | 'all'>('week');
   const q = useMemo(() => {
     const t = todayKey();
     const to = filter === 'week' ? addDays(t, (7 - new Date(`${t}T00:00:00Z`).getUTCDay()) % 7) : filter === '30' ? addDays(t, 30) : addDays(t, 400);
@@ -622,7 +622,7 @@ function ServicesTab({ branch, branches, canManage, reloadKey, onChanged, addNon
       <Load loading={list.loading} error={list.error} hasData={!!list.data}>
         {days.length === 0 ? (
           <Card><EmptyState icon="worship" title={`No ${w.manyLower} in this period`} text={`Set up a weekly schedule, or add a special ${w.oneLower}.`} action={canManage ? <Button onClick={() => setModal({ kind: 'new' })}>Add a special {w.oneLower}</Button> : undefined} /></Card>
-        ) : days.map(([k, items]) => (
+        ) : <div className="sv-grid">{days.map(([k, items]) => (
           <Section key={k} title={dayName(items[0].startsAt)}>
             <Card pad={false}>
               <div className="sv-list">
@@ -652,7 +652,7 @@ function ServicesTab({ branch, branches, canManage, reloadKey, onChanged, addNon
               </div>
             </Card>
           </Section>
-        ))}
+        ))}</div>}
       </Load>
       {panel && <ManagePanel svc={panel} onClose={() => setPanel(null)} onDone={done} open={openModal} onRestore={restore} toast={toast} />}
       {modal?.kind === 'reading' && <ReadingModal svc={modal.svc} onClose={() => setModal(null)} onDone={done} />}

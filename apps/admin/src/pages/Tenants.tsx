@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { computeFee, DEFAULT_FEE_SCHEDULE, type FeeSchedule, type PaymentMethod } from '@churchos/shared';
-import { Badge, Button, ErrorNote, Field, HistoryButton, Note, Table, kes, useAsync } from '@churchos/ui';
+import { AuditHistory, Badge, Button, ErrorNote, Field, HistoryButton, Note, Table, kes, useAsync } from '@churchos/ui';
 import { Card, EmptyState, PageHeader, Section, SidePanel } from '../ui';
-import { Load, METHOD_LABEL, api, errText, num, type PageProps, type Toast } from '../common';
+import { api, errText, Load, METHOD_LABEL, num, OverflowMenu, RefreshButton, usePhone, type PageProps, type Toast } from '../common';
 import { MessagingPlan } from '../MessagingAdmin';
 
 const METHODS: PaymentMethod[] = ['mpesa', 'airtel', 'tkash', 'card', 'cash'];
@@ -14,12 +14,14 @@ export function Tenants({ toast }: PageProps) {
   const [tab, setTab] = useState('churches');
   const [feeOrg, setFeeOrg] = useState('');
   const [plan, setPlan] = useState<any>();
+  const [hist, setHist] = useState<any>();
+  const phone = usePhone();
   const editFees = (id: string) => { setFeeOrg(id); setTab('fees'); window.scrollTo(0, 0); };
 
   return (
     <>
       <PageHeader title="Tenants and fees" subtitle="Churches on the platform, their balances, and what each one is charged."
-        actions={<Button kind="ghost" onClick={() => { t.reload(); tariffs.reload(); }}>Refresh</Button>}
+        actions={<RefreshButton onClick={() => { t.reload(); tariffs.reload(); }} />}
         tabs={[{ id: 'churches', label: 'Churches' }, { id: 'fees', label: 'Fees' }]} tab={tab} onTab={setTab} />
       <Load s={t} rows={3}>
         {(orgs) => orgs.length === 0 ? <Card><EmptyState icon="building" title="No organisations yet" text="Churches appear here once they sign up." /></Card> : tab === 'churches' ? (
@@ -27,13 +29,36 @@ export function Tenants({ toast }: PageProps) {
             {orgs.map((o) => (
               <Card key={o.id} pad={false}>
                 <div className="pa-card-head">
-                  <div className="pa-card-title"><h3>{o.name}</h3><Badge tone="info">{o.feeBearer === 'member' ? 'Member pays on top' : 'Church absorbs'}</Badge></div>
+                  <div className="pa-card-title"><h2>{o.name}</h2><Badge tone="info">{o.feeBearer === 'member' ? 'Member pays on top' : 'Church absorbs'}</Badge></div>
                   <div className="pa-card-actions">
-                    <HistoryButton api={api} base="/admin/audit" entity="fee_schedule" entityId={o.id} title={`${o.name} fees`} label="Fee history" />
-                    {(tariffs.data ?? []).length > 0 && <Button kind="ghost" small onClick={() => setPlan(o)}>Messaging plan</Button>}
-                    <Button small onClick={() => editFees(o.id)}>Edit fees</Button>
+                    {phone ? (
+                      <>
+                        <Button small onClick={() => editFees(o.id)}>Edit fees</Button>
+                        <OverflowMenu label={`More actions for ${o.name}`} items={[
+                          { label: 'Fee history', onClick: () => setHist(o) },
+                          ...((tariffs.data ?? []).length > 0 ? [{ label: 'Messaging plan', onClick: () => setPlan(o) }] : []),
+                        ]} />
+                      </>
+                    ) : (
+                      <>
+                        <HistoryButton api={api} base="/admin/audit" entity="fee_schedule" entityId={o.id} title={`${o.name} fees`} label="Fee history" />
+                        {(tariffs.data ?? []).length > 0 && <Button kind="ghost" small onClick={() => setPlan(o)}>Messaging plan</Button>}
+                        <Button small onClick={() => editFees(o.id)}>Edit fees</Button>
+                      </>
+                    )}
                   </div>
                 </div>
+                {phone ? (
+                  <ul className="pa-wlist">
+                    {o.branches.map((b: any) => (
+                      <li key={b.id}>
+                        <div className="pa-w-top"><b>{b.name} <span className="tiny">{b.code}</span></b>{b.payout_paused ? <Badge tone="bad">Paused</Badge> : <Badge tone="good">Active</Badge>}</div>
+                        <div className="tiny">{b.region}</div>
+                        <div className="pa-w-figs"><span>In hold <b>{kes(b.pending)}</b></span><span>Ready <b>{kes(b.available)}</b></span><span>Owed <b>{kes(b.receivable)}</b></span></div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
                 <Table head={['Branch', 'Code', 'In 48h hold', 'Ready to pay out', 'Owed to us', 'Payouts']}>
                   {o.branches.map((b: any) => (
                     <tr key={b.id}>
@@ -43,6 +68,7 @@ export function Tenants({ toast }: PageProps) {
                     </tr>
                   ))}
                 </Table>
+                )}
               </Card>
             ))}
           </div>
@@ -55,6 +81,7 @@ export function Tenants({ toast }: PageProps) {
           </>
         )}
       </Load>
+      {hist && <AuditHistory api={api} base="/admin/audit" entity="fee_schedule" entityId={hist.id} title={`${hist.name} fees`} onClose={() => setHist(undefined)} />}
       {plan && (
         <SidePanel title="Messaging plan" subtitle={plan.name} onClose={() => setPlan(undefined)}>
           <MessagingPlan org={plan} tariffs={tariffs.data ?? []} toast={toast} onSaved={() => { t.reload(); }} />
@@ -118,12 +145,12 @@ function FeeEditor({ org, toast, onSaved }: { org: any; toast: Toast; onSaved: (
     <div className="pa-stack">
       <div className="pa-two">
         <Card>
-          <h3 className="pa-h">Who pays the fee?</h3>
+          <h2 className="pa-h">Who pays the fee?</h2>
           <div className="pa-choices">
             <label><input type="radio" checked={bearer === 'church'} onChange={() => setBearer('church')} /> Church absorbs (member pays the gift amount, church receives less)</label>
             <label><input type="radio" checked={bearer === 'member'} onChange={() => setBearer('member')} /> Member pays on top (church receives the full gift)</label>
           </div>
-          <h3 className="pa-h">Platform fee (what ChurchOS earns)</h3>
+          <h2 className="pa-h">Platform fee (what ChurchOS earns)</h2>
           <div className="pa-choices inline">
             <label><input type="radio" checked={kind === 'flat'} onChange={() => setKind('flat')} /> Flat</label>
             <label><input type="radio" checked={kind === 'tiered'} onChange={() => setKind('tiered')} /> Tiered by amount</label>
@@ -150,7 +177,7 @@ function FeeEditor({ org, toast, onSaved }: { org: any; toast: Toast; onSaved: (
           )}
         </Card>
         <Card pad={false}>
-          <h3 className="pa-h pad">Provider cost (what the payment provider charges)</h3>
+          <h2 className="pa-h pad">Provider cost (what the payment provider charges)</h2>
           <Table head={['Method', 'bps', 'Fixed (KES)']}>
             {METHODS.map((m) => (
               <tr key={m}>

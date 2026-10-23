@@ -457,7 +457,7 @@ function ExpenseList({ setup, rec, setRec, openId }: { setup: any; rec: boolean;
           ) : (
             <Card pad={false} className="mn-wrap">
               <div className="mn-scroll">
-                <table className="mn-table">
+                <table className="mn-table mn-wide">
                   <thead><tr><th>Date</th><th>Paid to</th><th>Category</th><th className="num">Amount</th><th>Status</th><th>Recorded by</th><th>Receipts</th><th /></tr></thead>
                   <tbody>
                     {list.map((e) => (

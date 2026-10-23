@@ -13,14 +13,14 @@ export const AREAS: Area[] = [
     { title: 'Records', ids: ['records', 'template', 'data-requests'] },
   ] },
   { id: 'worship', label: 'Worship & events', icon: 'worship', groups: [
-    { title: 'On the day', ids: ['usher', 'attendance', 'kiosk', 'checkin'] },
-    { title: 'Plan ahead', ids: ['services', 'lectionary', 'boundaries'] },
-    { title: 'Events and rooms', ids: ['events', 'credit', 'bookings', 'calendar', 'resources'] },
+    { title: 'Check people in', ids: ['usher', 'kiosk', 'checkin'] },
+    { title: 'Attendance and plans', ids: ['attendance', 'services', 'lectionary', 'boundaries'] },
+    { title: 'Events and rooms', ids: ['events', 'bookings', 'calendar', 'resources'] },
   ] },
   { id: 'money', label: 'Money', icon: 'money', groups: [
     { title: 'Giving', ids: ['dashboard', 'collections', 'regular-giving', 'giving-records', 'cash', 'held-payments'] },
     { title: 'Spending', ids: ['my-claims', 'expenses', 'projects'] },
-    { title: 'Payouts', ids: ['settlements', 'payout', 'help'] },
+    { title: 'Payouts and refunds', ids: ['settlements', 'payout', 'credit', 'help'] },
     { title: 'Selling', ids: ['shop'] },
   ] },
   { id: 'communicate', label: 'Communicate', icon: 'communicate', groups: [
@@ -29,7 +29,8 @@ export const AREAS: Area[] = [
   ] },
   { id: 'setup', label: 'Church setup', icon: 'settings', groups: [
     { ids: ['team', 'verification', 'audit'] },
-    { title: 'Your church', ids: ['wording', 'branding', 'profile'] },
+    { title: 'Your church', ids: ['wording', 'branding'] },
+    { title: 'You', ids: ['profile', 'security'] },
   ] },
 ];
 

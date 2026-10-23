@@ -253,33 +253,70 @@ const REMIND_MS = 7 * 86_400_000;
 const remindedUntil = (orgId: string): number => { try { return Number(JSON.parse(localStorage.getItem(REMIND_KEY) ?? '{}')[orgId] ?? 0); } catch { return 0; } };
 const remindLater = (orgId: string) => { try { const m = JSON.parse(localStorage.getItem(REMIND_KEY) ?? '{}'); m[orgId] = Date.now() + REMIND_MS; localStorage.setItem(REMIND_KEY, JSON.stringify(m)); } catch { /* ignore */ } };
 
-/** A card for the Today screen. Shows only to an Organisation Owner whose church has not accepted the current Data Processing Agreement. */
-export function DpaCard({ api, orgId }: { api: Api; orgId?: string }) {
+const DPA_EVENT = 'churchos:dpa-changed';
+
+/**
+ * Whether this person (an Organisation Owner) still has to accept the Data Processing Agreement for a church.
+ * `pending` is the church waiting for it; `reminded` is true while "Remind me later" is in force (one week).
+ */
+export function useDpa(api: Api, orgId?: string) {
   const [item, setItem] = useState<{ orgId: string; church?: string } | null>(null);
-  const [agree, setAgree] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [hidden, setHidden] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [, bump] = useState(0);
   useEffect(() => {
     let live = true;
     api.get<LegalStatus>('/legal/status').then((st) => {
-      const mine = st.required.filter((r) => r.doc === 'dpa' && !r.accepted && (!orgId || r.orgId === orgId));
-      const next = mine.find((r) => r.orgId && remindedUntil(r.orgId) < Date.now());
-      if (live && next?.orgId) setItem({ orgId: next.orgId, church: next.church });
+      const mine = st.required.find((r) => r.doc === 'dpa' && !r.accepted && r.orgId && (!orgId || r.orgId === orgId));
+      if (live) setItem(mine?.orgId ? { orgId: mine.orgId, church: mine.church } : null);
     }).catch(() => {});
     return () => { live = false; };
-  }, [api, orgId]);
-  if (!item || hidden) return null;
+  }, [api, orgId, tick]);
+  useEffect(() => {
+    const on = () => setTick((t) => t + 1);
+    window.addEventListener(DPA_EVENT, on);
+    return () => window.removeEventListener(DPA_EVENT, on);
+  }, []);
+  return {
+    pending: item,
+    reminded: !!item && remindedUntil(item.orgId) > Date.now(),
+    remind: () => { if (item) { remindLater(item.orgId); bump((n) => n + 1); window.dispatchEvent(new Event(DPA_EVENT)); } },
+  };
+}
+
+/** One slim line for the top of Today: the agreement is waiting. Hidden for a week after "Remind me later". */
+export function DpaBar({ api, dpa, onReview }: { api: Api; dpa: ReturnType<typeof useDpa>; onReview: () => void }) {
+  void api;
+  if (!dpa.pending || dpa.reminded) return null;
+  const name = dpa.pending.church || 'your church';
+  return (
+    <div className="note warn dpa-bar" role="region" aria-label="Data Processing Agreement">
+      <span className="dpa-bar-text"><b>Agreement needed.</b> {name} has not accepted the Data Processing Agreement, so messages to many people at once are paused.</span>
+      <span className="dpa-bar-actions">
+        <button type="button" className="btn primary small" onClick={onReview}>Review and accept</button>
+        <button type="button" className="btn ghost small" onClick={dpa.remind}>Remind me later</button>
+      </span>
+    </div>
+  );
+}
+
+/** The full agreement, for Church setup. Shows to an Organisation Owner whose church has not accepted the current Data Processing Agreement. */
+export function DpaCard({ api, orgId }: { api: Api; orgId?: string }) {
+  const dpa = useDpa(api, orgId);
+  const [agree, setAgree] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const item = dpa.pending;
+  if (!item) return null;
   const name = item.church || 'your church';
   const accept = async () => {
     setBusy(true); setError(undefined);
-    try { await api.post('/legal/accept', { doc: 'dpa', version: LEGAL_VERSION, orgId: item.orgId, app: 'staff' }); setHidden(true); }
+    try { await api.post('/legal/accept', { doc: 'dpa', version: LEGAL_VERSION, orgId: item.orgId, app: 'staff' }); window.dispatchEvent(new Event(DPA_EVENT)); }
     catch (e: any) { setError(e?.message ?? 'We could not save that. Please try again.'); }
     setBusy(false);
   };
   return (
     <section className="card dpa-card" aria-labelledby="dpa-title">
-      <h3 id="dpa-title">Data Processing Agreement for {name}</h3>
+      <h2 id="dpa-title">Data Processing Agreement for {name}</h2>
       <p>{name} is the controller of its members' data and {OPERATOR.name} processes it for the church. The law asks for a written agreement. Please read it and accept it for the church. Until you do, the church cannot send messages to many people at once.</p>
       <p><a href="/legal/dpa" target="_blank" rel="noopener">Read the Data Processing Agreement</a> (opens in a new tab). Also see the {newTabLink('messaging', 'Messaging policy')}.</p>
       <label className="consent-check required">
@@ -289,7 +326,6 @@ export function DpaCard({ api, orgId }: { api: Api; orgId?: string }) {
       {error && <div className="note bad" role="alert">{error}</div>}
       <div className="dpa-actions">
         <button type="button" className="btn primary small" disabled={!agree || busy} onClick={accept}>{busy ? 'Saving…' : 'Accept for the church'}</button>
-        <button type="button" className="btn ghost small" onClick={() => { remindLater(item.orgId); setHidden(true); }}>Remind me later</button>
       </div>
     </section>
   );

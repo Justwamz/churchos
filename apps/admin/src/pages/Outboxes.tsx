@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge, Button, Note, Table, shortDate, useAsync } from '@churchos/ui';
 import { Card, EmptyState, PageHeader, SidePanel, StatusChip, Tabs, Toolbar } from '../ui';
-import { Load, api, type PageProps } from '../common';
+import { api, Load, RefreshButton, type PageProps } from '../common';
 
 // ---------------- Email outbox ----------------
 
@@ -14,7 +14,7 @@ export function Outbox(_: PageProps) {
   const view = open && open.html && tab === 'email' ? 'email' : 'text';
   return (
     <>
-      <PageHeader title="Email outbox" subtitle={<StatusChip tone="wait">Development only: simulated email</StatusChip>} actions={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <PageHeader title="Email outbox" subtitle={<StatusChip tone="wait">Development only: simulated email</StatusChip>} actions={<RefreshButton onClick={s.reload} />} />
       <Note>Low-balance alerts, ticket confirmations and other emails are written here instead of being sent, while ChurchOS runs against a simulated email provider.</Note>
       <div style={{ height: 16 }} />
       <Toolbar><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by subject or recipient" aria-label="Search emails" /></Toolbar>
@@ -65,7 +65,7 @@ export function SmsOutbox(_: PageProps) {
   const needle = q.trim().toLowerCase();
   return (
     <>
-      <PageHeader title="SMS outbox" subtitle={<StatusChip tone="wait">Development only: simulated SMS</StatusChip>} actions={<Button kind="ghost" onClick={s.reload}>Refresh</Button>} />
+      <PageHeader title="SMS outbox" subtitle={<StatusChip tone="wait">Development only: simulated SMS</StatusChip>} actions={<RefreshButton onClick={s.reload} />} />
       <Note>Single messages such as receipts, children's pick-up codes and late pick-up alerts are written here as well as being sent to the simulated SMS provider. Phone numbers are partly hidden.</Note>
       <div style={{ height: 16 }} />
       <Toolbar><input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the message or number" aria-label="Search SMS" /></Toolbar>

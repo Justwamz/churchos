@@ -20,7 +20,7 @@
 .kd-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .kd-class { display: grid; gap: 6px; align-content: start; }
 .kd-class.off { opacity: 0.65; }
-.kd-sec h3 { margin: 0; }
+.kd-sec h3, .kd-sec h2 { margin: 0; }
 .kd-picks { display: grid; gap: 8px; }
 .kd-pick { display: flex; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; cursor: pointer; background: var(--paper); }
 .kd-pick.off { opacity: 0.55; cursor: not-allowed; }

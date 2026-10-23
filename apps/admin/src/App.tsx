@@ -2,11 +2,12 @@ import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useSta
 import { ConsentGate, HelpButton, LegalApp, LoginGate, isLegalPath, PasskeyBanner, phonePretty, useToast } from '@churchos/ui';
 import { api, type PageProps } from './common';
 import { Icon } from './icons';
-import { AREAS, areaOfPage, pageById, type PageId } from './navmap';
+import { AREAS, areaOfPage, pageById, type Area, type PageId } from './navmap';
 import { CommandBar } from './CommandBar';
 import { PageSkeleton } from './ui';
 import './shell.css';
 import './admin-extra.css';
+import './admin-ux.css';
 
 /** Pages load on demand: each file is its own chunk, and a skeleton shows while it loads. */
 const lazyPage = <K extends string>(load: () => Promise<Record<K, ComponentType<PageProps>>>, name: K) => lazy(() => load().then((m) => ({ default: m[name] })));
@@ -26,7 +27,7 @@ const PAGE_EL: Record<PageId, ComponentType<PageProps>> = {
   smsbox: lazyPage(() => import('./pages/Outboxes'), 'SmsOutbox'),
   outbox: lazyPage(() => import('./pages/Outboxes'), 'Outbox'),
   tools: lazyPage(() => import('./pages/Platform'), 'Tools'),
-  audit: lazyPage(() => import('./pages/Platform'), 'Audit'),
+  audit: lazyPage(() => import('./pages/Audit'), 'Audit'),
   'data-requests': lazyPage(() => import('./pages/DataRequests'), 'DataRequests'),
   security: lazyPage(() => import('./pages/Security'), 'Security'),
 };
@@ -75,12 +76,41 @@ function useCellLabels(root: React.RefObject<HTMLElement>) {
         });
       });
     };
-    const run = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(label); };
+    /** A region that scrolls must be reachable by keyboard and have a name. Only tables that really scroll (not the phone card layout) get it. */
+    const regions = () => {
+      el.querySelectorAll<HTMLElement>('.table-wrap').forEach((w) => {
+        const cs = getComputedStyle(w);
+        const scrolls = /(auto|scroll)/.test(cs.overflowY) || /(auto|scroll)/.test(cs.overflowX);
+        if (scrolls) {
+          if (!w.hasAttribute('tabindex')) w.setAttribute('tabindex', '0');
+          if (!w.hasAttribute('role')) w.setAttribute('role', 'region');
+          const heads = Array.from(w.querySelectorAll('thead th')).map((h) => (h.textContent ?? '').trim()).filter(Boolean);
+          const name = heads.length ? 'Table: ' + heads.slice(0, 4).join(', ') : 'Table';
+          if (w.getAttribute('aria-label') !== name) w.setAttribute('aria-label', name);
+        } else if (w.getAttribute('role') === 'region') {
+          w.removeAttribute('tabindex'); w.removeAttribute('role'); w.removeAttribute('aria-label');
+        }
+      });
+    };
+    const run = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { label(); regions(); }); };
+    window.addEventListener('resize', run);
     const mo = new MutationObserver(run);
     mo.observe(el, { childList: true, subtree: true });
     run();
-    return () => { mo.disconnect(); cancelAnimationFrame(raf); };
+    return () => { mo.disconnect(); window.removeEventListener('resize', run); cancelAnimationFrame(raf); };
   }, [root]);
+}
+
+/** One tab stop for a list of buttons: Up/Down (or Left/Right), Home and End move between them. Keeps the Tab order short. */
+function onRovingKey(e: React.KeyboardEvent<HTMLElement>) {
+  const keys = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End'];
+  if (!keys.includes(e.key)) return;
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button[data-rove]'));
+  const i = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (i < 0) return;
+  e.preventDefault();
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : e.key === 'ArrowDown' || e.key === 'ArrowRight' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+  items[next]?.focus();
 }
 
 export function App() {
@@ -104,6 +134,10 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(COLLAPSE_KEY) === '1'; } catch { return false; } });
   const main = useRef<HTMLElement>(null);
   useCellLabels(main);
+  // The test tools exist only where the API says so (never on the Render demo). Hidden until the API answers.
+  const [devTools, setDevTools] = useState(false);
+  useEffect(() => { api.get<{ enabled: boolean }>('/admin/dev-tools').then((r) => setDevTools(!!r?.enabled)).catch(() => setDevTools(false)); }, []);
+  const areas: Area[] = AREAS.map((a) => (devTools ? a : { ...a, ids: a.ids.filter((id) => id !== 'tools') }));
 
   // Keep the browser Back button working: every page change is a history entry.
   const setPage = useCallback((p: string) => {
@@ -135,11 +169,12 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   }, [flyout]);
 
   const onMore = phone && page.startsWith('more');
-  const moreArea = onMore && page.includes(':') ? AREAS.find((a) => a.id === page.split(':')[1]) : undefined;
-  const current = pageById(page) ?? pageById('overview')!;
+  const moreArea = onMore && page.includes(':') ? areas.find((a) => a.id === page.split(':')[1]) : undefined;
+  const current = (page === 'tools' && !devTools ? pageById('audit') : pageById(page)) ?? pageById('overview')!;
   const Page = PAGE_EL[current.id];
-  const activeArea = areaOfPage(current.id) ?? AREAS[0];
-  const phoneTabs = AREAS.filter((a) => a.id !== 'platform');
+  const activeArea = areas.find((a) => (a.ids as string[]).includes(current.id)) ?? areaOfPage(current.id) ?? areas[0];
+  const solo = activeArea.ids.length === 1;
+  const phoneTabs = areas.filter((a) => a.id !== 'platform');
   const activeTab = onMore ? 'menu' : activeArea.id === 'platform' ? 'menu' : activeArea.id;
 
   const prevPage = useRef<string | undefined>(undefined);
@@ -150,7 +185,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   }, [current.id]);
 
   const name = user.name ?? phonePretty(user.phone);
-  const pageProps: PageProps = { toast: toast.show, user, go: setPage };
+  const pageProps: PageProps = { toast: toast.show, user, go: setPage, devTools };
 
   const account = (
     <div className="avatar-wrap">
@@ -171,10 +206,20 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const pageLink = (id: PageId, onDone?: () => void) => {
     const p = pageById(id)!;
     return (
-      <button key={id} type="button" className={`sn-link ${current.id === id ? 'active' : ''}`} aria-current={current.id === id ? 'page' : undefined} onClick={() => { setPage(id); onDone?.(); }}>{p.label}</button>
+      <button key={id} type="button" data-rove className={`sn-link ${current.id === id ? 'active' : ''}`} tabIndex={current.id === id ? 0 : -1} aria-current={current.id === id ? 'page' : undefined} onClick={() => { setPage(id); onDone?.(); }}>{p.label}</button>
     );
   };
-  const areaList = (a: (typeof AREAS)[number], onDone?: () => void) => <div className="sn-group">{a.ids.map((id) => pageLink(id, onDone))}</div>;
+  const areaList = (a: Area, onDone?: () => void) => {
+    const tech = a.technical ?? [];
+    const main = a.ids.filter((id) => !tech.includes(id));
+    const techIds = a.ids.filter((id) => tech.includes(id));
+    return (
+      <div className="sn-group" onKeyDown={onRovingKey}>
+        {main.map((id) => pageLink(id, onDone))}
+        {techIds.length > 0 && <><h3 className="sn-title">Technical</h3>{techIds.map((id) => pageLink(id, onDone))}</>}
+      </div>
+    );
+  };
 
   const searchBtn = phone
     ? <button type="button" className="icon-btn" aria-label="Search" onClick={() => setCmd(true)}><Icon name="search" size={22} /></button>
@@ -183,7 +228,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
   const body = <Suspense fallback={<PageSkeleton />}><Page key={current.id} {...pageProps} /></Suspense>;
 
   return (
-    <div className={`shell ns ${layout} ${layout === 'desktop' && collapsed ? 'collapsed' : ''}`}>
+    <div className={`shell ns ${layout} ${layout === 'desktop' && (collapsed || solo) ? 'collapsed' : ''} ${layout === 'desktop' && solo ? 'solo' : ''}`}>
       <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
 
       {phone ? (
@@ -194,14 +239,14 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
         </header>
       ) : (
         <>
-          <nav className="rail" aria-label="Areas">
-            <button type="button" className="rail-logo" aria-label="ChurchOS Platform admin: go to Overview" onClick={() => setPage('overview')}><Icon name="shield" size={22} /></button>
+          <nav className="rail" aria-label="Areas" onKeyDown={onRovingKey}>
+            <button type="button" tabIndex={-1} className="rail-logo" aria-label="ChurchOS Platform admin: go to Overview" onClick={() => setPage('overview')}><Icon name="shield" size={22} /></button>
             <span className="rail-badge">Platform admin</span>
-            {AREAS.map((a) => {
+            {areas.map((a) => {
               const on = activeArea.id === a.id;
               const multi = a.ids.length > 1;
               return (
-                <button key={a.id} type="button" className={`rail-item ${on ? 'active' : ''}`} aria-current={on ? 'page' : undefined} aria-haspopup={layout === 'tablet' && multi ? 'menu' : undefined} aria-expanded={layout === 'tablet' && multi ? flyout === a.id : undefined}
+                <button key={a.id} type="button" data-rove tabIndex={on ? 0 : -1} className={`rail-item ${on ? 'active' : ''}`} aria-current={on ? 'page' : undefined} aria-haspopup={layout === 'tablet' && multi ? 'menu' : undefined} aria-expanded={layout === 'tablet' && multi ? flyout === a.id : undefined}
                   onClick={() => { if (layout === 'tablet' && multi) setFlyout((f) => (f === a.id ? null : a.id)); else setPage(a.ids[0]); }}>
                   <span className="rail-pill"><Icon name={a.icon} size={22} /></span>
                   <span className="rail-label">{a.label}</span>
@@ -209,7 +254,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
               );
             })}
           </nav>
-          {layout === 'desktop' && !collapsed && (
+          {layout === 'desktop' && !collapsed && !solo && (
             <nav className="subnav" aria-label={`${activeArea.label} pages`}>
               <div className="sn-head">
                 <div className="sn-titles"><span className="tiny">Platform admin</span><h2>{activeArea.label}</h2></div>
@@ -222,8 +267,8 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
             <>
               <div className="fly-scrim" onClick={() => setFlyout(null)} />
               <nav className="subnav flyout" aria-label="Pages">
-                <div className="sn-head"><div className="sn-titles"><h2>{AREAS.find((a) => a.id === flyout)?.label}</h2></div><button type="button" className="icon-btn sm" aria-label="Close" onClick={() => setFlyout(null)}><Icon name="close" size={18} /></button></div>
-                {AREAS.filter((a) => a.id === flyout).map((a) => <div key={a.id}>{areaList(a, () => setFlyout(null))}</div>)}
+                <div className="sn-head"><div className="sn-titles"><h2>{areas.find((a) => a.id === flyout)?.label}</h2></div><button type="button" className="icon-btn sm" aria-label="Close" onClick={() => setFlyout(null)}><Icon name="close" size={18} /></button></div>
+                {areas.filter((a) => a.id === flyout).map((a) => <div key={a.id}>{areaList(a, () => setFlyout(null))}</div>)}
               </nav>
             </>
           )}
@@ -233,7 +278,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
       <div className="ns-main">
         {!phone && (
           <header className="ns-top">
-            {layout === 'desktop' && collapsed && <button type="button" className="icon-btn" aria-label="Show the page list" onClick={toggleCollapsed}><Icon name="menu" size={20} /></button>}
+            {layout === 'desktop' && collapsed && !solo && <button type="button" className="icon-btn" aria-label="Show the page list" onClick={toggleCollapsed}><Icon name="menu" size={20} /></button>}
             <span className="spacer" />
             {searchBtn}
             {account}
@@ -256,13 +301,23 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
                 <>
                   <h1>Menu</h1>
                   <div className="more-grid">
-                    {AREAS.map((a) => (
+                    {areas.map((a) => (
                       <button key={a.id} type="button" className="more-tile" onClick={() => setPage(a.ids.length === 1 ? a.ids[0] : 'more:' + a.id)}>
                         <span className="more-tile-ico"><Icon name={a.icon} size={28} /></span>
                         <b>{a.label}</b>
                         <span className="tiny">{a.ids.length} {a.ids.length === 1 ? 'page' : 'pages'}</span>
                       </button>
                     ))}
+                    <button type="button" className="more-tile pinned" onClick={() => setPage('audit')}>
+                      <span className="more-tile-ico"><Icon name="list" size={28} /></span>
+                      <b>Audit log</b>
+                      <span className="tiny">Every change</span>
+                    </button>
+                    <button type="button" className="more-tile pinned" onClick={() => setPage('security')}>
+                      <span className="more-tile-ico"><Icon name="shield" size={28} /></span>
+                      <b>Security</b>
+                      <span className="tiny">Passkeys, devices</span>
+                    </button>
                   </div>
                   <section className="more-group">
                     <h2>This account</h2>
@@ -294,7 +349,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           <button type="button" className={activeTab === 'menu' ? 'active' : ''} aria-current={activeTab === 'menu' ? 'page' : undefined} onClick={() => setPage('more')}><Icon name="grid" size={22} />Menu</button>
         </nav>
       )}
-      {cmd && <CommandBar onClose={() => setCmd(false)} go={setPage} />}
+      {cmd && <CommandBar onClose={() => setCmd(false)} go={setPage} hide={devTools ? [] : ['tools']} />}
       <HelpButton api={api} audience="admin" screen={`admin.${current.id === 'messaging' ? 'sms' : current.id}`} />
       {toast.node}
     </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Badge, Button, Field, Note, StatusBadge, Table, shortDate, useAsync } from '@churchos/ui';
 import { Card, Dialog, EmptyState, PageHeader, SidePanel } from '../ui';
-import { Load, api, errText, num, type PageProps, type Toast } from '../common';
+import { api, errText, Load, num, RefreshButton, type PageProps, type Toast } from '../common';
 
 // ---------------- Church verification (KYC) ----------------
 
@@ -15,7 +15,7 @@ export function Kyc({ toast }: PageProps) {
   const [org, setOrg] = useState<any>();
   return (
     <>
-      <PageHeader title="Church verification" subtitle="Review the documents churches upload before they can be paid out." actions={<Button kind="ghost" onClick={list.reload}>Refresh</Button>} />
+      <PageHeader title="Church verification" subtitle="Review the documents churches upload before they can be paid out." actions={<RefreshButton onClick={list.reload} />} />
       <Note>{RULE}</Note>
       <div style={{ height: 16 }} />
       <Card pad={false}>
@@ -164,7 +164,7 @@ export function PayoutRequests({ toast }: PageProps) {
   const waiting = (r.data ?? []).filter((x) => x.status === 'requested').length;
   return (
     <>
-      <PageHeader title="Payout account changes" subtitle="Churches asking to change where their money is paid." actions={<Button kind="ghost" onClick={r.reload}>Refresh</Button>}
+      <PageHeader title="Payout account changes" subtitle="Churches asking to change where their money is paid." actions={<RefreshButton onClick={r.reload} />}
         tabs={[{ id: 'waiting', label: 'Waiting for you', badge: waiting }, { id: 'all', label: 'All requests' }]} tab={tab} onTab={setTab} />
       <Note tone="warn"><b>Confirm with the church through a contact you already hold, not the details in this request.</b></Note>
       <div style={{ height: 16 }} />

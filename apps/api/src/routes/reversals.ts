@@ -134,10 +134,16 @@ async function decideClaimed(ctx: Ctx, r: any, payment: any, requestId: string, 
 }
 
 export async function listReversalRequests(ctx: Ctx, status?: string) {
-  return ctx.db.query<any>(
+  const rows = await ctx.db.query<any>(
     `SELECT r.*, p.amount_paid, p.provider_tx_id, p.stage AS payment_stage, p.anonymous, p.reference, ${maskPhoneSql('p.payer_phone')} AS payer_phone, b.name AS branch_name, u.name AS requested_by_name
        FROM reversal_requests r JOIN payments p ON p.id=r.payment_id LEFT JOIN branches b ON b.id=p.branch_id LEFT JOIN users u ON u.id=r.requested_by
       ${status ? `WHERE r.status IN (${inList(1, status.split(',').length)})` : ''} ORDER BY r.created_at DESC LIMIT 200`,
     status ? status.split(',') : [],
   );
+  // The two-admin rule, per request: how many approvals it needs and how many it has (approved: all it needed).
+  return rows.map((r) => {
+    const approvalsRequired = r.amount_paid > SECOND_APPROVER_ABOVE ? 2 : 1;
+    const approvalsDone = r.status === 'approved' ? approvalsRequired : r.status === 'awaiting_second' ? 1 : 0;
+    return { ...r, approvalsRequired, approvalsDone, secondApproverAbove: SECOND_APPROVER_ABOVE };
+  });
 }

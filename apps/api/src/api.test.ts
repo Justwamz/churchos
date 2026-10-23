@@ -168,7 +168,7 @@ describe('suspense, reversal intake and maker-checker', () => {
     expect((await call(PETER, 'POST', '/me/reversal-request', { message: sms })).json().code).toBe('duplicate_request');
     const list = (await call(PA1, 'GET', '/admin/reversal-requests?status=pending')).json();
     const req = list.find((r: any) => r.provider_tx_id === code);
-    expect((await call(PA1, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true })).json().status).toBe('approved');
+    expect((await call(PA1, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).json().status).toBe('approved');
     expect((await ctx.ledger.reconcile()).ok).toBe(true);
   });
 
@@ -178,9 +178,9 @@ describe('suspense, reversal intake and maker-checker', () => {
     const sms = `${p.provider_tx_id} Confirmed. Ksh60,000.00 paid.`;
     await call(PETER, 'POST', '/me/reversal-request', { message: sms });
     const req = (await call(PA1, 'GET', '/admin/reversal-requests?status=pending')).json().find((r: any) => r.provider_tx_id === p.provider_tx_id);
-    expect((await call(PA1, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true })).json().status).toBe('awaiting_second');
-    expect((await call(PA1, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true })).json().code).toBe('same_person');
-    expect((await call(PA2, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true })).json().status).toBe('approved');
+    expect((await call(PA1, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).json().status).toBe('awaiting_second');
+    expect((await call(PA1, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).json().code).toBe('same_person');
+    expect((await call(PA2, 'POST', `/admin/reversal-requests/${req.id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).json().status).toBe('approved');
     expect((await ctx.ledger.reconcile()).ok).toBe(true);
   });
 });
@@ -208,20 +208,20 @@ describe('members and transfers', () => {
     expect(t.statusCode).toBe(200);
     expect((await call(PETER, 'POST', '/me/transfer-request', { toChurchCode: 'GRC002' })).json().code).toBe('duplicate_request');
     // The Nairobi treasurer cannot approve: only the receiving branch decides.
-    expect((await call(TREAS, 'POST', `/transfers/${t.json().id}/decide`, { approve: true })).statusCode).toBe(403);
-    expect((await call(COAST, 'POST', `/transfers/${t.json().id}/decide`, { approve: true })).statusCode).toBe(403); // treasurers cannot approve transfers
-    expect((await call(OWNER, 'POST', `/transfers/${t.json().id}/decide`, { approve: true })).statusCode).toBe(200);
+    expect((await call(TREAS, 'POST', `/transfers/${t.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(403);
+    expect((await call(COAST, 'POST', `/transfers/${t.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(403); // treasurers cannot approve transfers
+    expect((await call(OWNER, 'POST', `/transfers/${t.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(200);
     const me = (await call(PETER, 'GET', '/me')).json();
     expect(me.memberships[0].member_number).toBe('M00004');
     expect(me.memberships[0].branch_code).toBe('GRC002');
 
     const x = await call(PETER, 'POST', '/me/transfer-request', { toChurchCode: 'HPC001' });
     // Peter is the only guardian of Brian, so he cannot leave the organisation until Brian has another one (L125).
-    const blocked = await call(HOPE, 'POST', `/transfers/${x.json().id}/decide`, { approve: true });
+    const blocked = await call(HOPE, 'POST', `/transfers/${x.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' });
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json().code).toBe('sole_guardian');
     await ctx.db.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ('m_brian','m_amina','org_grace')`);
-    expect((await call(HOPE, 'POST', `/transfers/${x.json().id}/decide`, { approve: true })).statusCode).toBe(200);
+    expect((await call(HOPE, 'POST', `/transfers/${x.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' })).statusCode).toBe(200);
     const after = (await call(PETER, 'GET', '/me')).json();
     expect(after.memberships).toHaveLength(1);
     expect(after.memberships[0].org_name).toBe('Hope Chapel');

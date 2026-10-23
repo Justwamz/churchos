@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Empty, ErrorNote, Field, Note, Spinner, Table, kes, openExternal, phonePretty, shortDate, useAsync } from '@churchos/ui';
 import { api, friendly, methodLabel, useSession, type Session } from './session';
 import { Load } from './bits';
-import { Card as UCard, EmptyState, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip } from './ui';
+import { Card as UCard, EmptyState, OverflowMenu, PageHeader, SidePanel, Skeleton, Stat, StatTiles, StatusChip } from './ui';
 import './comm.css';
 
 /** Only send ?org= for people who belong to several churches, like the other pages. */
@@ -297,9 +297,8 @@ function WalletCard({ w, all, reload }: { w: WalletInfo; all: WalletInfo[]; relo
       </div>
       <div className="comm-actions">
         {w.canTopUp && <Button onClick={() => setModal('topup')}>Top up</Button>}
-        {w.canManage && <Button kind="ghost" onClick={() => setModal('move')}>Move credit</Button>}
-        {w.canManage && <Button kind="ghost" onClick={() => setModal('level')}>Warning level</Button>}
         <Button kind="ghost" onClick={() => setShowAct((v) => !v)}>{showAct ? 'Hide activity' : 'Activity'}</Button>
+        <OverflowMenu label={`More actions for ${w.label}`} items={[{ label: 'Move credit', hidden: !w.canManage, onClick: () => setModal('move') }, { label: 'Warning level', hidden: !w.canManage, onClick: () => setModal('level') }]} />
       </div>
       {showAct && <Activity wallet={w} />}
       {modal === 'topup' && <TopUp wallet={w} onClose={() => setModal('')} onDone={reload} />}

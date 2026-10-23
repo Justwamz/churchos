@@ -51,7 +51,7 @@ Choose **Postpone** on the event. Say the new date, or that the date is not deci
 When you know the date, choose **Set new date**. Sales start again and everyone is told.
 
 ## Cancelling a ticket or the event
-Cancel a ticket with a reason. The buyer is told and the ticket stops working. If they paid, arrange the refund through **Payment help**. Money is not returned automatically. If you cancel the whole event, every buyer is told and you see the paid orders that need a refund. Choose **Refund** next to an order, or **Refund everyone**, to ask ChurchOS to send the money back.
+Cancel a ticket with a reason. The buyer is told and the ticket stops working. If they paid, arrange the refund through **Help with a payment**. Money is not returned automatically. If you cancel the whole event, every buyer is told and you see the paid orders that need a refund. Choose **Refund** next to an order, or **Refund everyone**, to ask ChurchOS to send the money back.
 
 ## Making an event free after sales began
 Once tickets have been sold, an event cannot become free. Cancel it, refund the buyers, then create a new free event. **Copy as a new event** starts the new one with the same title, place and times.

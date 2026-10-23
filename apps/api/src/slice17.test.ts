@@ -198,7 +198,7 @@ describe("the member giving ledger (L219 to L224)", () => {
     const before = (await ctx.db.query<any>(`SELECT * FROM giving_ledger WHERE payment_id=$1 AND kind='gift'`, [p.id]))[0];
     const req = await call(JANE, 'POST', '/me/reversal-request', { message: p.provider_tx_id, reason: 'Paid by mistake' });
     expect(req.statusCode).toBe(200);
-    const dec = await call(PA1, 'POST', `/admin/reversal-requests/${req.json().id}/decide`, { approve: true });
+    const dec = await call(PA1, 'POST', `/admin/reversal-requests/${req.json().id}/decide`, { approve: true, reason: 'Checked against the provider statement' });
     expect(dec.statusCode).toBe(200);
     const lines = await ctx.db.query<any>(`SELECT * FROM giving_ledger WHERE payment_id=$1 ORDER BY seq`, [p.id]);
     expect(lines.map((l) => [l.kind, l.amount])).toEqual([['gift', 400000], ['reversal', -400000]]);

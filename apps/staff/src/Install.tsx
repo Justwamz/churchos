@@ -3,6 +3,7 @@ import { Button } from '@churchos/ui';
 import { useBrand } from './Branding';
 
 const KEY = 'churchos:staff-install-dismissed';
+const WEEK = 7 * 86_400_000;
 
 export function useOnline() {
   const [on, setOn] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
@@ -55,12 +56,18 @@ export function InstallButton() {
   );
 }
 
-/** Dismissible banner for the Today screen on phones that have not installed the app. */
-export function InstallBanner() {
+/** Install banner state: shown while the app can be installed and was not dismissed in the last week. */
+export function useInstallBanner() {
   const i = useInstall();
-  const [gone, setGone] = useState(() => { try { return localStorage.getItem(KEY) === '1'; } catch { return false; } });
-  if (gone || !i.available) return null;
-  const dismiss = () => { setGone(true); try { localStorage.setItem(KEY, '1'); } catch { /* ignore */ } };
+  const [gone, setGone] = useState(() => { try { return Number(localStorage.getItem(KEY) ?? 0) > Date.now(); } catch { return false; } });
+  const dismiss = () => { setGone(true); try { localStorage.setItem(KEY, String(Date.now() + WEEK)); } catch { /* ignore */ } };
+  return { show: !gone && i.available, dismiss };
+}
+
+/** Dismissible banner for the Today screen on devices that have not installed the app. Dismissing hides it for a week. */
+export function InstallBanner({ dismiss }: { dismiss: () => void }) {
+  const i = useInstall();
+  if (!i.available) return null;
   return (
     <div className="install-banner" role="region" aria-label="Install the staff app">
       <div>

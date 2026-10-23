@@ -51,7 +51,7 @@ function SaleDialog({ sale, onClose, onDone }: { sale: any; onClose: () => void;
         {x.voidReason && <div className="note warn">Voided: {x.voidReason}</div>}
         {x.canVoid && !voiding && (
           <>
-            <div className="tiny">Only cash sales can be voided, within 24 hours. For mobile money or card, ask for a reversal in Payment help.</div>
+            <div className="tiny">Only cash sales can be voided, within 24 hours. For mobile money or card, ask for a reversal in Help with a payment.</div>
             <div><Button kind="danger" small onClick={() => setVoiding(true)}>Void this sale</Button></div>
           </>
         )}

@@ -1,16 +1,16 @@
 import { Suspense, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
-import { Badge, BrandMark, Button, ConsentGate, ErrorNote, HelpButton, LegalApp, LoginGate, isLegalPath, useChurchBranding, useToast } from '@churchos/ui';
+import { Badge, BrandMark, Button, ConsentGate, DpaBar, ErrorNote, HelpButton, LegalApp, LoginGate, PageBoundary, RETRY_EVENT, isLegalPath, useChurchBranding, useDpa, useToast } from '@churchos/ui';
 import { BrandCtx } from './Branding';
 import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
 import { EmailGate } from './EmailGate';
-import { WalletNotice, useWalletAlert } from './WalletBanner';
+import { WalletNotice, useWalletAlert, useWalletNotice } from './WalletBanner';
 import { noteVisit, topPages } from './usage';
 import { Notifications, openBell, useUnread } from './Notifications';
 import { onNotify } from './links';
-import { InstallButton, useInstall, useOnline } from './Install';
+import { InstallBanner, InstallButton, useInstall, useInstallBanner, useOnline } from './Install';
 import { Icon } from './icons';
-import { PAGES, pageLabel, type PageDef } from './nav';
+import { PAGES, pageLabel, retryPageLoads, type PageDef } from './nav';
 import { AREAS, QUICK_ACTIONS, areaOfPage, type Area } from './navmap';
 import { WordsProvider, useWords } from './words';
 import { CommandBar } from './CommandBar';
@@ -22,13 +22,17 @@ import './shell.css';
 const HELP_SCREEN: Record<string, string> = {
   dashboard: 'staff.dashboard', collections: 'staff.collections', settlements: 'staff.settlements', cash: 'staff.cash',
   members: 'staff.members', transfers: 'staff.transfers', projects: 'staff.projects', help: 'staff.help',
-  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop', checkin: 'staff.checkin', today: 'staff.dashboard', children: 'staff.dashboard', prayer: 'staff.dashboard', lectionary: 'staff.dashboard', boundaries: 'staff.dashboard', suggestions: 'staff.dashboard', wording: 'staff.dashboard', branding: 'staff.dashboard',
+  verification: 'staff.verification', payout: 'staff.payout', messages: 'staff.messages', wallets: 'staff.wallets', integrations: 'staff.integrations', adverts: 'staff.adverts', notices: 'staff.notices', events: 'staff.events', resources: 'staff.resources', bookings: 'staff.bookings', calendar: 'staff.calendar', groups: 'staff.groups', profile: 'staff.profile', security: 'staff.profile', records: 'staff.records', template: 'staff.template', audit: 'staff.audit', team: 'staff.team', shop: 'staff.shop', checkin: 'staff.checkin', today: 'staff.dashboard', children: 'staff.dashboard', prayer: 'staff.dashboard', lectionary: 'staff.dashboard', boundaries: 'staff.dashboard', suggestions: 'staff.dashboard', wording: 'staff.dashboard', branding: 'staff.dashboard',
 };
 
 const APPROVAL_PAGES = ['expenses', 'cash', 'events'];
 const APPROVAL_RIGHT: Record<string, string> = { expenses: 'expenses.approve', cash: 'cash.approve', events: 'events.manage' };
 const BRAND_APP = { label: 'Staff', description: 'Run your church from your phone: check people in, approve, count and follow up.', defaultTheme: '#123456' };
 const COLLAPSE_KEY = 'churchos:staff-nav-collapsed';
+const LAST_KEY = 'churchos:staff-area-last';
+/** The last page opened in each area during this session, so tapping an area returns to where you were. */
+const readLast = (): Record<string, string> => { try { return JSON.parse(sessionStorage.getItem(LAST_KEY) ?? '{}') || {}; } catch { return {}; } };
+const writeLast = (area: string, page: string) => { try { const m = readLast(); if (m[area] !== page) { m[area] = page; sessionStorage.setItem(LAST_KEY, JSON.stringify(m)); } } catch { /* optional */ } };
 
 /** phone <= 760px, tablet 761-1099px (rail only, flyout), desktop >= 1100px (rail + second panel). */
 type Layout = 'phone' | 'tablet' | 'desktop';
@@ -149,7 +153,7 @@ type FrameProps = {
   kyc: KycSummary | null; gateOpen: boolean; reloadMe: () => void; tick: number; signOut: () => void;
 };
 
-function AccountMenu({ me, orgName, onProfile, signOut, onClose }: { me: any; orgName: string; onProfile: () => void; signOut: () => void; onClose: () => void }) {
+function AccountMenu({ me, orgName, onProfile, onSecurity, signOut, onClose }: { me: any; orgName: string; onProfile: () => void; onSecurity: () => void; signOut: () => void; onClose: () => void }) {
   const inst = useInstall();
   return (
     <>
@@ -157,6 +161,7 @@ function AccountMenu({ me, orgName, onProfile, signOut, onClose }: { me: any; or
       <div className="avatar-menu" role="menu">
         <div className="avatar-who"><b>{me.user.name || me.user.phone}</b><div className="tiny">{orgName}</div></div>
         <button type="button" role="menuitem" onClick={() => { onClose(); onProfile(); }}><Icon name="user" size={18} />My profile</button>
+        <button type="button" role="menuitem" onClick={() => { onClose(); onSecurity(); }}><Icon name="shield" size={18} />Security</button>
         {inst.available && !inst.ios && <button type="button" role="menuitem" onClick={() => { onClose(); inst.run(); }}><Icon name="download" size={18} />Install the app</button>}
         {inst.available && inst.ios && <div className="tiny" style={{ padding: '6px 12px' }}>To install: tap Share, then Add to Home Screen.</div>}
         <a role="menuitem" className="menu-link" href="/legal" target="_blank" rel="noopener">Terms, privacy and agreements</a>
@@ -186,6 +191,8 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
   const wallet = useWalletAlert(page);
   const main = useRef<HTMLElement>(null);
   const [visits, setVisits] = useState(0);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => { const on = () => setRetry((n) => n + 1); window.addEventListener(RETRY_EVENT, on); return () => window.removeEventListener(RETRY_EVENT, on); }, []);
   useEffect(() => { const on = () => setVisits((n) => n + 1); window.addEventListener('churchos:visits', on); return () => window.removeEventListener('churchos:visits', on); }, []);
 
   const toggleCollapsed = () => setCollapsed((c) => { try { localStorage.setItem(COLLAPSE_KEY, c ? '0' : '1'); } catch { /* ignore */ } return !c; });
@@ -229,6 +236,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
   const prevPage = useRef<string | undefined>(undefined);
   useEffect(() => {
     noteVisit(current?.id ?? '');
+    { const a = areaOfPage(current?.id ?? ''); if (a && current?.id) writeLast(a.id, current.id); }
     // Move keyboard focus to the new page (not on first load) so Tab continues from the content, not from the menu you just used.
     const was = prevPage.current; prevPage.current = current?.id;
     if (was === undefined || was === current?.id) return;
@@ -257,10 +265,15 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
   const account = (
     <div className="avatar-wrap">
       <button type="button" className="avatar" aria-label="Account menu" aria-expanded={menu} onClick={() => setMenu((m) => !m)}>{initials(me.user.name || me.user.phone)}</button>
-      {menu && <AccountMenu me={me} orgName={orgLabel} onProfile={() => setPage('profile')} signOut={signOut} onClose={() => setMenu(false)} />}
+      {menu && <AccountMenu me={me} orgName={orgLabel} onProfile={() => setPage('profile')} onSecurity={() => setPage('security')} signOut={signOut} onClose={() => setMenu(false)} />}
     </div>
   );
 
+  const openArea = (a: AreaV) => {
+    const last = readLast()[a.id];
+    const target = a.groupsV.flatMap((g) => g.items).find((it) => it.p.id === last) ?? a.first;
+    if (target) setPage(target.p.id);
+  };
   const pageLink = (it: NavPage, onDone?: () => void) => (
     <button key={it.p.id} type="button" className={`sn-link ${current?.id === it.p.id ? 'active' : ''}`} aria-current={current?.id === it.p.id ? 'page' : undefined} onClick={() => { setPage(it.p.id); onDone?.(); }}>
       {it.label}
@@ -285,15 +298,23 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
     </>
   );
 
+  // At most ONE of these three notices at a time: the agreement first, then messaging credit, then the install prompt.
+  const dpa = useDpa(api, me.orgs.length > 1 ? grant.org.id : undefined);
+  const walletNote = useWalletNotice(current?.id ?? '', wallet.bad, wallet.anyEmpty);
+  const install = useInstallBanner();
+  const dpaOn = ['today', 'messages'].includes(current?.id ?? '') && !!dpa.pending && !dpa.reminded;
+  const installOn = !dpaOn && !walletNote.show && current?.id === 'today' && install.show;
   const banners = (
     <>
       {kyc && kyc.tone !== 'done' && current?.id !== 'verification' && <VerificationBanner s={kyc} onGo={() => setPage('verification')} />}
-      <WalletNotice page={current?.id ?? ''} bad={wallet.bad} anyEmpty={wallet.anyEmpty} />
+      {dpaOn && <DpaBar api={api} dpa={dpa} onReview={() => setPage('verification')} />}
+      {!dpaOn && walletNote.show && <WalletNotice page={current?.id ?? ''} bad={wallet.bad} anyEmpty={wallet.anyEmpty} dismiss={walletNote.dismiss} />}
+      {installOn && <InstallBanner dismiss={install.dismiss} />}
       {kyc && <VerificationDialog s={kyc} userKey={me.user.id} onGo={() => setPage('verification')} />}
     </>
   );
   const body = Page
-    ? <Suspense fallback={<PageSkeleton />}><Page key={`${current.id}:${grant.org.id}:${s.scope}:${tick}`} /></Suspense>
+    ? <PageBoundary resetKey={`${current.id}:${retry}`} onRetry={retryPageLoads}><Suspense fallback={<PageSkeleton />}><Page key={`${current.id}:${grant.org.id}:${s.scope}:${tick}:${retry}`} /></Suspense></PageBoundary>
     : <ErrorNote>You do not have access to any pages yet.</ErrorNote>;
 
   const searchBtn = phone
@@ -320,7 +341,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
               const on = activeArea?.id === a.id;
               return (
                 <button key={a.id} type="button" className={`rail-item ${on ? 'active' : ''}`} aria-current={on ? 'page' : undefined} aria-haspopup={layout === 'tablet' && a.id !== 'today' ? 'menu' : undefined}
-                  onClick={() => { if (layout === 'tablet' && a.id !== 'today') setFlyout((f) => (f === a.id ? null : a.id)); else if (a.first) setPage(a.first.p.id); }}>
+                  onClick={() => { if (layout === 'tablet' && a.id !== 'today') setFlyout((f) => (f === a.id ? null : a.id)); else openArea(a); }}>
                   <span className="rail-pill"><Icon name={a.icon} size={22} />{a.id === 'communicate' && wallet.bad.length > 0 && <span className={`rail-dot ${wallet.anyEmpty ? 'bad' : 'warn'}`} role="img" aria-label={wallet.anyEmpty ? 'Messaging credit has run out' : 'Messaging credit is running low'} />}</span>
                   <span className="rail-label">{a.label}</span>
                 </button>
@@ -360,7 +381,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
           </header>
         )}
         <main className="content" id="main" tabIndex={-1} ref={main} aria-label={current ? pageLabel(current, w) : 'Content'}>
-          {phone && !online && <div className="note warn" role="status" style={{ marginBottom: 12 }}>You are offline. Staff screens always need a connection.</div>}
+          {!online && <div className="note warn offline-banner" role="status">You are offline. Staff screens always need a connection.</div>}
           {onMore ? (
             <div className="more">
               {moreArea ? (

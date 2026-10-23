@@ -14,7 +14,7 @@
 .setup-ev { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 14px; align-items: start; padding: 14px 20px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
 .setup-ev:last-child { border-bottom: 0; }
 .setup-ev:hover { background: color-mix(in srgb, var(--accent-tint) 55%, transparent); }
-.setup-ev:focus-visible { outline: none; box-shadow: inset var(--ring); }
+.setup-ev:focus-visible { outline-offset: -3px; }
 .setup-ev-dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 50%; background: var(--line); }
 .setup-ev-dot.money { background: var(--good); }
 .setup-ev-dot.access, .setup-ev-dot.security { background: var(--warn); }

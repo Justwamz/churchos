@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button, ErrorNote, Field, Note, phonePretty, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, phonePretty, useToast, Failed } from '@churchos/ui';
 import { LEGAL_VERSION } from '@churchos/shared';
 import { api, friendly, useSession } from './session';
 import { maskedPretty, useReveal } from './Reveal';
@@ -8,9 +8,9 @@ import './people.css';
 
 /** Loading and error wrapper for the People pages: a shimmer while the first data loads, a clear error if it fails. */
 export function Gate({ loading, error, hasData, children, rows = 4 }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode; rows?: number }) {
-  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (error && !hasData) return <Failed>{friendly(error)}</Failed>;
   if (loading && !hasData) return <Skeleton rows={rows} height={64} />;
-  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+  return <>{error && <Failed>{friendly(error)}</Failed>}{children}</>;
 }
 
 export const initials = (name: string) => name.split(' ').filter(Boolean).slice(0, 2).map((x) => x[0]?.toUpperCase()).join('');

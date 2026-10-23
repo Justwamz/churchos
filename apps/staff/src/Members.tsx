@@ -138,7 +138,7 @@ export function Members() {
   const [tab, setTab] = useState<Tab>('all');
   const link = useLinkParams('members');
   useEffect(() => { if (link?.tab === 'requests') setTab('requests'); }, [link]);
-  const joins = useAsync<{ pending: number }>(() => api.get('/members/join-requests' + s.qs({ status: 'pending' })), [s.qs()]);
+  const joins = useAsync<{ pending: number }>(() => (canEdit ? api.get('/members/join-requests' + s.qs({ status: 'pending' })) : Promise.resolve({ pending: 0 })), [s.qs(), canEdit]);
   const pendingJoins = joins.data?.pending ?? 0;
   const [sel, setSel] = useState<any>(null);
   const [modal, setModal] = useState<{ kind: 'form' | 'household' | 'consent' | 'records' | 'giving'; member?: any } | null>(null);

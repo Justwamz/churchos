@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, ErrorNote, Field, Note, useAsync, useToast } from '@churchos/ui';
+import { Button, ErrorNote, Field, Note, useAsync, useToast, Failed } from '@churchos/ui';
 import { api, friendly } from './session';
 import { useWords } from './words';
 import { Card, EmptyState, PageHeader, Section, Skeleton, Stat, StatTiles, StatusChip } from './ui';
@@ -7,9 +7,9 @@ import './attendance.css';
 import './worship.css';
 
 function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: React.ReactNode }) {
-  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+  if (error && !hasData) return <Failed>{friendly(error)}</Failed>;
   if (loading && !hasData) return <Skeleton rows={3} height={72} />;
-  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+  return <>{error && <Failed>{friendly(error)}</Failed>}{children}</>;
 }
 
 const dayTime = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }) : '-');
@@ -102,7 +102,7 @@ function BranchCard({ b, canManage, onChanged, say }: { b: any; canManage: boole
             </div>
           </>
         ) : b.location && <div className="tiny">{b.location.lat}, {b.location.lng}</div>}
-        <h4 style={{ margin: '8px 0 0' }}>Last 8 weeks</h4>
+        <h2 style={{ margin: '8px 0 0' }}>Last 8 weeks</h2>
         <StatTiles>
           {tiles.map(([l, v, d]) => <Stat key={l} label={l} value={v} hint={d} />)}
         </StatTiles>

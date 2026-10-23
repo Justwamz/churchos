@@ -252,7 +252,7 @@ function GuardianPanel({ sessionId, panel, onClose, onChanged, onTag, onBanner, 
         {nothing && <EmptyState icon="child" title={<>Nothing to do for this guardian. They have no children to drop off and none in this room.</>} />}
         {panel.dropOff.length > 0 && (
           <section className="stack kd-sec">
-            <h3>Drop off</h3>
+            <h2>Drop off</h2>
             <div className="kd-picks">
               {panel.dropOff.map((c) => (
                 <label key={c.id} className={`kd-pick ${c.inClass ? 'off' : ''}`}>
@@ -272,7 +272,7 @@ function GuardianPanel({ sessionId, panel, onClose, onChanged, onTag, onBanner, 
         )}
         {panel.collect.length > 0 && (
           <section className="stack kd-sec">
-            <h3>Collect</h3>
+            <h2>Collect</h2>
             <div className="kd-picks">
               {panel.collect.map((c) => (
                 <label key={c.id} className="kd-pick">
@@ -583,7 +583,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
 
             {isOpen && (
               <div className="card stack">
-                <h3 style={{ margin: 0 }}>Drop off or collect: scan a guardian</h3>
+                <h2 style={{ margin: 0 }}>Drop off or collect: scan a guardian</h2>
                 <div className="ck-video-wrap" style={scan.camOn ? undefined : { aspectRatio: '16 / 7' }}>
                   <video ref={scan.video} playsInline muted style={scan.camOn ? undefined : { display: 'none' }} />
                   {scan.camOn && <div className="ck-frame" aria-hidden="true" />}
@@ -602,7 +602,7 @@ function Room({ id, onBack }: { id: string; onBack: () => void }) {
             )}
 
             <div className="card stack">
-              <h3 style={{ margin: 0 }}>In the room ({here.length})</h3>
+              <h2 style={{ margin: 0 }}>In the room ({here.length})</h2>
               {here.length === 0 ? <EmptyState icon="child" title={<>No children are in the room right now.</>} /> : (
                 <div className="kd-list">
                   {here.map((c) => {
@@ -811,7 +811,7 @@ function BranchLocation({ branches, onChanged }: { branches: any[]; onChanged: (
   if (branches.length === 0) return null;
   return (
     <div className="card stack kd-branch">
-      <div><h3 style={{ margin: 0 }}>Branch location</h3><div className="tiny">Do this while standing at the church. Children can then only be checked in when the teacher is there.</div></div>
+      <div><h2 style={{ margin: 0 }}>Branch location</h2><div className="tiny">Do this while standing at the church. Children can then only be checked in when the teacher is there.</div></div>
       {branches.map((b) => (
         <div key={b.id} className="kd-brow">
           <b>{b.name}</b>
@@ -863,7 +863,7 @@ function Classes({ onRoom, mode }: { onRoom: (id: string) => void; mode: 'today'
               <Card key={c.id} className={`pp-class ${c.active ? '' : 'off'}`}>
                 <div className="pp-class-head">
                   <div>
-                    <h3>{c.name}</h3>
+                    <h2>{c.name}</h2>
                     <div className="pp-sub">{c.room ? `${c.room} · ` : ''}{c.branch}</div>
                   </div>
                   {!c.active ? <StatusChip tone="off">Switched off</StatusChip> : c.session ? <StatusChip tone="done">{c.session.stillIn} here</StatusChip> : <StatusChip tone="off">Closed</StatusChip>}

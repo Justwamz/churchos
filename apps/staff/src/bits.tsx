@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
-import { ErrorNote, HistoryButton, Spinner, kes } from '@churchos/ui';
+import { Failed, HistoryButton, Spinner, kes } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 
 /** Standard loading / error wrapper. */
-export function Load({ loading, error, hasData, children }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode }) {
-  if (error && !hasData) return <ErrorNote>{friendly(error)}</ErrorNote>;
+export function Load({ loading, error, hasData, children, retry }: { loading: boolean; error?: string; hasData: boolean; children: ReactNode; retry?: () => void }) {
+  if (error && !hasData) return <Failed onRetry={retry}>{friendly(error)}</Failed>;
   if (loading && !hasData) return <Spinner />;
-  return <>{error && <ErrorNote>{friendly(error)}</ErrorNote>}{children}</>;
+  return <>{error && <Failed onRetry={retry}>{friendly(error)}</Failed>}{children}</>;
 }
 
 /** Horizontal bars drawn with plain CSS. */

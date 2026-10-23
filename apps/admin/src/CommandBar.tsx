@@ -11,14 +11,14 @@ const RECENT_KEY = 'churchos:admin-recent';
 const readRecent = (): string[] => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]'); } catch { return []; } };
 const writeRecent = (key: string) => { try { localStorage.setItem(RECENT_KEY, JSON.stringify([key, ...readRecent().filter((r) => r !== key)].slice(0, 6))); } catch { /* optional */ } };
 
-export function CommandBar({ onClose, go }: { onClose: () => void; go: (page: string) => void }) {
+export function CommandBar({ onClose, go, hide = [] }: { onClose: () => void; go: (page: string) => void; hide?: string[] }) {
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
 
   const open = (id: string) => { writeRecent(id); onClose(); go(id); };
-  const base = useMemo<Item[]>(() => PAGES.map((p) => {
+  const base = useMemo<Item[]>(() => PAGES.filter((p) => !hide.includes(p.id)).map((p) => {
     const area = areaOfPage(p.id);
     return { key: p.id, label: p.label, hint: area && area.id !== 'overview' ? area.label : undefined, icon: area?.icon ?? 'list', run: () => open(p.id), text: `${p.label} ${p.id} ${p.keywords} ${area?.label ?? ''}`.toLowerCase() };
   // eslint-disable-next-line react-hooks/exhaustive-deps

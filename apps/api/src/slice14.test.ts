@@ -187,7 +187,7 @@ describe('a buyer cancels and asks for a refund, and the church approves each on
 
     // ChurchOS sends the money, even though the usual 72-hour reversal window has passed.
     ctx.clock.advance(5 * DAY);
-    const dec = await call(PA1, 'POST', `/admin/reversal-requests/${rev.id}/decide`, { approve: true });
+    const dec = await call(PA1, 'POST', `/admin/reversal-requests/${rev.id}/decide`, { approve: true, reason: 'Checked against the provider statement' });
     expect(dec.statusCode).toBe(200);
     ctx.email.sent.length = 0;
     expect((await runTicketJobs(ctx)).refunded).toBeGreaterThanOrEqual(1);

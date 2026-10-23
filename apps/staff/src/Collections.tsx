@@ -97,7 +97,7 @@ export function Collections() {
           </form>
         </Card>
       </Section>
-      <Loaded loading={d.loading} error={d.error} hasData={!!x} rows={4} height={92}>
+      <Loaded loading={d.loading} error={d.error} hasData={!!x} rows={4} height={92} retry={d.reload}>
         {x && (
           <>
             <Section><StatTiles>
@@ -120,7 +120,7 @@ export function Collections() {
                 {x.rows.length === 0 ? <Card><EmptyState icon="money" title="No collections match" text="Try a wider date range or fewer filters." /></Card> : (
                   <Card pad={false} className="mn-wrap">
                     <div className="mn-scroll">
-                      <table className="mn-table">
+                      <table className="mn-table mn-mid">
                         <thead><tr><th>Date</th><th>Gift</th><th>Member / phone</th><th className="num">Gross</th><th className="num">Fee</th><th className="num">Net</th><th>Status</th><th /></tr></thead>
                         <tbody>
                           {x.rows.map((r: any) => (

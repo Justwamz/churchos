@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useLayoutEffect, useRef, useState, type ErrorInfo, type ImgHTMLAttributes, type ReactNode } from 'react';
 import { formatKes } from '@churchos/shared';
 import { ApiError, createApi, type Api } from './api';
 import { LegalLinks } from './legal';
 import { addPasskey, deviceHasPasskey, passkeyError, passkeySecondFactor, passkeySignIn, passkeysSupported } from './passkeys';
 
-export { createApi, ApiError, API_URL } from './api';
+export { createApi, ApiError, API_URL, errorMessage } from './api';
 export { applyBranding, brandFile, BrandMark, useChurchBranding, type BrandApp, type BrandInfo } from './brand';
 export type { Api } from './api';
 export { HelpButton, HelpMarkdown } from './help';
 export { safeHttpUrl, openExternal } from './safeUrl';
 export { CertificateCard, QrCode, printCertificate, VERIFY_ORIGIN } from './certificate';
 export { SecurityPanel, PasskeyBanner, passkeysSupported } from './passkeys';
-export { LegalNotice, LegalApp, LegalLinks, ConsentGate, DpaCard, isLegalPath, LEGAL_LINKS } from './legal';
+export { LegalNotice, LegalApp, LegalLinks, ConsentGate, DpaCard, DpaBar, useDpa, isLegalPath, LEGAL_LINKS } from './legal';
 export { AuditLog, AuditHistory, HistoryButton, ChangeTable } from './audit';
 export type { CertificatePayload } from './certificate';
 export { formatKes, toCents, DEFAULT_FEE_SCHEDULE } from '@churchos/shared';
@@ -62,7 +62,7 @@ export function Card(p: { title?: ReactNode; action?: ReactNode; children: React
     <section className={`card ${p.className ?? ''}`}>
       {(p.title || p.action) && (
         <header className="card-head">
-          <h3>{p.title}</h3>
+          <h2>{p.title}</h2>
           {p.action}
         </header>
       )}
@@ -113,16 +113,96 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
 
-export function ErrorNote({ children }: { children: ReactNode }) {
-  return <div className="note bad" role="alert">{children}</div>;
+/** Event any page may listen for: "run my load again". The staff shell answers it by re-opening the current page. */
+export const RETRY_EVENT = 'churchos:retry-page';
+export function ErrorNote({ children, onRetry }: { children: ReactNode; onRetry?: () => void }) {
+  if (!onRetry) return <div className="note bad" role="alert">{children}</div>;
+  return <div className="note bad note-retry" role="alert"><span>{children}</span><button type="button" className="btn ghost small" onClick={onRetry}>Retry</button></div>;
+}
+/**
+ * Failed: an error with a Retry button. Pass `onRetry` (for example the `reload` of useAsync); without it Retry asks the page to load again
+ * (RETRY_EVENT), which the staff shell handles by remounting the current page.
+ */
+export function Failed({ children, onRetry }: { children: ReactNode; onRetry?: () => void }) {
+  return <ErrorNote onRetry={onRetry ?? (() => window.dispatchEvent(new Event(RETRY_EVENT)))}>{children}</ErrorNote>;
+}
+
+/** True when a dynamic import failed because the file is gone (a new version was published) or the network dropped. */
+const isChunkError = (e: unknown) => /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Loading chunk|ChunkLoadError/i.test(String((e as any)?.message ?? e));
+
+/** Online/offline, live. */
+export function useOnline() {
+  const [on, setOn] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  useEffect(() => {
+    const u = () => setOn(true), d = () => setOn(false);
+    window.addEventListener('online', u); window.addEventListener('offline', d);
+    return () => { window.removeEventListener('online', u); window.removeEventListener('offline', d); };
+  }, []);
+  return on;
+}
+
+/**
+ * PageBoundary: wraps lazy pages. If a page's code cannot load (offline, a dropped network, or a new version that replaced the old files)
+ * it shows a calm message with Retry instead of a blank screen. A page that crashes while drawing gets the same card.
+ * `resetKey` clears the error when it changes (for example when another page is opened).
+ */
+export class PageBoundary extends Component<{ children: ReactNode; resetKey?: string; onRetry?: () => void }, { error: unknown; tries: number; offline: boolean }> {
+  state = { error: null as unknown, tries: 0, offline: false };
+  static getDerivedStateFromError(error: unknown) { return { error, offline: typeof navigator !== 'undefined' && navigator.onLine === false }; }
+  componentDidCatch(error: unknown, info: ErrorInfo) { try { console.error('Page failed to load', error, info.componentStack); } catch { /* ignore */ } }
+  componentDidUpdate(prev: { resetKey?: string }) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }); }
+  render() {
+    if (!this.state.error) return <div key={this.state.tries} style={{ display: 'contents' }}>{this.props.children}</div>;
+    // A page file that is gone while we are online means a new version replaced it; one that failed while offline is just a dropped connection.
+    const stale = isChunkError(this.state.error) && !this.state.offline;
+    return (
+      <div className="note bad page-failed" role="alert">
+        <div>
+          <b>{stale ? 'A new version is available.' : 'Could not load this page.'}</b>
+          <div className="tiny">{stale ? 'Reload to get the latest version of the app.' : 'Check your connection, then try again.'}</div>
+        </div>
+        {stale
+          ? <button type="button" className="btn primary" onClick={() => window.location.reload()}>Reload</button>
+          : <button type="button" className="btn primary" onClick={() => {
+              // The browser remembers a page file that failed to load, so once the connection is back the only reliable retry is a reload.
+              if (isChunkError(this.state.error)) { if (typeof navigator === 'undefined' || navigator.onLine !== false) window.location.reload(); }
+              else { this.props.onRetry?.(); this.setState({ error: null, tries: this.state.tries + 1 }); }
+            }}>Retry</button>}
+      </div>
+    );
+  }
+}
+
+/** The offline banner every app can show. Renders nothing while online. */
+export function OfflineBanner({ children }: { children?: ReactNode }) {
+  const on = useOnline();
+  if (on) return null;
+  return <div className="note warn offline-banner" role="status">{children ?? 'You are offline. Staff screens always need a connection.'}</div>;
 }
 export function Note({ children, tone }: { children: ReactNode; tone?: 'good' | 'warn' | 'bad' | 'info' }) {
   return <div className={`note ${tone ?? 'info'}`}>{children}</div>;
 }
 
-export function Table(p: { head: ReactNode[]; children: ReactNode; className?: string }) {
+/**
+ * Table: on a phone every row becomes a small card (each cell shows its column name), so nothing scrolls sideways. `stack={false}` keeps a real
+ * table. A table that is still wider than its box (a desktop in a narrow window) becomes a keyboard-reachable, labelled scroll region.
+ */
+export function Table(p: { head: ReactNode[]; children: ReactNode; className?: string; stack?: boolean; label?: string }) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const labels = p.head.map((h) => (typeof h === 'string' ? h : ''));
+    el.querySelectorAll('tbody tr').forEach((tr) => [...tr.children].forEach((td, i) => { if (labels[i]) td.setAttribute('data-label', labels[i]); else td.removeAttribute('data-label'); }));
+    const check = () => setScrolls(el.scrollWidth > el.clientWidth + 1);
+    check();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(check) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  });
   return (
-    <div className="table-wrap">
+    <div className={`table-wrap ${p.stack === false ? '' : 'stackable'}`} ref={wrap} {...(scrolls ? { tabIndex: 0, role: 'region', 'aria-label': p.label ?? 'Table, scrolls sideways' } : {})}>
       <table className={`table ${p.className ?? ''}`}>
         <thead>
           <tr>{p.head.map((h, i) => <th key={i}>{h}</th>)}</tr>

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Button, CertificateCard, ErrorNote, Field, Note, dateOnly, kes, printCertificate, shortDate, useAsync, useToast, type CertificatePayload } from '@churchos/ui';
+import { Button, CertificateCard, ErrorNote, Field, Note, dateOnly, kes, printCertificate, shortDate, useAsync, useToast, type CertificatePayload, Failed } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { Hist } from './bits';
 import { Gate, Modal, useDebounced } from './MemberForm';
@@ -482,7 +482,7 @@ export function MemberRecords({ member, onClose }: { member: any; onClose: () =>
   const d = useAsync<any[]>(() => api.get(`/records/by-member/${member.id}`), [member.id]);
   return (
     <Dialog title={`Records for ${member.full_name}`} onClose={onClose}>
-      {d.loading && !d.data ? <Skeleton lines={3} /> : d.error ? <ErrorNote>{friendly(d.error)}</ErrorNote> : !d.data || d.data.length === 0 ? <EmptyState icon="book" title="No records for this member" text="Baptism and marriage records linked to this member show up here." /> : (
+      {d.loading && !d.data ? <Skeleton lines={3} /> : d.error ? <Failed onRetry={d.reload}>{friendly(d.error)}</Failed> : !d.data || d.data.length === 0 ? <EmptyState icon="book" title="No records for this member" text="Baptism and marriage records linked to this member show up here." /> : (
         <div className="pp-stack tight">
           {d.data.map((r) => (
             <div key={r.id} className="pp-logrow">

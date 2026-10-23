@@ -24,7 +24,7 @@
 @media (max-width: 1100px) { .mn-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .mn-cols, .mn-cols.two { grid-template-columns: minmax(0, 1fr); } }
 .mn-cardhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 12px; }
-.mn-cardhead h3 { margin: 0; font-size: 16px; font-weight: 700; }
+.mn-cardhead h3, .mn-cardhead h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .mn-kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; margin: 0; }
 .mn-kv > div { min-width: 0; overflow-wrap: anywhere; }
 .mn-kv .k { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-3); margin-bottom: 2px; }
@@ -51,4 +51,40 @@
   .mn-table td.mn-act > * { flex: 1; }
   .mn-table td.mn-act .btn { width: 100%; }
   .mn-kv { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* A wide table turns its rows into two-column cards when the card holding it is narrower than the table needs, so a row's main button is never clipped.
+   Container queries (not the screen width) because the room left depends on the side panel too. .mn-wide: 8 columns, .mn-mid: 6 columns. */
+.mn-wrap { container: mnw / inline-size; }
+@container mnw (min-width: 781px) and (max-width: 1010px) {
+  /* Medium room: drop the two least needed columns (both are in the details panel) so the Approve button stays in view. */
+  .mn-table.mn-wide th:nth-child(6), .mn-table.mn-wide td:nth-child(6), .mn-table.mn-wide th:nth-child(7), .mn-table.mn-wide td:nth-child(7) { display: none; }
+}
+@container mnw (max-width: 780px) {
+  .mn-table.mn-wide, .mn-table.mn-wide tbody, .mn-table.mn-wide td { display: block; width: 100%; box-sizing: border-box; }
+  .mn-table.mn-wide thead { display: none; }
+  .mn-wrap .mn-scroll:has(.mn-wide) { overflow: visible; }
+  .mn-table.mn-wide tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 16px; border-bottom: 1px solid var(--line); padding: 10px 18px; }
+  .mn-table.mn-wide tbody tr:last-child { border-bottom: 0; }
+  .mn-table.mn-wide td { border: 0; padding: 4px 0; text-align: left !important; white-space: normal; min-width: 0; }
+  .mn-table.mn-wide td::before { content: attr(data-l); display: block; color: var(--ink-3); font-size: 12px; font-weight: 600; }
+  .mn-table.mn-wide td.num { text-align: left !important; }
+  .mn-table.mn-wide td.mn-first { grid-column: 1 / -1; font-weight: 650; font-size: 15.5px; }
+  .mn-table.mn-wide td.mn-first::before, .mn-table.mn-wide td:not([data-l])::before { display: none; }
+  .mn-table.mn-wide td.mn-act { grid-column: 1 / -1; padding: 6px 0 2px; }
+  .mn-table.mn-wide td.mn-act:empty { display: none; }
+}
+@container mnw (max-width: 860px) {
+  .mn-table.mn-mid, .mn-table.mn-mid tbody, .mn-table.mn-mid td { display: block; width: 100%; box-sizing: border-box; }
+  .mn-table.mn-mid thead { display: none; }
+  .mn-wrap .mn-scroll:has(.mn-mid) { overflow: visible; }
+  .mn-table.mn-mid tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 16px; border-bottom: 1px solid var(--line); padding: 10px 18px; }
+  .mn-table.mn-mid tbody tr:last-child { border-bottom: 0; }
+  .mn-table.mn-mid td { border: 0; padding: 4px 0; text-align: left !important; white-space: normal; min-width: 0; }
+  .mn-table.mn-mid td::before { content: attr(data-l); display: block; color: var(--ink-3); font-size: 12px; font-weight: 600; }
+  .mn-table.mn-mid td.num { text-align: left !important; }
+  .mn-table.mn-mid td.mn-first { grid-column: 1 / -1; font-weight: 650; font-size: 15.5px; }
+  .mn-table.mn-mid td.mn-first::before, .mn-table.mn-mid td:not([data-l])::before { display: none; }
+  .mn-table.mn-mid td.mn-act { grid-column: 1 / -1; padding: 6px 0 2px; }
+  .mn-table.mn-mid td.mn-act:empty { display: none; }
 }

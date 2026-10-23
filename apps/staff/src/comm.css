@@ -2,7 +2,7 @@
 .comm-list { display: grid; gap: 12px; }
 .comm-item { display: grid; gap: 6px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--r-card); box-shadow: var(--shadow); cursor: pointer; min-width: 0; }
 .comm-item:hover { box-shadow: 0 0 0 1px var(--line), var(--shadow); }
-.comm-item:focus-visible { outline: none; box-shadow: var(--ring); }
+.comm-item:focus-visible { box-shadow: var(--ring); }
 .comm-item-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .comm-item-top b { overflow-wrap: anywhere; font-size: 15.5px; }
 .comm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -11,7 +11,7 @@
 .comm-choice { text-align: left; padding: 16px; border-radius: var(--r-ctl); border: 2px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
 .comm-choice.on { border-color: var(--accent); background: var(--accent-tint); }
 .comm-choice:disabled { cursor: default; }
-.comm-choice:focus-visible { outline: none; box-shadow: var(--ring); }
+.comm-choice:focus-visible { box-shadow: var(--ring); }
 .comm-choice b { font-size: 16px; }
 .comm-choice .muted { font-size: 14px; margin-top: 4px; }
 .comm-wallets { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 16px; }
@@ -29,3 +29,9 @@
 .comm-calm b { color: var(--ink); }
 .comm-advert { display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 16px; }
 @media (max-width: 640px) { .comm-advert { grid-template-columns: 1fr; } }
+.comm-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
+.comm-two > .card { height: 100%; }
+
+.comm-open { border: 0; background: none; padding: 0; font: inherit; font-weight: 700; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.comm-item { cursor: pointer; }
+.comm-item:focus-within { box-shadow: var(--ring); }
