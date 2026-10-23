@@ -4,6 +4,7 @@ import { diff } from '../audit';
 import { consentFor, consentOf } from '../consent';
 import { HttpError, inList, requireSession, staffScope, type Ctx } from '../ctx';
 import { todayEat } from '../members';
+import { requireDpaForBulk } from '../legal';
 import { estimate, runScheduledMessages, SEND_CHANNELS, sendMessage, validateAudience, type AudienceSpec, type SendChannel } from '../messages';
 
 const DAILY_LEADER_CAP = 1000;
@@ -66,6 +67,7 @@ export function messageRoutes(app: FastifyInstance, ctx: Ctx) {
   }
 
   async function createAndSend(a: { orgId: string; branchId: string | null; senderId: string; senderName: string; source: 'staff' | 'group_leader'; groupId?: string | null; spec: AudienceSpec; channels: SendChannel[]; title: string; body: string; scheduleAt: string | null }) {
+    await requireDpaForBulk(ctx, a.orgId);
     const est = await estimate(ctx, a.orgId, a.spec, a.channels, a.body);
     if (est.people === 0) throw new HttpError(400, 'No one matches that audience. Check who you chose and try again.', 'nobody');
     const id = ctx.newId('msg');

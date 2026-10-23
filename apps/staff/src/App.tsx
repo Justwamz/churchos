@@ -1,6 +1,6 @@
 import { Suspense, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { summarize, VerificationBanner, VerificationDialog, type KycSummary } from './VerificationBanner';
-import { Badge, BrandMark, Button, ErrorNote, HelpButton, LoginGate, useChurchBranding, useToast } from '@churchos/ui';
+import { Badge, BrandMark, Button, ConsentGate, ErrorNote, HelpButton, LegalApp, LoginGate, isLegalPath, useChurchBranding, useToast } from '@churchos/ui';
 import { BrandCtx } from './Branding';
 import { api, SessionCtx, friendly, EMAIL_REQUIRED_EVENT, type Session } from './session';
 import { EmailGate } from './EmailGate';
@@ -159,6 +159,7 @@ function AccountMenu({ me, orgName, onProfile, signOut, onClose }: { me: any; or
         <button type="button" role="menuitem" onClick={() => { onClose(); onProfile(); }}><Icon name="user" size={18} />My profile</button>
         {inst.available && !inst.ios && <button type="button" role="menuitem" onClick={() => { onClose(); inst.run(); }}><Icon name="download" size={18} />Install the app</button>}
         {inst.available && inst.ios && <div className="tiny" style={{ padding: '6px 12px' }}>To install: tap Share, then Add to Home Screen.</div>}
+        <a role="menuitem" className="menu-link" href="/legal" target="_blank" rel="noopener">Terms, privacy and agreements</a>
         <button type="button" role="menuitem" className="danger" onClick={signOut}><Icon name="signout" size={18} />Sign out</button>
       </div>
     </>
@@ -392,6 +393,7 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
                   <section className="more-group">
                     <h2>This app</h2>
                     <InstallButton />
+                    <a className="more-item" href="/legal" target="_blank" rel="noopener">Terms, privacy and agreements<Icon name="chevron" size={18} /></a>
                     <button type="button" className="more-item more-signout" onClick={signOut}>Sign out</button>
                   </section>
                 </>
@@ -426,9 +428,10 @@ function Frame({ me, orgIdx, setOrgIdx, page, setPage, kyc, gateOpen, reloadMe, 
 export function App() {
   // The kiosk screen is a paired device, not a signed-in person: it must never reach the staff sign-in or the staff shell.
   if (location.pathname.replace(/\/+$/, '') === '/kiosk') return <KioskView />;
+  if (isLegalPath()) return <LegalApp app="staff" appName="Staff app" loadChurch={() => (api.getToken() ? api.get('/me/branding').then((b: any) => (b?.name ? { name: b.name } : null)) : Promise.resolve(null))} />;
   return (
-    <LoginGate api={api} title="ChurchOS Staff" subtitle="Sign in to look after your people, your worship and your money." allow={() => true}>
-      {({ signOut }) => <Shell signOut={signOut} />}
+    <LoginGate api={api} title="ChurchOS Staff" subtitle="Sign in to look after your people, your worship and your money." legal="staff" allow={() => true}>
+      {({ signOut }) => <ConsentGate api={api} app="staff" signOut={signOut}><Shell signOut={signOut} /></ConsentGate>}
     </LoginGate>
   );
 }

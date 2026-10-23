@@ -68,7 +68,7 @@ DO $$ DECLARE t record; expr text; BEGIN
   LOOP
     expr := 'app_org_ok(org_id)';
     IF t.name = 'transfers' THEN expr := 'app_org_ok(org_id) OR app_org_ok(to_org_id)';
-    ELSIF NOT t.notnull AND t.name IN ('accounts','notifications') THEN expr := 'org_id IS NULL OR app_org_ok(org_id)';
+    ELSIF NOT t.notnull AND t.name IN ('accounts','notifications','legal_acceptances') THEN expr := 'org_id IS NULL OR app_org_ok(org_id)';
     END IF;
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t.name);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t.name);

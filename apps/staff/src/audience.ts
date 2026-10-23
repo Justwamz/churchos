@@ -32,6 +32,7 @@ export function sendError(code: string | undefined, message: string | undefined)
     case 'bad_title': return message || 'Give the message a short title.';
     case 'bad_body': return message || 'Write the message.';
     case 'in_past': return 'That time has already passed. Choose a time in the future, or send now.';
+    case 'dpa_required': return message || 'Your church needs to accept the Data Processing Agreement before sending messages to many people. Ask the Organisation Owner.';
     case 'daily_cap': return message || 'The daily limit has been reached.';
     case 'forbidden': return message || 'You cannot send to that audience.';
     default: return message || 'Something went wrong. Please try again.';

@@ -192,6 +192,9 @@ h3 { font-size: 17px; }
 .menu button:active { background: var(--brand-tint); }
 .menu button span { flex: 1; min-width: 0; }
 .menu button.danger { color: var(--bad); font-weight: 600; }
+.menu a { display: flex; align-items: center; gap: 14px; min-height: 56px; padding: 0 18px; border-bottom: 1px solid var(--line); font-size: 17px; color: var(--ink); text-decoration: none; }
+.menu a span { flex: 1; min-width: 0; }
+.menu a:active { background: var(--brand-tint); }
 
 /* ---------- sheets ---------- */
 .sheet-wrap { position: fixed; inset: 0; z-index: 70; display: flex; justify-content: center; align-items: flex-end; }

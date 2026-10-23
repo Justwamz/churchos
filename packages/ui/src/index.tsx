@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from 'react';
 import { formatKes } from '@churchos/shared';
 import { ApiError, createApi, type Api } from './api';
+import { LegalLinks } from './legal';
 import { addPasskey, deviceHasPasskey, passkeyError, passkeySecondFactor, passkeySignIn, passkeysSupported } from './passkeys';
 
 export { createApi, ApiError, API_URL } from './api';
@@ -10,6 +11,7 @@ export { HelpButton, HelpMarkdown } from './help';
 export { safeHttpUrl, openExternal } from './safeUrl';
 export { CertificateCard, QrCode, printCertificate, VERIFY_ORIGIN } from './certificate';
 export { SecurityPanel, PasskeyBanner, passkeysSupported } from './passkeys';
+export { LegalNotice, LegalApp, LegalLinks, ConsentGate, DpaCard, isLegalPath, LEGAL_LINKS } from './legal';
 export { AuditLog, AuditHistory, HistoryButton, ChangeTable } from './audit';
 export type { CertificatePayload } from './certificate';
 export { formatKes, toCents, DEFAULT_FEE_SCHEDULE } from '@churchos/shared';
@@ -152,7 +154,7 @@ export function useToast() {
  * Wraps an app so nothing renders until the user is signed in. In development the server returns the one-time code,
  * and this screen shows it, so testers never wait for an SMS.
  */
-export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?: (user: any) => boolean; children: (ctx: { user: any; signOut: () => void }) => ReactNode }) {
+export function LoginGate(p: { api: Api; title: string; subtitle: string; legal?: string; allow?: (user: any) => boolean; children: (ctx: { user: any; signOut: () => void }) => ReactNode }) {
   const [user, setUser] = useState<any>(() => {
     try {
       return JSON.parse(localStorage.getItem(`${p.title}:user`) ?? 'null');
@@ -275,6 +277,7 @@ export function LoginGate(p: { api: Api; title: string; subtitle: string; allow?
           </>
         )}
         {error && <ErrorNote>{error}</ErrorNote>}
+        {p.legal && <LegalLinks app={p.legal} newTab />}
       </form>
     </main>
   );

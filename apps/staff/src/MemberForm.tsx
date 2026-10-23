@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button, ErrorNote, Field, Note, phonePretty, useToast } from '@churchos/ui';
+import { LEGAL_VERSION } from '@churchos/shared';
 import { api, friendly, useSession } from './session';
 import { maskedPretty, useReveal } from './Reveal';
 import { Skeleton, StatusChip } from './ui';
@@ -151,7 +152,7 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
         const body: any = { fullName, sex };
         if (dob) body.dob = dob;
         if (!child && phone.trim()) body.phone = phone.trim();
-        if (child) body.guardianIds = guardians.map((g) => g.id);
+        if (child) { body.guardianIds = guardians.map((g) => g.id); body.guardianNoticeVersion = LEGAL_VERSION; }
         await api.put(`/members/${member.id}` + s.qs({ branch: undefined }), body);
         toast.show('Changes saved.');
       } else {
@@ -240,8 +241,11 @@ export function MemberFormModal({ member, onClose, onDone, nextPreview }: { memb
         {!editing && (
           <label className="pp-switch pp-group">
             <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>{child ? 'A guardian agreed to the church keeping these details' : 'The member agreed to the church keeping these details'}</span>
+            <span>{child ? "A parent or guardian agreed to the church keeping this child's details, and has been shown the Children's Data Notice" : 'The member agreed to the church keeping these details'}</span>
           </label>
+        )}
+        {!editing && child && (
+          <p className="tiny">ChurchOS records who ticked this, when, and the notice version. <a href="/legal/children" target="_blank" rel="noopener">Read the Children's Data Notice</a> (opens in a new tab).</p>
         )}
         {error && <ErrorNote>{error}</ErrorNote>}
         <div className="pp-form-foot"><Button type="submit" disabled={busy}>{busy ? 'Saving…' : editing ? 'Save changes' : 'Add member'}</Button><Button kind="ghost" onClick={onClose}>Cancel</Button></div>

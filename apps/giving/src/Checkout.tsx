@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { safeReturn } from './safeReturn';
-import { ApiError, Button, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
+import { LegalNotice, ApiError, Button, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
 
 const api = createApi('churchos:giving:checkout');
 
@@ -116,6 +116,7 @@ export function Checkout() {
             <input autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <div aria-live="polite">{error && <ErrorNote>{error}</ErrorNote>}</div>
+          <LegalNotice />
           <Button type="submit" disabled={busy || !complete}>{busy ? 'Paying...' : `Pay ${kes(info.amount)}`}</Button>
           <Note tone="info">Test page. Use card 4242 4242 4242 4242 with any future date and any 3 digits. Use 4000 0000 0000 0002 to see a declined card.</Note>
         </form>

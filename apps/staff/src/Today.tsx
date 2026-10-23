@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, ErrorNote } from '@churchos/ui';
+import { Button, DpaCard, ErrorNote } from '@churchos/ui';
 import { api, friendly, useSession } from './session';
 import { InstallBanner, useOnline } from './Install';
 import { useWords } from './words';
@@ -77,6 +77,7 @@ export function TodayPage() {
 
   return (
     <div className="today">
+      <DpaCard api={api} />
       <div className="u-ph-row today-head">
         <div className="u-ph-text">
           <h1>{greeting(name)}</h1>

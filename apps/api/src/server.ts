@@ -57,6 +57,7 @@ import { trustProxyHops } from './guards';
 import { errLine } from './redact';
 import { dataProtectionRoutes } from './routes/data-protection';
 import { KIOSK_SCHEMA, kioskRoutes } from './routes/kiosk';
+import { LEGAL_SCHEMA, legalRoutes } from './legal';
 
 /** The app named in X-Churchos-App is recorded in the audit trail, so only our own apps are believed (IN-03). */
 const KNOWN_APPS = new Set(['staff', 'member', 'giving', 'admin']);
@@ -130,6 +131,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   await ledger.migrate();
   await db.exec(APP_SCHEMA);
   await db.exec(KIOSK_SCHEMA);
+  await db.exec(LEGAL_SCHEMA);
   // Last, so tables added by any schema above are covered (policies and grants are rebuilt from the catalogue each start).
   await db.exec(RLS_SQL);
   await db.exec(CHECKS_SQL);
@@ -269,6 +271,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   staffRoutes(app, ctx);
   memberRoutes(app, ctx);
   dataProtectionRoutes(app, ctx);
+  legalRoutes(app, ctx);
   memberRoutes2(app, ctx);
   recordRoutes(app, ctx);
   publicRecordRoutes(app, ctx);

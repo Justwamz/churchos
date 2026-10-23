@@ -1,3 +1,5 @@
+import { LEGAL_VERSION } from '@churchos/shared';
+import { recordAcceptance } from '../legal';
 import { runSystem } from '@churchos/ledger';
 import type { FastifyInstance } from 'fastify';
 import { branchesFor, normalizePhone } from '../auth';
@@ -195,6 +197,9 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
     if (name.length > 80) throw new HttpError(400, 'A name can be up to 80 characters', 'too_long');
     if (b.category !== 'adult' && b.category !== 'child') throw new HttpError(400, 'Choose adult or child', 'bad_category');
     if (b.consent !== true) throw new HttpError(400, b.category === 'child' ? 'Confirm that a guardian agreed to the church keeping these details' : 'Confirm that the member agreed to the church keeping these details', 'consent_required');
+    // A guardian's agreement for a child is recorded with the version of the Children's Data Notice the church worker showed (who ticked, when, which version).
+    const noticeVersion = b.category === 'child' && b.guardianNoticeVersion !== undefined ? String(b.guardianNoticeVersion) : null;
+    if (noticeVersion !== null && noticeVersion !== LEGAL_VERSION) throw new HttpError(409, 'The notice has been updated. Please reload the page and read the latest version.', 'legal_version_mismatch');
     if (b.sex && b.sex !== 'male' && b.sex !== 'female') throw new HttpError(400, 'Choose male or female, or leave it blank', 'bad_sex');
 
     let phone: string | null = null;
@@ -241,14 +246,15 @@ export function memberRoutes2(app: FastifyInstance, ctx: Ctx) {
       const userId = lt.userId;
       const hasPrimary = householdId ? !!(await q.query<any>(`SELECT 1 FROM memberships WHERE household_id=$1 AND is_primary_contact AND status='active'`, [householdId]))[0] : true;
       await q.query(
-        `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, household_id, is_primary_contact, category, dob, sex, consent_at, consent_by, joined_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$13)`,
-        [id, scope.orgId, b.branchId, userId, name, phone, number, householdId, !!householdId && !hasPrimary && b.category === 'adult', b.category, dob, b.sex ?? null, now.toISOString(), req.session!.uid],
+        `INSERT INTO memberships (id, org_id, branch_id, user_id, full_name, phone, member_number, household_id, is_primary_contact, category, dob, sex, consent_at, consent_by, joined_at, consent_notice_version)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$13,$15)`,
+        [id, scope.orgId, b.branchId, userId, name, phone, number, householdId, !!householdId && !hasPrimary && b.category === 'adult', b.category, dob, b.sex ?? null, now.toISOString(), req.session!.uid, noticeVersion],
       );
       for (const g of guardians) await q.query(`INSERT INTO guardians (child_id, guardian_id, org_id) VALUES ($1,$2,$3)`, [id, g.id, scope.orgId]);
       if (lt.offerTo) await makeOffer(q, scope.orgId, id, lt.offerTo);
       return { memberNumber: number, householdId };
     });
+    if (noticeVersion) await recordAcceptance(ctx, { userId: req.session!.uid, orgId: scope.orgId, doc: 'kids_guardian', version: noticeVersion, app: 'staff', subjectId: id }, req);
     const flat = await memberFlat(ctx, id);
     const evt = await ctx.ledger.audit({ orgId: scope.orgId, branchId: b.branchId, actor: req.session!.uid, action: 'member.create', entity: 'membership', entityId: id, summary: `Added ${name} as ${b.category === 'child' ? 'a child' : 'an adult'}`, changes: diff(MEMBER_SPECS, null, flat), meta: { consent: true } });
     await recordVersion(ctx, { orgId: scope.orgId, branchId: b.branchId, entity: 'membership', entityId: id, snapshot: maskedSnapshot(MEMBER_SPECS, flat), summary: 'Added', eventId: evt });

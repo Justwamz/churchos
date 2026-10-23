@@ -320,3 +320,75 @@ label:has(> input[type='radio']) > input, label:has(> input[type='checkbox']) > 
 .table td .row { flex-wrap: wrap; align-items: center; }
 .table td .btn.ghost.small { background: var(--brand-tint); border-color: transparent; color: var(--brand); }
 .table td .btn.ghost.small:hover:not(:disabled) { background: color-mix(in srgb, var(--brand) 16%, var(--surface)); }
+
+/* ---- Legal pages, consent step and the owner's agreement card ---- */
+.legal-shell { min-height: 100vh; background: var(--paper); }
+.legal-top { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+.legal-top .spacer { flex: 1; }
+.legal-brand { font-weight: 800; color: var(--brand); text-decoration: none; }
+.legal-app { color: var(--ink-3); font-size: 13px; }
+.legal-back { color: var(--brand); font-size: 14px; }
+.legal-print { width: auto; }
+.legal-main { max-width: 820px; margin: 0 auto; padding: 20px 16px 64px; }
+.legal-doc { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: clamp(16px, 4vw, 32px); overflow-wrap: anywhere; }
+.legal-doc h1 { margin-bottom: 4px; }
+.legal-meta { color: var(--ink-3); font-size: 13px; margin: 4px 0; }
+.legal-crumb { font-size: 14px; margin: 0 0 10px; }
+.legal-crumb a, .legal-doc a, .legal-links a { color: var(--brand); }
+.legal-summary { background: var(--brand-tint); border-radius: 12px; padding: 4px 18px 8px; margin: 16px 0; }
+.legal-summary h2, .legal-toc h2 { font-size: 1.05rem; margin-top: 12px; }
+.legal-summary ul { padding-left: 20px; margin: 8px 0; }
+.legal-toc { border: 1px solid var(--line); border-radius: 12px; padding: 4px 18px 10px; margin: 16px 0; }
+.legal-toc ol { margin: 8px 0 0; padding-left: 22px; columns: 2 260px; }
+.legal-toc li { margin: 4px 0; break-inside: avoid; }
+.legal-section { margin-top: 26px; scroll-margin-top: 70px; }
+.legal-section h2 { font-size: 1.2rem; margin-bottom: 6px; }
+.legal-section p, .legal-section li { line-height: 1.6; max-width: 70ch; }
+.legal-section ul { padding-left: 22px; }
+.legal-table-wrap { overflow-x: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 10px; }
+.legal-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.legal-table th, .legal-table td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.legal-table thead th { background: var(--brand-tint); font-size: 13px; }
+.legal-table tbody tr:last-child > * { border-bottom: 0; }
+.legal-table tbody th { font-weight: 600; }
+@media (max-width: 640px) {
+  .legal-table thead { position: absolute; left: -9999px; }
+  .legal-table, .legal-table tbody, .legal-table tr, .legal-table th, .legal-table td { display: block; width: 100%; }
+  .legal-table tr { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .legal-table th, .legal-table td { border: 0; padding: 4px 12px; }
+  .legal-table td::before { content: attr(data-label); display: block; font-size: 12px; color: var(--ink-3); }
+}
+.legal-index { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 10px; }
+.legal-index li { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 2px; }
+.legal-index span { color: var(--ink-2); font-size: 14px; }
+.legal-links { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; justify-content: center; margin: 12px 0; }
+.consent-card { width: min(520px, 100%); }
+.consent-points { margin: 6px 0; padding-left: 20px; font-size: 14px; display: grid; gap: 6px; }
+.consent-docs { font-size: 14px; margin: 4px 0 8px; }
+.consent-docs a, .dpa-card a { color: var(--brand); }
+.consent-check { display: flex; gap: 10px; align-items: flex-start; font-size: 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; margin: 4px 0; }
+.consent-check input { margin-top: 3px; width: 20px; height: 20px; flex: none; }
+.consent-check.required { background: var(--brand-tint); font-weight: 600; }
+.consent-optional { border: 0; padding: 0; margin: 10px 0 4px; }
+.consent-optional legend { font-size: 13px; color: var(--ink-3); padding: 0; margin-bottom: 4px; }
+.consent-hint { font-size: 13px; margin: 4px 0 0; }
+.consent-signout { background: none; border: 0; color: var(--ink-2); text-decoration: underline; cursor: pointer; padding: 10px; font: inherit; justify-self: center; }
+.dpa-card { border-left: 4px solid var(--gold); }
+.dpa-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.dpa-actions .btn { width: auto; }
+@media print {
+  .legal-top, .legal-crumb, .legal-print, .help-button, .toast { display: none !important; }
+  .legal-doc { border: 0; padding: 0; }
+  .legal-summary { border: 1px solid #999; background: none; }
+  .legal-table-wrap { overflow: visible; }
+}
+.legal-notice { color: var(--ink-2); margin: 8px 0 4px; }
+.legal-notice a { color: var(--brand); }
+/* The consent step reads top to bottom: left aligned, and its Continue button stays in the flow (the member app otherwise pins primary buttons to the bottom). */
+.login-card.consent-card { text-align: left; }
+.login-card.consent-card .brand { align-items: flex-start; }
+.login-card.consent-card .brand::before { width: 56px; height: 56px; font-size: 26px; border-radius: 18px; margin-bottom: 8px; }
+.login-card.consent-card .btn.primary { position: static; margin-top: 14px; }
+.login-card.consent-card h1 { font-size: 26px; }
+.login-card.consent-card p.muted { font-size: 15px; margin-bottom: 6px; }
+@media (max-width: 599px) { .login-card.consent-card { padding-top: calc(5vh + env(safe-area-inset-top, 0px)); } }

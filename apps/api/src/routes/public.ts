@@ -7,6 +7,7 @@ import { normalizePhone } from '../auth';
 import { checkoutLink, HttpError, requireSession, type Ctx } from '../ctx';
 import { isGivingPurpose } from './giving-ledger';
 import { promptGuard } from '../abuse';
+import { legalVersionOf } from '../legal';
 import type { FastifyRequest } from 'fastify';
 import { parseKes, str } from '../limits';
 
@@ -113,9 +114,9 @@ export function publicRoutes(app: FastifyInstance, ctx: Ctx) {
     const { providerTxId } = started;
     const intentId = ctx.newId('int');
     await ctx.db.query(
-      `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at, anonymous)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [intentId, providerTxId, b.org_id, b.id, purpose, projectId, anon ? '' : phone, method, base, fee.amountPaid, JSON.stringify(fee), ctx.clock.now().toISOString(), !!anon],
+      `INSERT INTO give_intents (id, provider_tx_id, org_id, branch_id, purpose, project_id, phone, method, base_amount, amount_paid, fee, created_at, anonymous, legal_version, legal_accepted_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+      [intentId, providerTxId, b.org_id, b.id, purpose, projectId, anon ? '' : phone, method, base, fee.amountPaid, JSON.stringify(fee), ctx.clock.now().toISOString(), !!anon, legalVersionOf(body.legalVersion), legalVersionOf(body.legalVersion) ? ctx.clock.now().toISOString() : null],
     );
     if (anon) await ctx.db.query(`INSERT INTO anonymous_gifts (intent_id, user_id, phone, created_at) VALUES ($1,$2,$3,$4)`, [intentId, anon.userId, phone, ctx.clock.now().toISOString()]);
     if (isCard) {

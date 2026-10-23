@@ -4,8 +4,8 @@ import { Checkout } from './Checkout';
 import { HerePage, LivePage } from './Attend';
 import { EventPage, OrderPage, TicketPage } from './Tickets';
 import { StatementPage } from './Statement';
-import { BrandMark, ApiError, Button, Card, ErrorNote, Field, HelpButton, Note, Spinner, createApi, kes, safeHttpUrl } from '@churchos/ui';
-import { networkMismatch, phoneHint } from '@churchos/shared';
+import { BrandMark, ApiError, Button, Card, ErrorNote, Field, HelpButton, LegalApp, LegalLinks, LegalNotice, Note, Spinner, createApi, kes, safeHttpUrl } from '@churchos/ui';
+import { LEGAL_VERSION, networkMismatch, phoneHint } from '@churchos/shared';
 import type { BrandInfo } from '@churchos/ui';
 import { usePageBranding } from './brand';
 import { ChurchPicker, lastChurch } from './ChurchPicker';
@@ -63,6 +63,15 @@ const validPhone = (p: string) => /^(?:0[17]\d{8}|(?:\+?254)[17]\d{8})$/.test(p.
 const parseAmount = (s: string) => (/^\d+(\.\d{1,2})?$/.test(s.trim()) ? Number(s) : NaN);
 const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'Something went wrong. Please try again.');
 
+/** The legal pages name the church when the visitor has one remembered on this device (its public name only). */
+async function loadGivingChurch() {
+  let code: string | null = null;
+  try { code = localStorage.getItem(CHURCH_KEY); } catch { /* storage blocked */ }
+  if (!code) return null;
+  const c = await api.get<{ name?: string; organisation?: string }>(`/public/church/${encodeURIComponent(code)}`);
+  return c.organisation || c.name ? { name: c.organisation || c.name } : null;
+}
+
 export function App() {
   return (
     <BrowserRouter>
@@ -76,6 +85,7 @@ export function App() {
         <Route path="/live/:code" element={<LivePage />} />
         <Route path="/statement" element={<StatementPage />} />
         <Route path="/statement/:number" element={<StatementPage />} />
+        <Route path="/legal/*" element={<LegalApp app="giving" appName="Giving page" loadChurch={loadGivingChurch} />} />
         <Route path="/:code" element={<GivePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -96,7 +106,7 @@ function Shell({ title, sub, branding, onChange, children }: { title: string; su
         {onChange && <a href="/" className="g-change" onClick={(e) => { e.preventDefault(); onChange(); }}>Change church</a>}
       </header>
       {children}
-      <footer className="tiny g-foot">Secure giving by ChurchOS. We never see your M-Pesa PIN.</footer>
+      <footer className="tiny g-foot">Secure giving by ChurchOS. We never see your M-Pesa PIN.<LegalLinks app="giving" /></footer>
     </div>
   );
 }
@@ -321,7 +331,7 @@ function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertIn
     if (busy || !phoneOk || !amountOk || mismatch) return;
     setBusy(true); setApiError(undefined);
     try {
-      const r = await api.post('/public/give', { code: church.code, purpose, phone: phone.replace(/[\s-]/g, ''), amount, method });
+      const r = await api.post('/public/give', { code: church.code, purpose, phone: phone.replace(/[\s-]/g, ''), amount, method, legalVersion: LEGAL_VERSION });
       store.set(PHONE_KEY, phone);
       // A card is paid on the payment provider's own page, then that page brings the person back with their receipt.
       if (r.checkoutUrl) { const to = safeHttpUrl(r.checkoutUrl); if (to) { window.location.assign(to); return; } }
@@ -415,6 +425,7 @@ function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertIn
           <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
         </Card>
         <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+        <LegalNotice />
         <Button type="submit" disabled={busy || (touched && (!phoneOk || !!mismatch))}>{busy ? 'Sending request...' : `Pay ${kes(booking.price)}`}</Button>
       </form>
     );
@@ -449,6 +460,7 @@ function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertIn
           <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
         </Card>
         <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+        <LegalNotice />
         <Button type="submit" disabled={busy || (touched && (!phoneOk || !!mismatch))}>{busy ? 'Sending request...' : `Pay ${kes(ad.price)}`}</Button>
       </form>
     );
@@ -476,6 +488,7 @@ function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertIn
           <PhoneField method={method} phone={phone} setPhone={setPhone} error={touched || phone ? phoneErr ?? mismatch ?? undefined : undefined} />
         </Card>
         <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+        <LegalNotice />
         <Button type="submit" disabled={busy || (touched && (!phoneOk || !!mismatch))}>{busy ? 'Sending request...' : `Pay ${kes(cert.price)}`}</Button>
       </form>
     );
@@ -534,6 +547,7 @@ function GiveForm({ church, cert, ad, booking }: { church: Church; cert?: CertIn
       </Card>
 
       <div aria-live="polite">{apiError && <ErrorNote>{apiError}</ErrorNote>}</div>
+      <LegalNotice />
       <Button type="submit" disabled={busy || (touched && (!phoneOk || !amountOk || !!mismatch))}>
         {busy ? (method === 'card' ? 'Opening card page...' : 'Sending request...') : amountOk ? `${method === 'card' ? 'Pay by card' : 'Give'} ${kes(amount * 100)}` : 'Give'}
       </Button>

@@ -169,7 +169,7 @@ const MASTER: string = (() => {
   return randomBytes(32).toString('hex');
 })();
 
-export type KeyPurpose = 'session' | 'qr' | 'door' | 'invite' | 'guardian' | 'scan' | 'download' | 'passkey' | 'passkey_pending';
+export type KeyPurpose = 'session' | 'qr' | 'door' | 'invite' | 'guardian' | 'scan' | 'download' | 'passkey' | 'passkey_pending' | 'legal_ip';
 const keyCache = new Map<string, Buffer>();
 function keyFor(purpose: KeyPurpose): Buffer {
   let k = keyCache.get(purpose);
@@ -178,6 +178,10 @@ function keyFor(purpose: KeyPurpose): Buffer {
     keyCache.set(purpose, k);
   }
   return k;
+}
+
+export function keyedHash(value: string, purpose: KeyPurpose): string {
+  return createHmac('sha256', keyFor(purpose)).update(value).digest('hex');
 }
 
 function macOf(payload: string, purpose: KeyPurpose): string {

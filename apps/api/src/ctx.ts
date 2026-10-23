@@ -7,6 +7,8 @@ import { branchesFor, type Permission, type Session } from './auth';
 import { bearerOf, getSession } from './sessions';
 import { setActor } from './audit';
 import { enterSessionScope } from './dbscope';
+import { runSystem } from '@churchos/ledger';
+import { LEGAL_VERSION } from '@churchos/shared';
 
 export interface Ctx {
   db: Db;
@@ -60,6 +62,18 @@ export async function requireSession(req: FastifyRequest, _reply: FastifyReply) 
   req.session = s;
   setActor(s);
   await enterSessionScope(c!, s);
+  await enforceLegalAcceptance(c!, req, s);
+}
+
+// ENFORCE_LEGAL_ACCEPTANCE=1 (a launch switch, default off): a signed-in person who has not accepted the current Terms of Use and Privacy Notice gets 403 legal_acceptance_required
+// on everything except sign-in and sign-out, the legal routes, their basic profile, their own data export and the erasure routes.
+const LEGAL_EXEMPT = [/^\/auth\//, /^\/legal\//, /^\/public\//, /^\/me$/, /^\/me\/export$/, /^\/me\/erasure-(preview|request)$/];
+async function enforceLegalAcceptance(c: Ctx, req: FastifyRequest, s: Session) {
+  if (process.env.ENFORCE_LEGAL_ACCEPTANCE !== '1') return;
+  const path = String(req.url).split('?')[0];
+  if (LEGAL_EXEMPT.some((r) => r.test(path))) return;
+  const ok = await runSystem(() => c.db.query<any>(`SELECT 1 FROM legal_acceptances WHERE user_id=$1 AND doc='terms_privacy' AND version=$2 LIMIT 1`, [s.uid, LEGAL_VERSION]));
+  if (!ok[0]) throw new HttpError(403, 'Please read and accept the Terms of Use and the Privacy Notice to continue.', 'legal_acceptance_required');
 }
 
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply) {

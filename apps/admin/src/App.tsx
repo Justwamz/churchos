@@ -1,5 +1,5 @@
 import { Suspense, lazy, startTransition, useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
-import { HelpButton, LoginGate, PasskeyBanner, phonePretty, useToast } from '@churchos/ui';
+import { ConsentGate, HelpButton, LegalApp, LoginGate, isLegalPath, PasskeyBanner, phonePretty, useToast } from '@churchos/ui';
 import { api, type PageProps } from './common';
 import { Icon } from './icons';
 import { AREAS, areaOfPage, pageById, type PageId } from './navmap';
@@ -84,9 +84,10 @@ function useCellLabels(root: React.RefObject<HTMLElement>) {
 }
 
 export function App() {
+  if (isLegalPath()) return <LegalApp app="admin" appName="Platform admin" />;
   return (
-    <LoginGate api={api} title="Platform Admin" subtitle="For ChurchOS staff only. Sign in with your admin phone number." allow={(u) => !!u.isAdmin}>
-      {({ user, signOut }) => <Shell user={user} signOut={signOut} />}
+    <LoginGate api={api} title="Platform Admin" subtitle="For ChurchOS staff only. Sign in with your admin phone number." legal="admin" allow={(u) => !!u.isAdmin}>
+      {({ user, signOut }) => <ConsentGate api={api} app="admin" signOut={signOut}><Shell user={user} signOut={signOut} /></ConsentGate>}
     </LoginGate>
   );
 }
@@ -159,6 +160,7 @@ function Shell({ user, signOut }: { user: any; signOut: () => void }) {
           <div className="avatar-scrim" onClick={() => setMenu(false)} />
           <div className="avatar-menu" role="menu">
             <div className="avatar-who"><b>{name}</b><div className="tiny">Platform admin</div></div>
+            <a role="menuitem" className="menu-link" href="/legal" target="_blank" rel="noopener">Terms and privacy</a>
             <button type="button" role="menuitem" className="danger" onClick={signOut}><Icon name="signout" size={18} />Sign out</button>
           </div>
         </>

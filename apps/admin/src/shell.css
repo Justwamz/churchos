@@ -215,6 +215,8 @@ a { color: var(--accent); }
 .avatar-menu button { display: flex; align-items: center; gap: 12px; text-align: left; min-height: 46px; padding: 0 12px; border: 0; border-radius: 12px; background: none; font: inherit; font-weight: 550; color: var(--ink); cursor: pointer; }
 .avatar-menu button:hover { background: var(--off-tint); }
 .avatar-menu button.danger { color: var(--bad); }
+.avatar-menu a { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 12px; font-weight: 550; color: var(--ink); text-decoration: none; }
+.avatar-menu a:hover { background: var(--off-tint); }
 .avatar-menu svg { color: var(--ink-3); }
 .avatar-menu .danger svg { color: var(--bad); }
 .phone .avatar-menu { position: fixed; right: 12px; top: calc(60px + env(safe-area-inset-top)); }

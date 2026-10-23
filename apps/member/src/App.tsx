@@ -1,6 +1,6 @@
 import { networkMismatch, phoneHint } from '@churchos/shared';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { BrandMark, useChurchBranding, Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
+import { BrandMark, useChurchBranding, Badge, Button, Card, CertificateCard, Empty, ErrorNote, Field, HelpButton, LoginGate, ConsentGate, LegalApp, LegalLinks, isLegalPath, Note, StatusBadge, Table, dateOnly, kes, phonePretty, printCertificate, shortDate, useAsync, useToast } from '@churchos/ui';
 import type { BrandInfo, CertificatePayload } from '@churchos/ui';
 import { api, errText, useOnline } from './api';
 import { Inbox, LinkCtx, parseLink, useOpenMessage } from './Inbox';
@@ -71,9 +71,10 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const initials = (n: string) => (n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('') || 'U').toUpperCase();
 
 export function App() {
+  if (isLegalPath()) return <LegalApp app="member" appName="Member app" loadChurch={() => (api.getToken() ? api.get('/me/branding').then((b: any) => (b?.name ? { name: b.name } : null)) : Promise.resolve(null))} />;
   return (
-    <LoginGate api={api} title="ChurchOS Member" subtitle="Give, follow your giving and stay connected to your church. Sign in with your phone number.">
-      {({ user, signOut }) => <UserCtx.Provider value={user}><WordsProvider><Shell user={user} signOut={signOut} /></WordsProvider></UserCtx.Provider>}
+    <LoginGate api={api} title="ChurchOS Member" subtitle="Give, follow your giving and stay connected to your church. Sign in with your phone number." legal="member">
+      {({ user, signOut }) => <ConsentGate api={api} app="member" signOut={signOut} withMessageChoices><UserCtx.Provider value={user}><WordsProvider><Shell user={user} signOut={signOut} /></WordsProvider></UserCtx.Provider></ConsentGate>}
     </LoginGate>
   );
 }
@@ -753,6 +754,7 @@ function Me({ me, user, reload, signOut, onLink }: { me: any; user: any; reload:
         <button type="button" onClick={() => window.dispatchEvent(new Event('churchos:open-suggestions'))}><Icon name="megaphone" /><span>Suggestion box</span><Icon name="chev" size={18} /></button>
         <button type="button" onClick={() => setMoveOpen(true)}><Icon name="swap" /><span>Moving to a new church?</span><Icon name="chev" size={18} /></button></>}
         <button type="button" onClick={() => setHelpOpen(true)}><Icon name="help" /><span>Help and payment issues</span><Icon name="chev" size={18} /></button>
+        <a className="menu-legal" href="/legal" target="_blank" rel="noopener"><Icon name="help" /><span>Terms, privacy and cookies</span><Icon name="chev" size={18} /></a>
         <button type="button" className="danger" onClick={signOut}><Icon name="logout" /><span>Sign out</span></button>
       </div>
 

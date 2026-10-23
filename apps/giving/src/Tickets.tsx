@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { BrandInfo } from '@churchos/ui';
 import { usePageBranding } from './brand';
-import { BrandMark, ApiError, API_URL, Button, Card, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
-import { networkMismatch, phoneHint } from '@churchos/shared';
+import { LegalNotice, BrandMark, ApiError, API_URL, Button, Card, ErrorNote, Field, Note, Spinner, createApi, kes } from '@churchos/ui';
+import { LEGAL_VERSION, networkMismatch, phoneHint } from '@churchos/shared';
 import './tickets.css';
 
 const api = createApi('churchos:giving:tickets');
@@ -253,7 +253,7 @@ export function EventPage({ code }: { code: string }) {
     if (busy || pending || !count || !nameOk || !emailOk || !phoneOk || mismatch) return;
     setBusy(true); setError(undefined);
     try {
-      const o = await api.post<Order>('/public/tickets/orders', { code, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, method: free ? 'mpesa' : method, lines, creditCode: creditCode || undefined, creditAmount: creditCode && useKes != null ? Math.min(useKes, maxKes) : undefined });
+      const o = await api.post<Order>('/public/tickets/orders', { code, legalVersion: LEGAL_VERSION, name: name.trim(), email: email.trim(), phone: phone.trim() || undefined, method: free ? 'mpesa' : method, lines, creditCode: creditCode || undefined, creditAmount: creditCode && useKes != null ? Math.min(useKes, maxKes) : undefined });
       nav(`/tickets/${encodeURIComponent(o.secret)}`);
     } catch (err) {
       setError(errMsg(err));
@@ -394,6 +394,7 @@ export function EventPage({ code }: { code: string }) {
               {error && <ErrorNote>{error}</ErrorNote>}
             </div>
 
+            <LegalNotice />
             <Button type="submit" disabled={busy || pending || count === 0 || postponed || (!!creditCode && !!quoteErr)}>
               {busy ? 'One moment...' : !quote ? 'Choose your tickets' : covered ? 'Get tickets with my credit' : quote.free ? 'Get free tickets' : `Pay ${kes(quote.total)}`}
             </Button>

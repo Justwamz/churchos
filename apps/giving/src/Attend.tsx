@@ -198,7 +198,7 @@ export function HerePage() {
               </div>
             )}
             <NamePhone name={name} setName={setName} phone={phone} setPhone={setPhone} />
-            <p className="at-tiny">We will send you one welcome message. We will not share your number.</p>
+            <p className="at-tiny">We will send you one welcome message. We will not share your number. See the <a href="/legal/privacy" target="_blank" rel="noopener">Privacy Notice</a> and the <a href="/legal/children" target="_blank" rel="noopener">Children's Data Notice</a>.</p>
             <div aria-live="polite">{err && <ErrorNote>{err}</ErrorNote>}</div>
             <Button type="submit" disabled={busy}>{busy ? 'One moment...' : "I'm here"}</Button>
           </div>

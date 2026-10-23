@@ -24,6 +24,8 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Fails when an operator detail in packages/shared/src/operator.ts is empty or a legal document is unfinished (all details are filled in now).
+      - run: node scripts/check-legal.mjs
       - run: pnpm -r build
         env:
           VITE_API_URL: https://api.example.test

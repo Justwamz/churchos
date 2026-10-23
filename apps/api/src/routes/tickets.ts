@@ -1,3 +1,4 @@
+import { legalVersionOf } from '../legal';
 import { brandingInfo } from './branding';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -304,6 +305,7 @@ export function ticketRoutes(app: FastifyInstance, ctx: Ctx) {
     const e = await eventByCode(str(b.code, { max: 40, label: 'The event code' }));
     const name = text(b.name, 80, 'name', true)!;
     const r = await createOrder({ event: e, lines: b.lines, method: b.method, buyer: { name, email: text(b.email, 120, 'email', true)!.toLowerCase(), phone: b.phone ? String(b.phone) : null, userId: null, membershipId: null }, advertId: null, req, credit: b.creditCode ? { code: b.creditCode, amount: creditAmt(b.creditAmount) } : undefined });
+    if (legalVersionOf(b.legalVersion)) await ctx.db.query(`UPDATE ticket_orders SET legal_version=$2, legal_accepted_at=$3 WHERE id=$1`, [r.id, legalVersionOf(b.legalVersion), ctx.clock.now().toISOString()]);
     return orderResponse(r.id);
   });
 

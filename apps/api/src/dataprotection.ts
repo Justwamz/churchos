@@ -18,6 +18,7 @@ import { revokeSession } from './sessions';
 export const KEPT_FOR_LAW: { what: string; why: string }[] = [
   { what: 'Gifts and payments: amounts, dates, methods, receipt numbers, and the phone number a payment came from', why: 'Financial records must be kept for 7 years (tax and accounting law). They cannot be changed.' },
   { what: 'The church giving ledger lines (amounts and dates only; your name is removed from the member record they point to)', why: 'The ledger is a chained, append-only financial record kept for 7 years.' },
+  { what: 'The record that you accepted our Terms of Use, Privacy Notice and similar documents (which version, when, and a keyed hash of the network address)', why: 'Legal evidence of what you agreed to. It points to your closed account, which no longer carries your name or phone number. Never deleted by an automatic job.' },
   { what: 'The audit trail of actions, including actions you took while you had an account', why: 'Needed to prove the books are honest and to investigate fraud. Kept for 7 years.' },
   { what: 'Giving statements already issued', why: 'They are financial documents kept exactly as issued.' },
   { what: 'Baptism and marriage register entries', why: "A church register is the church's permanent record." },
@@ -165,6 +166,9 @@ export async function buildExport(ctx: Ctx, s: Session) {
     groupPosts: posts,
     groupComments: comments,
     bookings,
+    legalAcceptances: (await q(
+      `SELECT a.doc, a.version, a.accepted_at, a.app, o.name AS church FROM legal_acceptances a LEFT JOIN organisations o ON o.id=a.org_id WHERE a.user_id=$1 ORDER BY a.accepted_at`, [uid],
+    )).map((a: any) => ({ document: a.doc, version: a.version, acceptedAt: a.accepted_at, app: a.app, church: a.church ?? null })),
     consents: { messages: globalConsent, byChurch: churchConsent, dataConsentRecordedAt: ms.map((m) => ({ church: m.church, at: m.consent_at })).filter((x) => x.at) },
     sessions: sessions.map((x) => ({ signedInAt: x.created_at, lastSeenAt: x.last_seen_at, device: x.user_agent ?? 'Unknown device', expiresAt: x.expires_at, endedAt: x.revoked_at })),
     linkOffers: offers,

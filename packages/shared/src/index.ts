@@ -4,3 +4,5 @@ export * from './reference';
 export * from './fees';
 export * from './mask';
 export * from './phone';
+export * from './operator';
+export * from './legal';

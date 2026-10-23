@@ -20,6 +20,7 @@ Only the signed-in person's own data. Nothing about anyone else except the full 
 - Giving: their own giving ledger lines, their own payments (date, amount, method, purpose, receipt reference), pledges, regular giving plans, statements issued.
 - Attendance, event RSVPs, ticket orders and tickets, event credit (balance and uses), credit refunds and transfers, bookings.
 - Prayer requests and suggestions they sent, group posts and comments.
+- Acceptances of the Terms of Use, Privacy Notice and similar documents (which version, when, which app, and the church for agreements made for a church).
 - Consents: their global message choices and each church's record, and the date they agreed to a church keeping their details.
 - Their sessions (when and which device; never a token or session id), link offers and join requests.
 - Records the church may show them: baptism and marriage register entries, and who looked at their giving record.
@@ -53,6 +54,7 @@ Not possible (the person is told why in the preview): platform admins (remove ad
 |---|---|
 | Journal entries, postings, payments (amount, date, method, receipt reference, and the payer phone on the payment row) | Financial records, **7 years** (tax and accounting). Append-only: the database refuses changes. |
 | Giving ledger lines (amount, date, purpose) | Chained, append-only financial record, 7 years. The line points to a member record that is now "Former member". |
+| Records that the person accepted the Terms of Use and Privacy Notice, a church's Data Processing Agreement, or a guardian's agreement for a child (`legal_acceptances`: document, version, time, app, a keyed hash of the network address, a short browser description) | Legal evidence of what was agreed. The row keeps pointing at the user id, which erasure anonymises (name "Former member", phone replaced). Never touched by erasure or by any retention job. Included in "Download my data" (without the hash). |
 | Audit log, including entries where the person was the actor (name and masked values) | Proof the books are honest, 7 years. Append-only. |
 | Giving statements already issued | Financial documents kept exactly as issued. |
 | Baptism and marriage register entries | The church's permanent register. |
@@ -109,7 +111,7 @@ The development start-up banner prints the demo sign-in code and demo phone numb
 
 - [ ] **Register with the Office of the Data Protection Commissioner (ODPC)** as a data controller or processor, as the Act and its regulations require for ChurchOS and, if they process data themselves, for each church. Confirm with counsel who registers and whether a church needs its own registration.
 - [ ] Appoint a **data protection contact** and publish an address for requests.
-- [ ] Review and publish the **privacy policy** (draft: `docs/privacy-policy-draft.md`) in the member and giving apps. Legal review first.
+- [ ] Legal documents are built into every app (`/legal`; see `docs/legal-release-checklist.md`). Advocate review and ODPC registration are still to do.
 - [ ] Confirm the **retention periods** above with counsel. The visitor, attendance and children's purges are automatic; run a week with `RETENTION_DRY_RUN=1` first and read the counts in the audit log.
 - [ ] **Cross-border transfer**: the database is hosted in Frankfurt. Confirm the lawful basis for the transfer and put it in the privacy policy.
 - [ ] Move the database from in-memory to managed Postgres with backups. An erasure must also be applied to backups on restore (replay the `erasure_requests` log), or backups must be short-lived.
