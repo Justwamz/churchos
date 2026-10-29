@@ -11,6 +11,6 @@
   "dependencies": {
     "@churchos/shared": "workspace:*",
     "@churchos/payments": "workspace:*",
-    "@electric-sql/pglite": "0.2.17"
+    "@electric-sql/pglite": "0.5.11"
   }
 }
